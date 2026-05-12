@@ -34,7 +34,7 @@ export default function SiteManagerSignupPage() {
         accessToken: result.access_token,
         user: result.user,
       });
-      router.push("/site-manager/beforecalamity");
+      router.push("/site-manager");
     } catch (caughtError) {
       setError(
         caughtError instanceof ApiError

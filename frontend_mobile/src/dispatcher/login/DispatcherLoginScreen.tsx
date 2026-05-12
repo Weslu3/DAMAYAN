@@ -6,11 +6,16 @@ import {
   TextInput,
   View,
   TouchableOpacity,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../../components/UI";
 import { roleColors, theme, fonts } from "../../theme";
 import { styles } from "./DispatcherLoginScreen.styles";
+import { login, getProfile, ApiError } from "../../api";
+import { saveSession } from "../../session";
+import { AppRole } from "../../types";
 
 export function DispatcherLoginScreen({
   onBack,
@@ -23,6 +28,56 @@ export function DispatcherLoginScreen({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLogin = async () => {
+    if (!username.trim() || !password.trim()) {
+      Alert.alert("Missing credentials", "Please enter both email and password.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const result = await login({
+        email: username,
+        password,
+        requiredRole: AppRole.DISPATCHER,
+      });
+
+      if (result.user.role !== AppRole.DISPATCHER) {
+        Alert.alert("Access Denied", "This account does not have dispatcher access.");
+        return;
+      }
+
+      const accessToken = result.access_token?.trim();
+      if (!accessToken) {
+        Alert.alert("Error", "Login succeeded but no access token was returned.");
+        return;
+      }
+
+      const profile = await getProfile(accessToken);
+
+      await saveSession({
+        accessToken,
+        expiresIn: result.expiresIn,
+        user: profile.user,
+      });
+
+      onSubmit();
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof ApiError
+          ? caughtError.message
+          : "Unable to sign in. Please try again.";
+      setError(message);
+      Alert.alert("Login Failed", message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <Screen style={{ backgroundColor: theme.bg }}>
@@ -128,11 +183,18 @@ export function DispatcherLoginScreen({
 
             <View style={styles.actionStack}>
               <TouchableOpacity 
-                onPress={onSubmit} 
-                style={[styles.primaryAction, { backgroundColor: accent }]}
+                onPress={handleLogin}
+                disabled={loading}
+                style={[styles.primaryAction, { backgroundColor: accent, opacity: loading ? 0.6 : 1 }]}
               >
-                <Text style={styles.primaryActionText}>ENTER DISPATCH TERMINAL</Text>
-                <Ionicons name="arrow-forward" size={20} color="#fff" />
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Text style={styles.primaryActionText}>ENTER DISPATCH TERMINAL</Text>
+                    <Ionicons name="arrow-forward" size={20} color="#fff" />
+                  </>
+                )}
               </TouchableOpacity>
 
               <View style={styles.dividerRow}>

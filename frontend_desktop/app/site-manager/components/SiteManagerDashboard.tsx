@@ -2,14 +2,52 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import SiteManagerProfilePage from "./SiteManagerProfilePage";
+import { clearSession, hasRole, loadSession } from "../../lib/session";
+import {
+  getDashboard,
+  getCapacity,
+  getIncidentReports,
+  getInventory,
+  getRecentCheckIns,
+} from "../../lib/api";
+import { AppRole, AuthSession, CapacityCenter, CheckInRecord, DashboardOverview, IncidentReport, InventoryItem } from "../../lib/types";
 
 interface SiteManagerDashboardProps {
   phase: "before" | "during" | "after";
 }
 
+function getInventoryTone(status: string): "secure" | "warning" | "error" {
+  const normalized = status.toLowerCase();
+  if (normalized.includes("critical") || normalized.includes("depleted")) {
+    return "error";
+  }
+  if (normalized.includes("low") || normalized.includes("transit") || normalized.includes("scheduled")) {
+    return "warning";
+  }
+  return "secure";
+}
+
+function formatRelativeTime(iso?: string): string {
+  if (!iso) {
+    return "Recent";
+  }
+  const at = new Date(iso).getTime();
+  if (Number.isNaN(at)) {
+    return "Recent";
+  }
+  const minutes = Math.max(0, Math.floor((Date.now() - at) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) => {
+  const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
   const [checkInMode, setCheckInMode] = useState<"scan" | "manual">("scan");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -19,6 +57,14 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
   const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [checkIns, setCheckIns] = useState<CheckInRecord[]>([]);
+  const [incidentReports, setIncidentReports] = useState<IncidentReport[]>([]);
+  const [capacityCenters, setCapacityCenters] = useState<CapacityCenter[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   
   const pathname = usePathname();
 
@@ -38,6 +84,61 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
       setIsDarkMode(true);
     }
   }, []);
+
+  useEffect(() => {
+    const stored = loadSession();
+    if (!hasRole(stored, AppRole.LINE_MANAGER)) {
+      router.replace("/site-manager/login");
+      return;
+    }
+
+    setSession(stored);
+
+    async function hydrate() {
+      if (!stored?.accessToken) {
+        return;
+      }
+
+      setLoadingData(true);
+      setLoadError(null);
+
+      const [dashboardResult, inventoryResult, checkInResult, incidentResult, capacityResult] =
+        await Promise.allSettled([
+          getDashboard("site-manager", stored.accessToken),
+          getInventory("site-manager", stored.accessToken),
+          getRecentCheckIns(stored.accessToken, 8),
+          getIncidentReports(stored.accessToken),
+          getCapacity(stored.accessToken),
+        ]);
+
+      if (dashboardResult.status === "fulfilled") {
+        setOverview(dashboardResult.value);
+      }
+      if (inventoryResult.status === "fulfilled") {
+        setInventoryItems(inventoryResult.value);
+      }
+      if (checkInResult.status === "fulfilled") {
+        setCheckIns(checkInResult.value);
+      }
+      if (incidentResult.status === "fulfilled") {
+        setIncidentReports(incidentResult.value);
+      }
+      if (capacityResult.status === "fulfilled") {
+        setCapacityCenters(capacityResult.value);
+      }
+
+      const allRejected = [dashboardResult, inventoryResult, checkInResult, incidentResult].every(
+        (result) => result.status === "rejected",
+      );
+      if (allRejected) {
+        setLoadError("Unable to load site manager dashboard data.");
+      }
+
+      setLoadingData(false);
+    }
+
+    hydrate();
+  }, [router]);
 
   const toggleDarkMode = () => {
     if (document.documentElement.classList.contains("dark")) {
@@ -64,12 +165,12 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
       label: "Pre-Disaster Phase",
       subLabel: "Readiness & Mitigation",
       mainTitle: "Regional Preparedness Dashboard",
-      mainDesc: "Site Manager: Central Visayas Cluster. Monitoring regional logistics and readiness ahead of forecasted weather event.",
+      mainDesc: "Live readiness metrics for your assigned site cluster and logistics network.",
       statusLabel: "Active Preparedness Mode",
       accent: "#81C784",
       primaryColor: "#81C784",
       primaryContainer: "#66bb6a",
-      heroMetric: { value: "88%", label: "Readiness Score" },
+      heroMetricLabel: "Readiness Score",
       checklistTitle: "Before Calamity Checklist",
       checklistDesc: "Core readiness actions aligned to your swimlane before the response phase begins.",
     },
@@ -77,12 +178,12 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
       label: "Active Disaster Phase",
       subLabel: "Emergency Response",
       mainTitle: "Live Status Map & Command",
-      mainDesc: "Live operational view of Typhoon 09B impact zone. Resources are being prioritized for Zone A-4 flooding.",
+      mainDesc: "Operational command view with live incident and shelter response indicators.",
       statusLabel: "Active Response Mode",
       accent: "#FFB300",
       primaryColor: "#FFB300",
       primaryContainer: "#ffa000",
-      heroMetric: { value: "04:22", label: "Critical Window" },
+      heroMetricLabel: "High Alerts",
       checklistTitle: "Emergency Operational Guide",
       checklistDesc: "This view follows the daily process: evacuee arrival, identity capture, and relief distribution.",
     },
@@ -90,36 +191,40 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
       label: "Post-Disaster Phase",
       subLabel: "Recovery & Rehabilitation",
       mainTitle: "Central Relief Hub Dashboard",
-      mainDesc: "Site Manager Dashboard: overseeing active inventory flow and citizen assistance protocols in the recovery zone.",
+      mainDesc: "Recovery operations with check-out progress and replenishment tracking.",
       statusLabel: "Post-Disaster Recovery",
       accent: "#2E7D32",
       primaryColor: "#2E7D32",
       primaryContainer: "#1b5e20",
       secondaryColor: "#FFB300",
       tertiaryColor: "#81C784",
-      heroMetric: { value: "94%", label: "Recovery Progress" },
+      heroMetricLabel: "Recovery Progress",
       checklistTitle: "Citizen Check-out Station",
       checklistDesc: "Active intake point for departures. Finalize aid dispensing and registry update.",
     },
   }[phase];
 
-  const inventoryData = {
-    before: [
-      { name: "Potable Water", detail: "15,000 Liters", percent: "92%", status: "Secure", tone: "secure" },
-      { name: "Medical Kits", detail: "450 Units", percent: "84%", status: "Secure", tone: "secure" },
-      { name: "Blankets & Shelter", detail: "800 Kits", percent: "61%", status: "Low Stock", tone: "warning" },
-      { name: "Dry Rations", detail: "2,500 Boxes", percent: "95%", status: "Secure", tone: "secure" },
-    ],
-    during: [
-      { name: "Potable Water", detail: "92% AVAIL", percent: "92%", status: "Secure", tone: "secure" },
-      { name: "Trauma Kits", detail: "12% LOW", percent: "12%", status: "Critical", tone: "error" },
-      { name: "Mobile Power", detail: "84% AVAIL", percent: "84%", status: "Secure", tone: "secure" },
-    ],
-    after: [
-      { name: "First Aid Refill-A", detail: "15% STOCK", percent: "15%", status: "In Transit", tone: "warning" },
-      { name: "Hygiene Pack B", detail: "600 Units", percent: "75%", status: "Ready", tone: "secure" },
-    ]
-  }[phase];
+  const displayName = session?.user.name?.trim() || "Site Manager";
+  const fallbackInventory: InventoryItem[] = [
+    { id: "f1", name: "Potable Water", category: "Water", quantity: 15000, unit: "Liters", status: "available" },
+    { id: "f2", name: "Medical Kits", category: "Medical", quantity: 450, unit: "Units", status: "available" },
+    { id: "f3", name: "Blankets & Shelter", category: "Shelter", quantity: 800, unit: "Kits", status: "low_stock" },
+    { id: "f4", name: "Dry Rations", category: "Food", quantity: 2500, unit: "Boxes", status: "available" },
+  ];
+  const effectiveInventory = inventoryItems.length > 0 ? inventoryItems : fallbackInventory;
+  const maxQuantity = Math.max(1, ...effectiveInventory.map((item) => item.quantity));
+
+  const inventoryData = effectiveInventory.slice(0, 4).map((item) => {
+    const percent = Math.max(5, Math.min(100, Math.round((item.quantity / maxQuantity) * 100)));
+    const tone = getInventoryTone(item.status);
+    return {
+      name: item.name,
+      detail: `${item.quantity.toLocaleString()} ${item.unit}`,
+      percent: `${percent}%`,
+      status: tone === "error" ? "Critical" : tone === "warning" ? "Low Stock" : "Secure",
+      tone,
+    };
+  });
 
   const nextPhase = {
     before: "during",
@@ -127,11 +232,87 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
     after: "before",
   }[phase];
 
-  const inventoryTable = [
-    { category: "First Aid Refill-A", stock: "15%", incoming: "450 Units", eta: "02:30h", status: "In Transit", icon: "medication", tone: "error" },
-    { category: "Self-Heating Meals", stock: "82%", incoming: "--", eta: "--", status: "Stable", icon: "restaurant", tone: "secure" },
-    { category: "Solar Lanterns", stock: "45%", incoming: "120 Units", eta: "Tomorrow", status: "Scheduled", icon: "lightbulb", tone: "warning" },
+  const inventoryTable = effectiveInventory.slice(0, 8).map((item) => {
+    const stockPercent = Math.max(5, Math.min(100, Math.round((item.quantity / maxQuantity) * 100)));
+    const tone = getInventoryTone(item.status);
+    return {
+      category: item.name,
+      stock: `${stockPercent}%`,
+      incoming: tone === "warning" ? `${Math.max(0, Math.round(item.quantity * 0.3)).toLocaleString()} ${item.unit}` : "--",
+      eta: tone === "warning" ? "Pending" : "--",
+      status: tone === "error" ? "Critical" : tone === "warning" ? "Replenish" : "Stable",
+      icon: "inventory_2",
+      tone,
+      quantity: `${item.quantity.toLocaleString()} ${item.unit}`,
+    };
+  });
+
+  const activeAlerts = overview?.incidentReports.highSeverityReports ?? incidentReports.filter((report) => report.severity.toLowerCase().includes("high") || report.severity.toLowerCase().includes("critical")).length;
+  const readinessScore = overview
+    ? Math.min(
+        100,
+        Math.round(
+          ((overview.capacity.totalCapacity - overview.capacity.totalOccupancy) /
+            Math.max(1, overview.capacity.totalCapacity)) *
+            100,
+        ),
+      )
+    : 88;
+  const recoveryProgress = overview
+    ? Math.min(
+        100,
+        Math.round(
+          (overview.checkIns.totalCheckedOut / Math.max(1, overview.checkIns.total)) * 100,
+        ),
+      )
+    : 94;
+  const heroMetricValue =
+    phase === "before"
+      ? `${readinessScore}%`
+      : phase === "during"
+        ? String(activeAlerts)
+        : `${recoveryProgress}%`;
+
+  const activityLogs = [
+    ...checkIns.slice(0, 3).map((entry) => ({
+      t: formatRelativeTime(entry.checkInTime),
+      m: `${entry.fullName || `${entry.firstName} ${entry.lastName}`} at ${entry.location || "Site"}`,
+    })),
+    ...incidentReports.slice(0, 2).map((report) => ({
+      t: formatRelativeTime(report.createdAt),
+      m: `${report.title} - ${report.status}`,
+    })),
+  ].slice(0, 4);
+
+  const inventoryCards = [
+    {
+      label: "Total Assets",
+      value: overview ? overview.inventory.itemCount.toLocaleString() : effectiveInventory.length.toLocaleString(),
+      trend: overview ? `${overview.inventory.totalCategories} categories` : "Live",
+      color: "#2196F3",
+    },
+    {
+      label: "Critical Lows",
+      value: overview ? String(overview.inventory.lowStockItems) : String(effectiveInventory.filter((item) => getInventoryTone(item.status) !== "secure").length),
+      trend: "Needs attention",
+      color: "#ba1a1a",
+    },
+    {
+      label: "In Transit",
+      value: String(effectiveInventory.filter((item) => item.status.toLowerCase().includes("transit") || item.status.toLowerCase().includes("scheduled")).length),
+      trend: "Inbound",
+      color: "#FFB300",
+    },
   ];
+
+  const activeShelters = overview?.capacity.totalCenters ?? 14;
+  const totalPopulation = overview?.capacity.totalOccupancy ?? 2842;
+  const shelterMarkers = (capacityCenters.length > 0 ? capacityCenters : []).map((center, index) => ({
+    ...center,
+    tone: center.utilizationRate >= 90 ? "error" : center.utilizationRate >= 70 ? "warning" : "secure",
+    x: 18 + ((index * 23) % 62),
+    y: 18 + ((index * 17) % 62),
+  }));
 
   return (
     <div className="bg-[#fafaf5] dark:bg-[#1a1c19] text-[#1a1c19] dark:text-[#e2e3dd] min-h-screen font-['Public_Sans']">
@@ -171,8 +352,8 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
             {isProfileOpen && (
               <div className="absolute right-0 mt-4 w-64 bg-white/95 dark:bg-[#232622]/95 backdrop-blur-xl rounded-[2.5rem] border border-[#dadad5] dark:border-[#3b3b3b] shadow-2xl py-6 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
                 <div className="px-8 pb-4 border-b border-[#dadad5]/50 dark:border-[#3b3b3b]/50">
-                  <p className="text-lg font-black text-[#1a1c19] dark:text-[#e2e3dd]">Site Manager</p>
-                  <p className="text-[10px] font-bold text-[#707a6c] dark:text-[#c4c7c0] uppercase tracking-[0.2em] mt-1">Central Visayas Cluster</p>
+                  <p className="text-lg font-black text-[#1a1c19] dark:text-[#e2e3dd]">{displayName}</p>
+                  <p className="text-[10px] font-bold text-[#707a6c] dark:text-[#c4c7c0] uppercase tracking-[0.2em] mt-1">{session?.user.role.replace("_", " ") ?? "Site Manager"}</p>
                 </div>
                 
                 <div className="p-3 space-y-1">
@@ -216,12 +397,18 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 </div>
 
                 <div className="mt-2 pt-2 border-t border-[#dadad5]/50 dark:border-[#3b3b3b]/50 px-3">
-                  <Link href="/site-manager/login" className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-red-50 dark:hover:bg-red-500/10 transition-all group text-left">
+                  <button
+                    onClick={() => {
+                      clearSession();
+                      router.replace("/site-manager/login");
+                    }}
+                    className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-red-50 dark:hover:bg-red-500/10 transition-all group text-left"
+                  >
                     <div className="w-12 h-12 rounded-[1.25rem] bg-[#FFEBEE] dark:bg-red-500/20 flex items-center justify-center shrink-0">
                       <span className="material-symbols-outlined text-2xl text-red-600">logout</span>
                     </div>
                     <span className="text-base font-black text-red-600">Sign Out</span>
-                  </Link>
+                  </button>
                 </div>
               </div>
             )}
@@ -314,16 +501,18 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
               {activeTab === "SiteMap" && "Regional Site Map"}
             </h2>
             <p className="text-[#444743] dark:text-[#c4c7c0] max-w-lg">
-              {activeTab === "Dashboard" && phaseConfig.mainDesc}
+              {activeTab === "Dashboard" && `${displayName}: ${phaseConfig.mainDesc}`}
               {activeTab === "Inventory" && "Manage incoming and outgoing relief assets."}
               {activeTab === "SiteMap" && "Live monitoring of active shelters and supply routes."}
             </p>
+            {loadingData && <p className="text-xs text-[#707a6c] mt-2">Loading live dashboard data...</p>}
+            {loadError && <p className="text-xs text-red-600 mt-2">{loadError}</p>}
           </div>
           {activeTab === "Dashboard" && (
             <div className="flex gap-4">
               <div className="bg-white dark:bg-[#232622] p-4 rounded-2xl shadow-sm border border-[#dadad5] dark:border-[#3b3b3b] flex flex-col items-center min-w-[120px]">
-                <span className="text-3xl font-black" style={{ color: phaseConfig.primaryColor }}>{phaseConfig.heroMetric.value}</span>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-[#444743] dark:text-[#a0a39f]">{phaseConfig.heroMetric.label}</span>
+                <span className="text-3xl font-black" style={{ color: phaseConfig.primaryColor }}>{heroMetricValue}</span>
+                <span className="text-[10px] uppercase font-bold tracking-widest text-[#444743] dark:text-[#a0a39f]">{phaseConfig.heroMetricLabel}</span>
               </div>
             </div>
           )}
@@ -425,7 +614,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                     <h3 className="text-xl font-bold">Report Site Incident</h3>
                     <p className="text-[#444743] text-sm">Log critical events or medical emergencies immediately.</p>
                   </div>
-                  <span className="bg-orange-100 text-[#FFB300] px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">3 active alerts</span>
+                  <span className="bg-orange-100 text-[#FFB300] px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">{activeAlerts} active alerts</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
@@ -463,11 +652,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 Live Activity
               </h3>
               <div className="space-y-4">
-                {[
-                  { t: "08:45 AM", m: "Convoy Gamma arrived at Northern Staging." },
-                  { t: "07:12 AM", m: "Satellite uplink stabilized at Sector 4." },
-                  { t: "Yesterday", m: "Evacuation initiated for Cluster B." }
-                ].map((log, i) => (
+                {activityLogs.map((log, i) => (
                   <div key={i} className="flex gap-4 items-start">
                     <div className="w-1 h-10 rounded-full mt-1" style={{ background: phaseConfig.primaryColor }}></div>
                     <div>
@@ -476,6 +661,9 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                     </div>
                   </div>
                 ))}
+                {activityLogs.length === 0 && (
+                  <p className="text-xs text-[#dadad5]/80">No recent activity logs available.</p>
+                )}
               </div>
             </div>
 
@@ -631,16 +819,12 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
         {activeTab === "Inventory" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[
-                { label: "Total Assets", value: "24.8k", trend: "+12%", color: "#2196F3" },
-                { label: "Critical Lows", value: "03", trend: "-2", color: "#ba1a1a" },
-                { label: "In Transit", value: "1.2k", trend: "0", color: "#FFB300" }
-              ].map((stat, i) => (
+              {inventoryCards.map((stat, i) => (
                 <div key={i} className="bg-white dark:bg-[#232622] p-6 rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
                   <p className="text-[10px] font-black uppercase tracking-widest text-[#444743] mb-1">{stat.label}</p>
                   <div className="flex items-end justify-between">
                     <h4 className="text-3xl font-black">{stat.value}</h4>
-                    <span className="text-xs font-bold" style={{ color: stat.trend.startsWith('+') ? '#2E7D32' : stat.trend.startsWith('-') ? '#ba1a1a' : '#444743' }}>{stat.trend}</span>
+                    <span className="text-xs font-bold" style={{ color: stat.color }}>{stat.trend}</span>
                   </div>
                   <div className="w-full h-1 bg-[#f4f4ef] dark:bg-[#1a1c19] mt-4 rounded-full overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: '70%', background: stat.color }}></div>
@@ -658,23 +842,18 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 </div>
               </div>
               <div className="space-y-4">
-                {[
-                  { name: "Family Relief Pack A", qty: "450 Units", status: "Secure", color: "#2E7D32" },
-                  { name: "Medical Kit - Level 2", qty: "12 Units", status: "Critically Low", color: "#ba1a1a" },
-                  { name: "Sanitary Bundles", qty: "1,200 Units", status: "Secure", color: "#2E7D32" },
-                  { name: "Portable Generators", qty: "05 Units", status: "Reallocating", color: "#FFB300" }
-                ].map((item, i) => (
+                {inventoryTable.slice(0, 6).map((item, i) => (
                   <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-[#f4f4ef]/50 dark:bg-white/5 border border-transparent hover:border-[#dadad5] transition-all">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-xl bg-white dark:bg-[#1a1c19] flex items-center justify-center border border-[#dadad5] dark:border-[#3b3b3b]">
-                        <span className="material-symbols-outlined" style={{ color: item.color }}>package_2</span>
+                        <span className="material-symbols-outlined" style={{ color: item.tone === "error" ? "#ba1a1a" : item.tone === "warning" ? "#FFB300" : "#2E7D32" }}>package_2</span>
                       </div>
                       <div>
-                        <p className="font-bold text-sm">{item.name}</p>
-                        <p className="text-[10px] text-[#444743] uppercase tracking-widest">{item.qty}</p>
+                        <p className="font-bold text-sm">{item.category}</p>
+                        <p className="text-[10px] text-[#444743] uppercase tracking-widest">{item.quantity}</p>
                       </div>
                     </div>
-                    <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider" style={{ background: item.color + '15', color: item.color }}>{item.status}</span>
+                    <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider" style={{ background: item.tone === "error" ? "#ffdad6" : item.tone === "warning" ? "#fff3e0" : "#e8f5e9", color: item.tone === "error" ? "#ba1a1a" : item.tone === "warning" ? "#FFB300" : "#2E7D32" }}>{item.status}</span>
                   </div>
                 ))}
               </div>
@@ -684,44 +863,91 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
 
         {activeTab === "SiteMap" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
-            <div className="bg-white dark:bg-[#232622] rounded-3xl p-4 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm relative overflow-hidden min-h-[500px]">
-              <div className="absolute inset-0 opacity-80">
-                <img className="w-full h-full object-cover grayscale-[0.5] contrast-[1.1]" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBpSvAOIIisjz13eQiOCstFnz3vVDhXSLsC2wkcR0gzF0aE74mgQ4wHIUPQxpjnjM9rNALymOt0yzw4BUqDzXDmvL68DiBEHgtwXcoRktsaAjW4XF8rQ9xFDqsWjQVCUV3lpc9WdLCHcs9vEn68r458YriOvYDyAOpkuQmDaQXPWqqt7wAiApmtFpPyTHIgyKDI39znTvbgGnTysMQr1Ezpxs0enh_BMJvFIA9nVdUBqndsA8qbD84JSmQa6tncbOhO9dg-xTC8Mwxc" alt="Map" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none"></div>
-              </div>
-              
-              {/* Map Overlays */}
-              <div className="absolute top-8 left-8 space-y-4">
-                <div className="bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-white/20">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 bg-white dark:bg-[#232622] rounded-3xl p-6 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm min-h-[500px] relative overflow-hidden">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(129,199,132,0.15),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(255,179,0,0.12),_transparent_32%),linear-gradient(135deg,_#f7f7f2,_#eef5ef)] dark:bg-[radial-gradient(circle_at_top_left,_rgba(129,199,132,0.12),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(255,179,0,0.08),_transparent_32%),linear-gradient(135deg,_#1a1c19,_#21251f)]" />
+                <div className="relative z-10 h-full min-h-[440px] rounded-[2rem] border border-white/40 dark:border-white/10 overflow-hidden">
+                  <div className="absolute inset-0 grid grid-cols-6 grid-rows-6 opacity-25">
+                    {Array.from({ length: 36 }).map((_, idx) => (
+                      <div key={idx} className="border border-black/5 dark:border-white/5" />
+                    ))}
+                  </div>
+                  {shelterMarkers.map((center) => (
+                    <div
+                      key={center.id}
+                      className="absolute group"
+                      style={{ left: `${center.x}%`, top: `${center.y}%` }}
+                    >
+                      <div className={`w-4 h-4 rounded-full animate-ping absolute -left-1 -top-1 opacity-60 ${center.tone === "error" ? "bg-red-500" : center.tone === "warning" ? "bg-amber-400" : "bg-emerald-500"}`} />
+                      <button
+                        type="button"
+                        className={`relative w-10 h-10 rounded-2xl shadow-xl border-4 border-white dark:border-[#1a1c19] flex items-center justify-center transition-transform group-hover:scale-110 ${center.tone === "error" ? "bg-red-600" : center.tone === "warning" ? "bg-amber-500" : "bg-emerald-600"}`}
+                      >
+                        <span className="material-symbols-outlined text-white text-lg">home</span>
+                      </button>
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20">
+                        <div className="bg-white/95 dark:bg-[#111310]/95 backdrop-blur-md rounded-xl shadow-xl border border-white/30 dark:border-white/10 px-3 py-2 text-left">
+                          <p className="text-[10px] font-black uppercase tracking-widest">{center.name}</p>
+                          <p className="text-[9px] text-[#707a6c] dark:text-[#c4c7c0]">{center.barangay}, {center.municipality}</p>
+                          <p className="text-[9px] font-bold">{center.currentOccupancy.toLocaleString()} / {center.capacity.toLocaleString()} pax</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {shelterMarkers.length === 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center text-sm text-[#707a6c]">No shelter centers returned by the backend yet.</div>
+                  )}
+                </div>
+                <div className="absolute top-6 left-6 bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-white/20">
                   <h4 className="text-xs font-black uppercase tracking-widest mb-3">Live Telemetry</h4>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-8">
                       <span className="text-[10px] font-bold text-[#444743]">Active Shelters</span>
-                      <span className="text-xs font-black" style={{ color: phaseConfig.primaryColor }}>14 Locations</span>
+                      <span className="text-xs font-black" style={{ color: phaseConfig.primaryColor }}>{activeShelters} Locations</span>
                     </div>
                     <div className="flex items-center justify-between gap-8">
                       <span className="text-[10px] font-bold text-[#444743]">Total Pop.</span>
-                      <span className="text-xs font-black">2,842 pax</span>
+                      <span className="text-xs font-black">{totalPopulation.toLocaleString()} pax</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-8">
+                      <span className="text-[10px] font-bold text-[#444743]">High Utilization</span>
+                      <span className="text-xs font-black">{overview?.capacity.highUtilizationCenters ?? 0}</span>
                     </div>
                   </div>
                 </div>
+                <div className="absolute bottom-6 right-6 flex gap-4">
+                  <button className="bg-white dark:bg-[#1a1c19] w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"><span className="material-symbols-outlined">add</span></button>
+                  <button className="bg-white dark:bg-[#1a1c19] w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"><span className="material-symbols-outlined">remove</span></button>
+                  <button className="text-white w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform" style={{ background: phaseConfig.primaryColor }}><span className="material-symbols-outlined">my_location</span></button>
+                </div>
               </div>
 
-              <div className="absolute bottom-8 right-8 flex gap-4">
-                <button className="bg-white dark:bg-[#1a1c19] w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"><span className="material-symbols-outlined">add</span></button>
-                <button className="bg-white dark:bg-[#1a1c19] w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"><span className="material-symbols-outlined">remove</span></button>
-                <button className="text-white w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform" style={{ background: phaseConfig.primaryColor }}><span className="material-symbols-outlined">my_location</span></button>
-              </div>
-
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group">
-                 <div className="w-12 h-12 rounded-full flex items-center justify-center animate-ping absolute inset-0 opacity-50" style={{ backgroundColor: phaseConfig.primaryColor }}></div>
-                 <div className="w-12 h-12 rounded-full border-4 border-white shadow-2xl flex items-center justify-center relative z-10 scale-100 group-hover:scale-110 transition-transform" style={{ backgroundColor: phaseConfig.primaryColor }}>
-                   <span className="material-symbols-outlined text-white">home</span>
-                 </div>
-                 <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-md px-3 py-1.5 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/20">
-                   <p className="text-[10px] font-black uppercase">Main Evac Center</p>
-                   <p className="text-[8px] font-bold text-[#444743]">842 pax | 92% Capacity</p>
-                 </div>
+              <div className="space-y-4">
+                <div className="bg-white dark:bg-[#232622] rounded-3xl p-5 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
+                  <h4 className="text-sm font-black uppercase tracking-widest mb-4">Shelter Directory</h4>
+                  <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    {capacityCenters.slice(0, 8).map((center) => (
+                      <div key={center.id} className="p-4 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-black text-sm">{center.name}</p>
+                            <p className="text-[10px] text-[#707a6c] uppercase tracking-widest">{center.barangay}, {center.municipality}</p>
+                          </div>
+                          <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full" style={{ background: center.utilizationRate >= 90 ? "#ffdad6" : center.utilizationRate >= 70 ? "#fff3e0" : "#e8f5e9", color: center.utilizationRate >= 90 ? "#ba1a1a" : center.utilizationRate >= 70 ? "#FFB300" : "#2E7D32" }}>
+                            {Math.round(center.utilizationRate)}%
+                          </span>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-[#444743]">
+                          <span>{center.currentOccupancy.toLocaleString()} Occupied</span>
+                          <span>{center.availableSlots.toLocaleString()} Available</span>
+                        </div>
+                      </div>
+                    ))}
+                    {capacityCenters.length === 0 && (
+                      <p className="text-sm text-[#707a6c]">No shelter records available yet.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -138,7 +138,22 @@ export class AuthService {
       'Authentication service timed out during login.',
     );
 
-    if (error || !data.user) {
+    if (error) {
+      this.logger.warn(
+        `Supabase signInWithPassword failed for ${loginDto.email}: ${error.message}`,
+      );
+
+      if (error.message?.toLowerCase().includes('email not confirmed')) {
+        throw new UnauthorizedException(
+          'Email not confirmed. Please verify your inbox before signing in.',
+        );
+      }
+
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (!data.user) {
+      this.logger.warn(`Supabase sign-in returned no user for ${loginDto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 

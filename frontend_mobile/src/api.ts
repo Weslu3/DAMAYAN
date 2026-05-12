@@ -57,6 +57,7 @@ export async function login(payload: {
   email: string;
   password: string;
   rememberMe?: boolean;
+  requiredRole?: string;
 }) {
   return request<{
     access_token: string;
@@ -147,4 +148,8 @@ export async function createIncidentReport(
     method: "POST",
     body: JSON.stringify(payload),
   }, token);
+}
+
+export async function getProfile(token: string) {
+  return request<{ user: AuthSession["user"] }>("/auth/me", {}, token);
 }

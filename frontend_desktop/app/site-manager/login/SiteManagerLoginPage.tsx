@@ -6,6 +6,7 @@ import { useState } from "react";
 import AuthLayout from "../../components/AuthLayout";
 import { ApiError, getProfile, login } from "../../lib/api";
 import { saveSession } from "../../lib/session";
+import { AppRole } from "../../lib/types";
 
 export default function SiteManagerLoginPage() {
   const router = useRouter();
@@ -21,7 +22,12 @@ export default function SiteManagerLoginPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await login({ email, password, rememberMe: true });
+      const result = await login({ 
+        email, 
+        password, 
+        rememberMe: true,
+        requiredRole: AppRole.LINE_MANAGER
+      });
 
       if (result.user.role !== "line_manager") {
         setError("This account does not have site manager access.");
@@ -42,7 +48,7 @@ export default function SiteManagerLoginPage() {
         expiresIn: result.expiresIn,
         user: profile.user,
       });
-      router.push("/site-manager/beforecalamity");
+      router.push("/site-manager");
     } catch (caughtError) {
       setError(
         caughtError instanceof ApiError

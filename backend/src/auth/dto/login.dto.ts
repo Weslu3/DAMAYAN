@@ -3,6 +3,9 @@ import { IsBoolean, IsEmail, IsEnum, IsNotEmpty, IsOptional, MinLength } from 'c
 import { AppRole } from '../../../libs/contracts/src/roles.js';
 
 export class LoginDto {
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   @IsEmail()
   email!: string;
 
