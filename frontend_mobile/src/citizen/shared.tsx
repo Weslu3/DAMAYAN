@@ -339,3 +339,39 @@ export const citizenStyles = StyleSheet.create({
     letterSpacing: 1.5,
   },
 });
+
+export function CitizenBottomNav({ active }: { active: "home" | "relief" | "qr" | "profile" }) {
+  const tabs: Array<{ id: "home" | "relief" | "qr" | "profile"; label: string; icon: string }> = [
+    { id: "home", label: "Home", icon: "home" },
+    { id: "relief", label: "Relief", icon: "cube" },
+    { id: "qr", label: "QR", icon: "qr-code" },
+    { id: "profile", label: "Profile", icon: "person" },
+  ];
+
+  return (
+    <View
+      style={{
+        marginTop: 18,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        borderRadius: 20,
+        backgroundColor: theme.surface,
+        borderWidth: 1,
+        borderColor: theme.line,
+      }}
+    >
+      {tabs.map((tab) => {
+        const isActive = tab.id === active;
+        return (
+          <Pressable key={tab.id} style={{ alignItems: "center", gap: 4, opacity: isActive ? 1 : 0.7 }}>
+            <Ionicons name={(isActive ? tab.icon : `${tab.icon}-outline`) as any} size={18} color={isActive ? theme.primary : theme.textLight} />
+            <Text style={{ fontSize: 10, ...fonts.bold, color: isActive ? theme.primary : theme.textLight }}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}

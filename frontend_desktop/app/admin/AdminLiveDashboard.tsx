@@ -16,6 +16,7 @@ import {
   getOrganizations,
   getProfile,
 } from "../lib/api";
+import { AppRole } from "../lib/types";
 import type {
   AuthSession,
   DashboardOverview,
@@ -56,7 +57,7 @@ export default function AdminLiveDashboard() {
   useEffect(() => {
     const stored = loadSession();
 
-    if (!hasRole(stored, "admin")) {
+    if (!hasRole(stored, AppRole.ADMIN)) {
       clearSession();
       router.replace("/admin/login");
       return;
@@ -82,7 +83,7 @@ export default function AdminLiveDashboard() {
         saveSession(nextSession);
         setSession(nextSession);
         setOverview(dashboard);
-        setDisasters(eventList);
+        setDisasters(Array.isArray(eventList) ? eventList : eventList.disasterEvents);
         setInventory(inventoryItems);
         setOrganizations(orgs);
         setError(null);

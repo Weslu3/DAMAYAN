@@ -1,71 +1,28 @@
-import React, { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import React, { useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { MobileHeader, NavPills } from "../components/MobileShell";
 import { Button, Pill, Screen, SectionCard } from "../components/UI";
-import { ApiError, getDashboard, getDisasterEvents, getOrganizations } from "../api";
-import { theme } from "../theme";
+import { theme, fonts } from "../theme";
 import { styles } from "./AdminDashboardScreen.styles";
-import { AuthSession, DashboardOverview, DisasterEvent, Organization } from "../types";
 
-export function AdminDashboardScreen({
-  onBack,
-  onSignOut,
-  session,
-}: {
-  onBack: () => void;
-  onSignOut: () => void;
-  session: AuthSession;
-}) {
+export function AdminDashboardScreen({ onBack }: { onBack: () => void }) {
   const [active, setActive] = useState("Overview");
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [disasters, setDisasters] = useState<DisasterEvent[]>([]);
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function hydrate() {
-      try {
-        const [dashboard, disasterList, orgs] = await Promise.all([
-          getDashboard("admin", session.accessToken),
-          getDisasterEvents("admin", session.accessToken),
-          getOrganizations(session.accessToken),
-        ]);
-        setOverview(dashboard);
-        setDisasters(disasterList);
-        setOrganizations(orgs);
-      } catch (caughtError) {
-        setError(
-          caughtError instanceof ApiError
-            ? caughtError.message
-            : "Unable to load admin data.",
-        );
-      }
-    }
-
-    void hydrate();
-  }, [session.accessToken]);
 
   return (
     <Screen>
-      <MobileHeader title="DAMAYAN Admin Console" subtitle={session.user.email} onBack={onBack} />
+      <MobileHeader title="DAMAYAN Admin Console" subtitle="Admin dashboard" onBack={onBack} />
       <NavPills
         items={["Overview", "Approvals", "System Health"]}
         active={active}
         onSelect={setActive}
       />
 
-      {error ? (
-        <SectionCard>
-          <Text style={{ color: theme.danger, fontWeight: "800" }}>{error}</Text>
-        </SectionCard>
-      ) : null}
-
       <View style={styles.kpiGrid}>
         {[
-          ["Active Disasters", `${overview?.disasterEvents.activeEvents ?? 0}`],
-          ["Incident Queue", `${overview?.incidentReports.pendingReports ?? 0}`],
-          ["Inventory Units", `${overview?.inventory.totalItems ?? 0}`],
-          ["Organizations", `${overview?.organizations.totalOrganizations ?? 0}`],
+          ["Active Disasters", "2"],
+          ["Relief Tickets", "241"],
+          ["Pending Approvals", "3"],
+          ["Dispatchers", "5"],
         ].map(([label, value]) => (
           <SectionCard key={label} style={styles.kpiCard}>
             <Text style={styles.kpiLabel}>{label}</Text>
@@ -75,26 +32,30 @@ export function AdminDashboardScreen({
       </View>
 
       <SectionCard>
-        <Text style={styles.sectionTitle}>Active Disaster Feed</Text>
-        {disasters.slice(0, 3).map((item) => (
-          <View key={item.id} style={styles.listCard}>
+        <Text style={styles.sectionTitle}>Pending Role Applications</Text>
+        {[
+          ["Ana Torres", "Site Manager", "District 2"],
+          ["Renz Villanueva", "Dispatcher", "Metro Cluster 5"],
+        ].map(([name, role, area]) => (
+          <View key={name} style={styles.listCard}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{item.name}</Text>
-              <Text style={styles.rowCopy}>{item.type} • {item.province}</Text>
+              <Text style={styles.rowTitle}>{name}</Text>
+              <Text style={styles.rowCopy}>{role} • {area}</Text>
             </View>
             <View style={styles.actionGroup}>
-              <Pill label={item.status} tone={item.status === "active" ? "danger" : "info"} />
+              <Button label="Approve" onPress={() => {}} />
+              <Button label="Reject" tone="secondary" onPress={() => {}} />
             </View>
           </View>
         ))}
       </SectionCard>
 
       <SectionCard>
-        <Text style={styles.sectionTitle}>System Reachability</Text>
+        <Text style={styles.sectionTitle}>System Health</Text>
         {[
-          ["Gateway/Auth", error ? "Needs attention" : "Operational", error ? "warning" : "success"],
-          ["Operations Dashboard", overview ? "Operational" : "Waiting", overview ? "success" : "warning"],
-          ["Organizations Feed", organizations.length ? "Operational" : "Waiting", organizations.length ? "success" : "warning"],
+          ["API Gateway", "Operational", "success"],
+          ["Notification Service", "Degraded", "warning"],
+          ["GIS / Mapping", "Operational", "success"],
         ].map(([name, status, tone]) => (
           <View key={name} style={styles.healthRow}>
             <Text style={styles.rowTitle}>{name}</Text>
@@ -102,8 +63,6 @@ export function AdminDashboardScreen({
           </View>
         ))}
       </SectionCard>
-
-      <Button label="Sign Out" tone="secondary" onPress={onSignOut} />
     </Screen>
   );
 }

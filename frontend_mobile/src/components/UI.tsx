@@ -86,23 +86,20 @@ export function Input({
   placeholder,
   secureTextEntry,
   onChangeText,
-  value,
 }: {
-  label: string;
+  label?: string;
   placeholder: string;
   secureTextEntry?: boolean;
   onChangeText?: (text: string) => void;
-  value?: string;
 }) {
   return (
     <View style={styles.inputWrap}>
-      <Text style={styles.inputLabel}>{label}</Text>
+      {label ? <Text style={styles.inputLabel}>{label}</Text> : null}
       <TextInput
         placeholder={placeholder}
         placeholderTextColor={theme.textLight}
         secureTextEntry={secureTextEntry}
         onChangeText={onChangeText}
-        value={value}
         style={styles.input}
       />
     </View>

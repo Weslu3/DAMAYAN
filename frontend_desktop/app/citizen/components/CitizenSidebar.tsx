@@ -8,8 +8,8 @@ export type NavDestination = "Overview" | "Family & ID" | "Safety Map" | "Relief
 interface CitizenSidebarProps {
   phase: "before" | "during" | "after";
   setPhase: (phase: "before" | "during" | "after") => void;
-  onNavigate?: (destination: NavDestination) => void;
-  activeNav?: NavDestination;
+  onNavigate?: (destination: NavDestination | "Profile") => void;
+  activeNav?: NavDestination | "Profile";
 }
 
 const CitizenSidebar: React.FC<CitizenSidebarProps> = ({ phase, setPhase, onNavigate, activeNav = "Overview" }) => {

@@ -76,6 +76,16 @@ export const styles = StyleSheet.create({
     marginHorizontal: 24,
     marginBottom: 40,
   },
+  cardGlow: {
+    position: "absolute",
+    top: -18,
+    left: 20,
+    right: 20,
+    height: 36,
+    borderRadius: 24,
+    backgroundColor: theme.primarySoft,
+    opacity: 0.75,
+  },
   idCard: {
     backgroundColor: "#ffffff",
     borderRadius: 40,

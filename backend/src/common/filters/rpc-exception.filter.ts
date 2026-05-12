@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
 
 /**
  * Catches errors thrown by NestJS TCP microservice calls (via ClientProxy.send).
@@ -19,7 +18,7 @@ export class RpcToHttpExceptionFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<Response>();
+    const response = ctx.getResponse();
 
     // Already a proper HTTP exception – let default behaviour handle it
     if (exception instanceof HttpException) {

@@ -195,13 +195,21 @@ export default function CitizenBeforeCalamityPage() {
       console.log("Using QR ID:", qrCodeId);
 
       // 1. Register the main citizen
-      const citizenPayload = {
+      const citizenPayload: {
+        fullName: string;
+        birthDate: string;
+        gender: string;
+        bloodType: string;
+        medicalConditions: string;
+        registrationType: "Individual" | "Household";
+        qrCodeId: string;
+      } = {
         fullName: userProfile.fullName,
         birthDate: userProfile.dob,
         gender: userProfile.gender,
         bloodType: userProfile.bloodType,
         medicalConditions: userProfile.conditions,
-        registrationType: registrationType === "Household" ? "Family" : "Individual",
+        registrationType: registrationType === "Household" ? "Household" : "Individual",
         qrCodeId,
       };
       

@@ -155,6 +155,9 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.line,
   },
+  loginIntro: {
+    marginBottom: 20,
+  },
   loginTitle: {
     color: theme.text,
     fontSize: 34,

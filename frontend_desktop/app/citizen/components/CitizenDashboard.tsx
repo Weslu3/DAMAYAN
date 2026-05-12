@@ -17,10 +17,15 @@ interface Props {
 
 export default function CitizenDashboard({ initialPhase = "auth" }: Props) {
   const [phase, setPhase] = useState<Phase>(initialPhase);
-  const [activeNav, setActiveNav] = useState<NavDestination>("Overview");
+  const [activeNav, setActiveNav] = useState<NavDestination | "Profile">("Overview");
   const [targetStep, setTargetStep] = useState<string | null>(null);
 
-  const handleNavigate = (dest: NavDestination) => {
+  const handleNavigate = (dest: NavDestination | "Profile") => {
+    if (dest === "Profile") {
+      setActiveNav("Profile" as any);
+      return;
+    }
+    
     setActiveNav(dest);
     
     switch (dest) {
@@ -39,9 +44,6 @@ export default function CitizenDashboard({ initialPhase = "auth" }: Props) {
       case "Relief Status":
         setPhase("after");
         setTargetStep("relief_claim");
-        break;
-      case "Profile":
-        // Stay on current phase, just change active nav
         break;
     }
   };

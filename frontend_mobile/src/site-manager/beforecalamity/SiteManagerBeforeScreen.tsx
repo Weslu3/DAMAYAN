@@ -2,55 +2,19 @@ import React, { useState, useEffect } from "react";
 import { Pressable, Text, View, ScrollView, TouchableOpacity, Animated, Image, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme, fonts, lightTheme, darkTheme } from "../../theme";
-import { ApiError, getCapacity, getDashboard, getInventory, getRecentCheckIns } from "../../api";
-import { AuthSession, CapacityCenter, CheckInRecord, DashboardOverview, InventoryItem } from "../../types";
 
 export function SiteManagerBeforeScreen({
   onBack,
   onOpenResponse,
   isDarkMode,
-  onSignOut,
-  session,
 }: {
   onBack: () => void;
   onOpenResponse: () => void;
   isDarkMode?: boolean;
-  onSignOut: () => void;
-  session: AuthSession;
 }) {
   const [activeTab, setActiveTab] = useState("Dashboard");
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [inventoryRows, setInventoryRows] = useState<InventoryItem[]>([]);
-  const [centers, setCenters] = useState<CapacityCenter[]>([]);
-  const [recent, setRecent] = useState<CheckInRecord[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const theme = isDarkMode ? darkTheme : lightTheme;
   const localStyles = getStyles(theme);
-
-  useEffect(() => {
-    async function hydrate() {
-      try {
-        const [dashboard, inventory, capacity, checkIns] = await Promise.all([
-          getDashboard("site-manager", session.accessToken),
-          getInventory("site-manager", session.accessToken),
-          getCapacity(session.accessToken),
-          getRecentCheckIns(session.accessToken, 4),
-        ]);
-        setOverview(dashboard);
-        setInventoryRows(inventory);
-        setCenters(capacity);
-        setRecent(checkIns);
-      } catch (caughtError) {
-        setError(
-          caughtError instanceof ApiError
-            ? caughtError.message
-            : "Unable to load site-manager data.",
-        );
-      }
-    }
-
-    void hydrate();
-  }, [session.accessToken]);
 
   return (
     <ScrollView 

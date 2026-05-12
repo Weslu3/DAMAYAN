@@ -9,30 +9,13 @@ import { theme, fonts } from "../../theme";
 export function SiteManagerSignupScreen({
   onBack,
   onSubmit,
-  loading,
-  error,
 }: {
   onBack: () => void;
-  onSubmit: (payload: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    password: string;
-  }) => void;
-  loading?: boolean;
-  error?: string | null;
+  onSubmit: () => void;
 }) {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const uploadBoxRef = useRef<View>(null);
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    password: "",
-  });
 
   const validateAndSetFile = (file: { name: string; type?: string }) => {
     const fileName = file.name.toLowerCase();

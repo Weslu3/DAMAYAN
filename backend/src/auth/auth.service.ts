@@ -7,6 +7,7 @@ import {
   GatewayTimeoutException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
 import { SignupDto } from './dto/signup.dto.js';
@@ -60,7 +61,7 @@ export class AuthService {
       }
     }
 
-    const supabase = this.supabaseService.getClient();
+    const supabase = this.supabaseService.getClient() as any;
     const formattedPhone = this.formatPhoneForStorage(signupDto.phone);
 
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({

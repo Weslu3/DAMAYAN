@@ -11,6 +11,7 @@ import type {
   DashboardOverview,
   InventoryItem,
 } from "../../lib/types";
+import { AppRole } from "../../lib/types";
 
 // ─── Fallback data ───────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ export default function BeforeCalamityPage() {
 
   useEffect(() => {
     const stored = loadSession();
-    if (!hasRole(stored, "line_manager")) {
+    if (!hasRole(stored, AppRole.LINE_MANAGER)) {
       router.replace("/site-manager/login");
       return;
     }

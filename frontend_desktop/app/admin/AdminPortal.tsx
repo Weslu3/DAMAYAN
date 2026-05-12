@@ -641,12 +641,14 @@ function AdminLoginPage({ onLogin }: { onLogin: () => void }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 function OverviewPage({
   accounts,
+  qrRecords,
   disasters,
   activityLog,
   setPage,
   overview,
 }: {
   accounts: PendingAccount[];
+  qrRecords: QRRecord[];
   disasters: DisasterEvent[];
   activityLog: { time: string; type: string; msg: string; col: string }[];
   setPage: (p: AdminPage) => void;
@@ -1840,98 +1842,140 @@ function AfterCalamityPage({
                   manner and follow guidance from local authorities."
                 </p>
               </div>
-            ) : (
-              familyQRs.map((q) => (
-                <div key={q.id} style={{ display: "flex", gap: "0.75rem", alignItems: "center", padding: "0.75rem 0.85rem", background: "var(--admin-surface-low)", borderRadius: "0.65rem", marginBottom: "0.5rem", border: "1px solid var(--admin-outline)" }}>
-                  <span style={{ fontSize: "1.4rem" }}>👨‍👩‍👧‍👦</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.82rem" }}>{q.name}</div>
-                    <div style={{ fontSize: "0.7rem", color: "var(--admin-text-soft)" }}>{q.area} · {q.familySize} members · {q.id}</div>
-                    <div style={{ fontSize: "0.65rem", color: "#bbb" }}>{q.issuedAt}</div>
-                  </div>
-                  <span className="admin-badge green">Issued</span>
+              <div className="admin-stats-row admin-stats-3" style={{ marginBottom: "1.25rem" }}>
+                <div className="admin-stat green">
+                  <div className="admin-stat-label">Citizens to Notify</div>
+                  <div className="admin-stat-value">18K+</div>
                 </div>
-              ))
-            )}
-          </div>
+                <div className="admin-stat blue">
+                  <div className="admin-stat-label">Channels</div>
+                  <div className="admin-stat-value">SMS + Push</div>
+                </div>
+                <div className="admin-stat violet">
+                  <div className="admin-stat-label">Units Notified</div>
+                  <div className="admin-stat-value">All</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "0.6rem" }}>
+                <button className="admin-btn admin-btn-ghost" onClick={() => setStep("approve_deployment")}>
+                  ← Back
+                </button>
+                <button
+                  className="admin-btn admin-btn-success"
+                  style={{ flex: 1, justifyContent: "center", padding: "0.85rem" }}
+                  onClick={() => {
+                    setStep("archive_event");
+                    showToast("success", "Broadcast Sent", "All-clear notification delivered to 18K+ citizens");
+                    addLog("BROADCAST", "All-clear broadcast sent - calamity ended, safe to return", "var(--admin-green)");
+                  }}
+                >
+                  Send All-Clear Broadcast
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "archive_event" && (
+            <div>
+              <div className="admin-alert success" style={{ marginBottom: "1.25rem" }}>
+                <span className="admin-alert-icon material-symbols-outlined">check_circle</span>
+                <div>
+                  Broadcast sent successfully. Close the active disaster event and move it to the historical archive.
+                </div>
+              </div>
+              <div className="admin-stats-row admin-stats-3" style={{ marginBottom: "1.25rem" }}>
+                <div className="admin-stat blue">
+                  <div className="admin-stat-label">Total Affected</div>
+                  <div className="admin-stat-value">18,432</div>
+                </div>
+                <div className="admin-stat green">
+                  <div className="admin-stat-label">Tickets Resolved</div>
+                  <div className="admin-stat-value">142</div>
+                </div>
+                <div className="admin-stat amber">
+                  <div className="admin-stat-label">Event Duration</div>
+                  <div className="admin-stat-value">72 hrs</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "0.6rem" }}>
+                <button className="admin-btn admin-btn-ghost" onClick={() => setStep("broadcast_safe")}>
+                  ← Back
+                </button>
+                <button
+                  className="admin-btn admin-btn-accent"
+                  onClick={() => {
+                    setStep("review_statistics");
+                    showToast("info", "Event Archived", "Disaster event moved to archive");
+                    addLog("APPROVED", "Disaster event archived successfully", "var(--admin-blue)");
+                  }}
+                >
+                  Archive Event & Proceed
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "review_statistics" && (
+            <div>
+              <div className="admin-stats-row admin-stats-4" style={{ marginBottom: "1.25rem" }}>
+                <div className="admin-stat blue"><div className="admin-stat-label">Total Evacuees</div><div className="admin-stat-value">18,432</div></div>
+                <div className="admin-stat green"><div className="admin-stat-label">Tickets Resolved</div><div className="admin-stat-value">142</div></div>
+                <div className="admin-stat orange"><div className="admin-stat-label">Dispatchers</div><div className="admin-stat-value">4</div></div>
+                <div className="admin-stat violet"><div className="admin-stat-label">Routes Deployed</div><div className="admin-stat-value">4</div></div>
+              </div>
+              <div style={{ display: "flex", gap: "0.6rem" }}>
+                <button className="admin-btn admin-btn-ghost" onClick={() => setStep("archive_event")}>
+                  ← Back
+                </button>
+                <button className="admin-btn admin-btn-accent" onClick={() => setStep("create_report")}>
+                  → Create Final Report
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "create_report" && (
+            <div>
+              {!reportGenerated ? (
+                <>
+                  <div className="admin-alert info" style={{ marginBottom: "1.25rem" }}>
+                    <span className="admin-alert-icon material-symbols-outlined">description</span>
+                    <div>Generate the official post-calamity incident report for NDRRMC submission.</div>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.6rem" }}>
+                    <button className="admin-btn admin-btn-ghost" onClick={() => setStep("review_statistics")}>
+                      ← Back
+                    </button>
+                    <button
+                      className="admin-btn admin-btn-accent"
+                      style={{ flex: 1, justifyContent: "center", padding: "0.85rem" }}
+                      onClick={() => {
+                        setReportGenerated(true);
+                        showToast("success", "Report Generated", "Post-calamity incident report created and submitted");
+                        addLog("APPROVED", "Post-calamity report generated and submitted to NDRRMC", "var(--admin-green)");
+                      }}
+                    >
+                      Generate & Submit Report
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: "center", padding: "2rem 1rem" }}>
+                  <h3 style={{ fontSize: "1.3rem", fontWeight: 900, letterSpacing: "-0.03em", marginBottom: "0.5rem" }}>
+                    Workflow Complete
+                  </h3>
+                  <p style={{ fontSize: "0.85rem", color: "var(--admin-text-soft)", lineHeight: 1.7, marginBottom: "1.5rem" }}>
+                    The post-calamity incident report has been submitted to NDRRMC.
+                  </p>
+                  <button className="admin-btn admin-btn-ghost" onClick={resetCycle}>
+                    Start New Post-Calamity Cycle
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
-
-      {/* All QR Records Table */}
-      <div className="admin-card">
-        <div className="admin-card-header">
-          <div className="admin-card-title">All QR Records</div>
-          <div className="admin-search" style={{ minWidth: "14rem" }}>
-            <span style={{ color: "#bbb", fontSize: "0.8rem" }}>🔍</span>
-            <input placeholder="Search by name, ID, area…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
-        </div>
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>QR ID</th>
-                <th>Name / Group</th>
-                <th>Type</th>
-                <th>Area</th>
-                <th>Issued At</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((q) => (
-                <tr key={q.id}>
-                  <td><span className="admin-mono" style={{ color: "var(--admin-blue)" }}>{q.id}</span></td>
-                  <td>
-                    <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{q.name}</div>
-                    {q.familySize && <div style={{ fontSize: "0.7rem", color: "var(--admin-text-soft)" }}>×{q.familySize} members</div>}
-                  </td>
-                  <td><span className={`admin-badge ${q.type === "individual" ? "blue" : "green"}`}>{q.type}</span></td>
-                  <td style={{ fontSize: "0.78rem" }}>{q.area}</td>
-                  <td><span className="admin-mono" style={{ fontSize: "0.72rem" }}>{q.issuedAt}</span></td>
-                  <td><span className="admin-badge green">● Active</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Family QR Request Modal */}
-      {showFamilyRequest && (
-        <Modal
-          title="👨‍👩‍👧‍👦 Process Family QR Request"
-          narrow
-          onClose={() => setShowFamilyRequest(false)}
-          footer={
-            <>
-              <button className="admin-btn admin-btn-ghost" onClick={() => setShowFamilyRequest(false)}>Cancel</button>
-              <button className="admin-btn admin-btn-accent" onClick={handleFamilyQR} disabled={!familyName || !familyArea}>
-                Generate Family QR →
-              </button>
-            </>
-          }
-        >
-          <div className="admin-alert info" style={{ marginBottom: "1rem" }}>
-            <span className="admin-alert-icon">ℹ️</span>
-            <div>Generate a household Family QR code after the head of the household's Individual QR has been issued.</div>
-          </div>
-          <div className="admin-form-grid">
-            <div className="admin-form-group">
-              <label className="admin-form-label">Family / Household Name</label>
-              <input className="admin-form-input" placeholder="e.g. Dela Cruz Family" value={familyName} onChange={(e) => setFamilyName(e.target.value)} />
-            </div>
-            <div className="admin-form-group">
-              <label className="admin-form-label">Barangay / Area</label>
-              <input className="admin-form-input" placeholder="e.g. Brgy. 102, District 4" value={familyArea} onChange={(e) => setFamilyArea(e.target.value)} />
-            </div>
-            <div className="admin-form-group">
-              <label className="admin-form-label">Number of Family Members</label>
-              <input className="admin-form-input" type="number" min={2} max={20} value={familyCount} onChange={(e) => setFamilyCount(Number(e.target.value))} />
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
@@ -3020,6 +3064,30 @@ function mapBackendDisaster(d: BackendDisasterEvent & { ticketCount?: number }):
   };
 }
 
+function mapApprovalToAccount(record: AdminApprovalRecord): PendingAccount {
+  const firstName = record.firstName ?? record.first_name ?? "";
+  const lastName = record.lastName ?? record.last_name ?? "";
+  const name = `${firstName} ${lastName}`.trim() || record.email || "Unknown User";
+  const submittedAt = record.createdAt ?? record.created_at;
+  const status = String(record.status ?? "pending").toLowerCase();
+  const normalizedStatus: AccountStatus =
+    status === "active" ? "APPROVED" : status === "rejected" ? "REJECTED" : "PENDING";
+  const role = String(record.role ?? "dispatcher").toLowerCase();
+  const labelRole = role === "line_manager" ? "Site Manager" : "Dispatcher";
+
+  return {
+    id: record.id,
+    name,
+    role: labelRole,
+    area: "Unassigned",
+    email: record.email ?? "No email",
+    submitted: submittedAt ? new Date(submittedAt).toLocaleDateString("en-PH") : "Unknown",
+    docs: [],
+    status: normalizedStatus,
+    rejectReason: record.rejectReason ?? record.reject_reason ?? undefined,
+  };
+}
+
 function normalizeHealthStatus(status?: string): ServiceStatus {
   const normalized = String(status ?? "").toUpperCase();
   if (normalized === "OPERATIONAL" || normalized === "DEGRADED" || normalized === "DOWN") {
@@ -3193,11 +3261,25 @@ export default function AdminPortal() {
   const handleApprove = useCallback((id: string) => {
     const acc = accounts.find((a) => a.id === id);
     if (!acc) return;
-    setAccounts((p) => p.map((a) => a.id === id ? { ...a, status: "APPROVED" as AccountStatus, qrGenerated: true } : a));
-    const qr: QRRecord = { id: `QR-${5000 + qrRecords.length + 1}`, name: acc.name, type: "individual", area: acc.area, issuedAt: "Just now", linkedAccountId: id };
-    setQRRecords((p) => [...p, qr]);
-    addLog("APPROVED", `${acc.name} approved as ${acc.role} · ${qr.id} auto-generated`, "var(--admin-green)");
-    showToast("success", "Account Approved", `${acc.name} · Individual QR ${qr.id} generated`);
+    const applyLocalApproval = () => {
+      setAccounts((p) => p.map((a) => a.id === id ? { ...a, status: "APPROVED" as AccountStatus, qrGenerated: true } : a));
+      const qr: QRRecord = { id: `QR-${5000 + qrRecords.length + 1}`, name: acc.name, type: "individual", area: acc.area, issuedAt: "Just now", linkedAccountId: id };
+      setQRRecords((p) => [...p, qr]);
+      addLog("APPROVED", `${acc.name} approved as ${acc.role} · ${qr.id} auto-generated`, "var(--admin-green)");
+      showToast("success", "Account Approved", `${acc.name} · Individual QR ${qr.id} generated`);
+    };
+
+    const stored = loadSession();
+    if (!stored?.accessToken) {
+      showToast("error", "Approval Failed", "Session expired. Please log in again.");
+      return;
+    }
+
+    void approvePendingUser(stored.accessToken, id)
+      .then(() => applyLocalApproval())
+      .catch(() => {
+        showToast("error", "Approval Failed", "Could not approve user. Please try again.");
+      });
   }, [accounts, qrRecords, addLog, showToast]);
 
   const handleReject = useCallback((id: string, reason: string) => {
@@ -3371,7 +3453,7 @@ export default function AdminPortal() {
         {/* Content */}
         <div className="admin-content">
           {page === "overview" && (
-            <OverviewPage accounts={accounts} qrRecords={qrRecords} disasters={disasters} activityLog={activityLog} setPage={setPage} />
+            <OverviewPage accounts={accounts} qrRecords={qrRecords} disasters={disasters} activityLog={activityLog} setPage={setPage} overview={overview} />
           )}
           {page === "approvals" && (
             <ApprovalsPage accounts={accounts} onApprove={handleApprove} onReject={handleReject} addLog={addLog} showToast={showToast} dataStatus={approvalsDataStatus} />

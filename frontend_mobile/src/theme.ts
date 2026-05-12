@@ -23,8 +23,11 @@ export const lightTheme = {
   danger: "#D32F2F",
   dangerLight: "#FFEBEE",
   warning: "#FFB300",
+  warningLight: "#FFF8E1",
   info: "#1976D2",
+  infoLight: "#E3F2FD",
   success: "#2E7D32",
+  successLight: "#E8F5E9",
 };
 
 export type AppTheme = typeof lightTheme;
@@ -54,8 +57,11 @@ export const darkTheme = {
   danger: "#FF8A80",
   dangerLight: "#D32F2F",
   warning: "#FFD54F",
+  warningLight: "rgba(255, 213, 79, 0.15)",
   info: "#64B5F6",
+  infoLight: "rgba(100, 181, 246, 0.15)",
   success: "#81C784",
+  successLight: "rgba(129, 199, 132, 0.15)",
 };
 
 export const theme = lightTheme; // Backward compatibility
@@ -65,6 +71,7 @@ export const fonts = {
   medium: { fontFamily: "Poppins, -apple-system, sans-serif", fontWeight: "500" as const },
   semibold: { fontFamily: "Poppins, -apple-system, sans-serif", fontWeight: "600" as const },
   bold: { fontFamily: "Poppins, -apple-system, sans-serif", fontWeight: "700" as const },
+  extrabold: { fontFamily: "Poppins, -apple-system, sans-serif", fontWeight: "800" as const },
   black: { fontFamily: "Poppins, -apple-system, sans-serif", fontWeight: "900" as const },
 } as const;
 

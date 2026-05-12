@@ -142,7 +142,6 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                     onRegisterIndividual={() => setTargetStep("individual_registration")}
                     onRegisterHousehold={() => setTargetStep("household_registration")}
                     initialStep={targetStep === "registration" ? "registration" : "dashboard"}
-                    isDarkMode={isDarkMode}
                   />
                 )}
               </View>
@@ -151,7 +150,6 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
               <CitizenDuringScreen 
                 onBack={() => setPhase("before")} 
                 initialStep={targetStep === "map" ? "map" : "decision"}
-                isDarkMode={isDarkMode}
               />
             )}
             {phase === "after" && (
@@ -161,7 +159,6 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                   setActiveNav("Overview");
                   setTargetStep("dashboard");
                 }}
-                isDarkMode={isDarkMode}
               />
             )}
           </>

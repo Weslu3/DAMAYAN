@@ -47,7 +47,7 @@ export default function CitizenAfterScreen({ onBack }: { onBack: () => void }) {
           <View style={styles.stepContainer}>
             <SectionCard style={[styles.card, { borderColor: theme.success }]}>
               <View style={[styles.iconCircle, { backgroundColor: "rgba(46, 125, 50, 0.1)" }]}>
-                <Ionicons name="notifications-active" size={36} color={theme.primary} />
+                <Ionicons name="notifications-circle" size={36} color={theme.primary} />
               </View>
               <Text style={styles.title}>All Clear Issued</Text>
               <Text style={styles.desc}>Authorities have declared your sector safe. You may now prepare to return to your residence.</Text>
