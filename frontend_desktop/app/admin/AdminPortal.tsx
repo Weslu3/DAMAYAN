@@ -6,6 +6,8 @@ import { hasRole, loadSession, clearSession } from "../lib/session";
 import {
   getDashboard,
   getDisasterEvents,
+  updateAdminDisasterEvent,
+  broadcastAdminWarning,
   getCitizens,
   getFamilies,
   getPendingApprovals,
@@ -1987,17 +1989,69 @@ function DisasterMonitoringPage({
   disasters,
   setDisasters,
   showToast,
+  authToken,
 }: {
   disasters: DisasterEvent[];
   setDisasters: React.Dispatch<React.SetStateAction<DisasterEvent[]>>;
   showToast: (type: ToastItem["type"], title: string, sub?: string) => void;
+  authToken?: string;
 }) {
   const [selected, setSelected] = useState<DisasterEvent | null>(null);
   const [editNotes, setEditNotes] = useState("");
 
+  const phaseToStatus = (phase: CalamityPhase) => {
+    if (phase === "DURING") {
+      return "active";
+    }
+    if (phase === "AFTER") {
+      return "resolved";
+    }
+    return "monitoring";
+  };
+
   const updatePhase = (id: string, phase: CalamityPhase) => {
+    const previous = disasters;
     setDisasters((p) => p.map((d) => d.id === id ? { ...d, phase } : d));
-    showToast("info", "Phase Updated", `Disaster event updated to ${phase}`);
+
+    if (!authToken) {
+      showToast("warning", "Session Required", "Please sign in again to sync disaster phase updates.");
+      return;
+    }
+
+    void updateAdminDisasterEvent(authToken, id, { status: phaseToStatus(phase) })
+      .then(() => {
+        showToast("info", "Phase Updated", `Disaster event updated to ${phase}`);
+      })
+      .catch(() => {
+        setDisasters(previous);
+        showToast("error", "Update Failed", "Unable to sync disaster phase. Reverted local changes.");
+      });
+  };
+
+  const saveNotes = () => {
+    if (!selected) {
+      return;
+    }
+
+    const previous = disasters;
+    const updatedNotes = editNotes.trim();
+    setDisasters((p) => p.map((d) => d.id === selected.id ? { ...d, notes: updatedNotes } : d));
+
+    if (!authToken) {
+      showToast("warning", "Session Required", "Please sign in again to sync disaster notes.");
+      setSelected(null);
+      return;
+    }
+
+    void updateAdminDisasterEvent(authToken, selected.id, { notes: updatedNotes })
+      .then(() => {
+        showToast("success", "Notes saved", selected.name);
+        setSelected(null);
+      })
+      .catch(() => {
+        setDisasters(previous);
+        showToast("error", "Save Failed", "Unable to persist disaster notes. Reverted local changes.");
+      });
   };
 
   return (
@@ -2122,7 +2176,7 @@ function DisasterMonitoringPage({
           footer={
             <>
               <button className="admin-btn admin-btn-ghost" onClick={() => setSelected(null)}>Cancel</button>
-              <button className="admin-btn admin-btn-accent" onClick={() => { setDisasters((p) => p.map((d) => d.id === selected.id ? { ...d, notes: editNotes } : d)); showToast("success", "Notes saved", selected.name); setSelected(null); }}>
+              <button className="admin-btn admin-btn-accent" onClick={saveNotes}>
                 Save Notes
               </button>
             </>
@@ -2145,15 +2199,18 @@ function EarlyWarningPage({
   showToast,
   addLog,
   setPage,
+  authToken,
 }: {
   showToast: (type: ToastItem["type"], title: string, sub?: string) => void;
   addLog: (type: string, msg: string, col: string) => void;
   setPage: (p: AdminPage) => void;
+  authToken?: string;
 }) {
   const [step, setStep] = useState<WarningStep>("monitor");
   const [warningRequired, setWarningRequired] = useState<boolean | null>(null);
   const [config, setConfig] = useState<WarningConfig>({ type: "Typhoon", areas: [], severity: "HIGH", message: "", useSMS: true, usePush: true });
   const [broadcastSent, setBroadcastSent] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
   const [calamityEnded, setCalamityEnded] = useState<boolean | null>(null);
   const [riskIncreased, setRiskIncreased] = useState<boolean | null>(null);
 
@@ -2176,10 +2233,43 @@ function EarlyWarningPage({
     setConfig({ type: "Typhoon", areas: [], severity: "HIGH", message: "", useSMS: true, usePush: true });
   };
 
-  const sendBroadcast = () => {
-    setBroadcastSent(true);
-    addLog("BROADCAST", `Early warning broadcast sent: ${config.type} — ${config.severity} — ${config.areas.join(", ")}`, "var(--admin-red)");
-    showToast("warning", "Early Warning Broadcast Sent", `${config.type} — ${config.areas.join(", ")}`);
+  const sendBroadcast = async () => {
+    if (!authToken) {
+      showToast("error", "Broadcast Failed", "Session expired. Please log in again.");
+      return;
+    }
+
+    if (!config.message.trim() || config.areas.length === 0) {
+      showToast("error", "Broadcast Failed", "Add message and at least one target area.");
+      return;
+    }
+
+    try {
+      setBroadcasting(true);
+      const result = await broadcastAdminWarning(authToken, {
+        type: config.type,
+        severity: config.severity,
+        areas: config.areas,
+        message: config.message,
+        useSMS: config.useSMS,
+        usePush: config.usePush,
+      });
+      setBroadcastSent(true);
+      addLog(
+        "BROADCAST",
+        `Early warning broadcast sent: ${config.type} — ${config.severity} — ${config.areas.join(", ")} · delivered ${result.delivered}/${result.attempted}`,
+        "var(--admin-red)",
+      );
+      showToast(
+        "warning",
+        "Early Warning Broadcast Sent",
+        `${result.delivered}/${result.attempted} notifications delivered`,
+      );
+    } catch {
+      showToast("error", "Broadcast Failed", "Unable to deliver warning broadcast right now.");
+    } finally {
+      setBroadcasting(false);
+    }
   };
 
   const allAreas = ["Metro Manila", "Laguna Basin", "Rizal Province", "Cavite Lowlands", "Bulacan North", "Metro Cluster 3", "Metro Cluster 5"];
@@ -2631,10 +2721,11 @@ function EarlyWarningPage({
                     <button
                       className="admin-btn admin-btn-broadcast"
                       style={{ flex: 1, justifyContent: "center", padding: "0.85rem" }}
+                      disabled={broadcasting}
                       onClick={sendBroadcast}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: "1rem", marginRight: "0.4rem" }}>cell_tower</span>
-                      Send Early Warning Broadcast Now
+                      {broadcasting ? "Sending Broadcast..." : "Send Early Warning Broadcast Now"}
                     </button>
                   </div>
                 </>
@@ -3061,6 +3152,7 @@ function mapBackendDisaster(d: BackendDisasterEvent & { ticketCount?: number }):
     tickets: d.ticketCount ?? 0,
     dispatchers: 0,
     riskLevel: levelToRisk(d.severityLevel),
+    notes: d.notes,
   };
 }
 
@@ -3121,7 +3213,6 @@ export default function AdminPortal() {
   const [systemHealth, setSystemHealth] = useState<ServiceHealth[]>([]);
   const [healthRefreshing, setHealthRefreshing] = useState(false);
   const [approvalsDataStatus, setApprovalsDataStatus] = useState<"live" | "unavailable">("unavailable");
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [session, setSession] = useState<AuthSession | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -3465,10 +3556,20 @@ export default function AdminPortal() {
             <AfterCalamityPage showToast={showToast} addLog={addLog} />
           )}
           {page === "disaster_monitoring" && (
-            <DisasterMonitoringPage disasters={disasters} setDisasters={setDisasters} showToast={showToast} />
+            <DisasterMonitoringPage
+              disasters={disasters}
+              setDisasters={setDisasters}
+              showToast={showToast}
+              authToken={session?.accessToken}
+            />
           )}
           {page === "early_warning" && (
-            <EarlyWarningPage showToast={showToast} addLog={addLog} setPage={setPage} />
+            <EarlyWarningPage
+              showToast={showToast}
+              addLog={addLog}
+              setPage={setPage}
+              authToken={session?.accessToken}
+            />
           )}
           {page === "system_health" && (
             <SystemHealthPage

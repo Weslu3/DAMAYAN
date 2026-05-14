@@ -233,6 +233,29 @@ export async function getDisasterEvents(
   return request<DisasterEvent[] | AdminDisasterEventsPayload>(`${prefix}/disaster-events`, {}, token);
 }
 
+export async function updateAdminDisasterEvent(
+  token: string,
+  id: string,
+  payload: Partial<{
+    name: string;
+    type: string;
+    severityLevel: string;
+    affectedAreas: string[];
+    province: string;
+    dateStarted: string;
+    dateEnded: string;
+    status: string;
+    declaredBy: string;
+    coverImageKey: string;
+    notes: string;
+  }>,
+) {
+  return request<DisasterEvent>(`/admin/disaster-events/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
 export async function getOrganizations(token: string) {
   return request<Organization[]>("/admin/organizations", {}, token);
 }
@@ -410,6 +433,31 @@ export async function rejectPendingUser(token: string, id: string, rejectReason:
 
 export async function getSystemHealth(token: string) {
   return request<AdminSystemHealthRecord[]>("/admin/system-health", {}, token);
+}
+
+export async function broadcastAdminWarning(
+  token: string,
+  payload: {
+    type: string;
+    severity: string;
+    areas: string[];
+    message: string;
+    useSMS: boolean;
+    usePush: boolean;
+  },
+) {
+  return request<{
+    type: string;
+    severity: string;
+    areas: string[];
+    attempted: number;
+    delivered: number;
+    failed: number;
+    channels: { sms: boolean; push: boolean };
+  }>("/admin/warnings/broadcast", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
 }
 
 export async function getCitizenProfile(token: string) {

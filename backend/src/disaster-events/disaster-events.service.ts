@@ -15,6 +15,7 @@ interface DisasterEventRow {
   status: string | null;
   declared_by: string | null;
   cover_image_key: string | null;
+  notes: string | null;
   created_at: string | null;
 }
 
@@ -26,7 +27,7 @@ export class DisasterEventsService {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
       .from('disaster_events')
-      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, created_at')
+      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, notes, created_at')
       .order('date_started', { ascending: false });
 
     if (error) {
@@ -54,7 +55,7 @@ export class DisasterEventsService {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
       .from('disaster_events')
-      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, created_at')
+      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, notes, created_at')
       .eq('id', id)
       .maybeSingle();
 
@@ -80,8 +81,9 @@ export class DisasterEventsService {
         status: createDisasterEventDto.status ?? 'monitoring',
         declared_by: createDisasterEventDto.declaredBy,
         cover_image_key: createDisasterEventDto.coverImageKey ?? null,
+        notes: createDisasterEventDto.notes ?? null,
       })
-      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, created_at')
+      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, notes, created_at')
       .single();
 
     if (error) {
@@ -107,9 +109,10 @@ export class DisasterEventsService {
         status: updateDisasterEventDto.status ?? existing.status,
         declared_by: updateDisasterEventDto.declaredBy ?? existing.declaredBy ?? null,
         cover_image_key: updateDisasterEventDto.coverImageKey ?? existing.coverImageKey ?? null,
+        notes: updateDisasterEventDto.notes ?? existing.notes ?? null,
       })
       .eq('id', id)
-      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, created_at')
+      .select('id, name, type, severity_level, affected_areas, province, date_started, date_ended, status, declared_by, cover_image_key, notes, created_at')
       .single();
 
     if (error) {
@@ -157,6 +160,7 @@ export class DisasterEventsService {
       status: row.status ?? 'monitoring',
       declaredBy: row.declared_by ?? undefined,
       coverImageKey: row.cover_image_key ?? undefined,
+      notes: row.notes ?? undefined,
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
     };
   }

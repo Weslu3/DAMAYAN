@@ -100,6 +100,7 @@ export interface DisasterEvent {
   dateStarted: string;
   dateEnded?: string;
   status: string;
+  notes?: string;
 }
 
 export interface CheckInRecord {

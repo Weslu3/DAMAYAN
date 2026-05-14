@@ -40,4 +40,8 @@ export class CreateDisasterEventDto {
   @IsOptional()
   @IsString()
   coverImageKey?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

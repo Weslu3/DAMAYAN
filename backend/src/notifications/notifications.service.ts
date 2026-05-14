@@ -40,6 +40,53 @@ export class NotificationsService {
     await this.sendPasswordResetSms(contact, code);
   }
 
+  async sendBroadcastEmail(to: string, subject: string, message: string): Promise<boolean> {
+    if (!this.resendClient || !this.resendFromEmail) {
+      this.handleDeliveryFailure(
+        'Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.',
+      );
+      return false;
+    }
+
+    try {
+      await this.resendClient.emails.send({
+        from: this.resendFromEmail,
+        to,
+        subject,
+        text: message,
+      });
+      return true;
+    } catch (error) {
+      this.handleDeliveryFailure(
+        error instanceof Error ? error.message : 'Failed to send broadcast email.',
+      );
+      return false;
+    }
+  }
+
+  async sendBroadcastSms(to: string, message: string): Promise<boolean> {
+    if (!this.twilioClient || !this.twilioFromPhone) {
+      this.handleDeliveryFailure(
+        'SMS delivery is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_PHONE.',
+      );
+      return false;
+    }
+
+    try {
+      await this.twilioClient.messages.create({
+        from: this.twilioFromPhone,
+        to,
+        body: message,
+      });
+      return true;
+    } catch (error) {
+      this.handleDeliveryFailure(
+        error instanceof Error ? error.message : 'Failed to send broadcast SMS.',
+      );
+      return false;
+    }
+  }
+
   private async sendPasswordResetEmail(to: string, code: string): Promise<void> {
     if (!this.resendClient || !this.resendFromEmail) {
       this.handleDeliveryFailure(

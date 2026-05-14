@@ -1,4 +1,4 @@
--- WARNING: This schema is for context only and is not meant to be run.
+﻿-- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
 CREATE TABLE public.disaster_events (
@@ -14,6 +14,7 @@ CREATE TABLE public.disaster_events (
   declared_by uuid NOT NULL,
   cover_image_key text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
+  notes text,
   CONSTRAINT disaster_events_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.dispatch_orders (
@@ -26,6 +27,7 @@ CREATE TABLE public.dispatch_orders (
   status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'accepted'::text, 'in_progress'::text, 'completed'::text])),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  disaster_id uuid NOT NULL,
   CONSTRAINT dispatch_orders_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.distribution_items (
@@ -46,6 +48,34 @@ CREATE TABLE public.distributions (
   status text NOT NULL DEFAULT 'scheduled'::text CHECK (status = ANY (ARRAY['scheduled'::text, 'completed'::text, 'cancelled'::text])),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT distributions_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.drm_alerts (
+  id text NOT NULL,
+  dispatcher_id uuid,
+  scope text NOT NULL CHECK (scope = ANY (ARRAY['all'::text, 'barangay'::text, 'disaster'::text])),
+  target text,
+  title text NOT NULL,
+  message text NOT NULL,
+  severity text NOT NULL CHECK (severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text, 'evacuation'::text])),
+  disaster_type text,
+  evacuation_center text,
+  instructions ARRAY,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT drm_alerts_pkey PRIMARY KEY (id),
+  CONSTRAINT drm_alerts_dispatcher_id_fkey FOREIGN KEY (dispatcher_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.drm_sos (
+  id text NOT NULL,
+  sender_id text NOT NULL,
+  barangay text,
+  name text DEFAULT 'Anonymous'::text,
+  message text NOT NULL,
+  lat double precision,
+  lng double precision,
+  resolved boolean DEFAULT false,
+  resolved_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT drm_sos_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.evacuation_centers (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -77,7 +107,7 @@ CREATE TABLE public.evacuees (
 );
 CREATE TABLE public.families (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  qr_code_id text NOT NULL UNIQUE,
+  qr_code_id text NOT NULL,
   head_user_id uuid,
   created_at timestamp with time zone DEFAULT now(),
   head_full_name text,
@@ -94,14 +124,13 @@ CREATE TABLE public.families (
 CREATE TABLE public.household_animals (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
-  family_id uuid,
+  qr_code_id text,
   name text,
   species text,
   needs_cage boolean DEFAULT false,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT household_animals_pkey PRIMARY KEY (id),
-  CONSTRAINT household_animals_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
-  CONSTRAINT household_animals_family_id_fkey FOREIGN KEY (family_id) REFERENCES public.families(id)
+  CONSTRAINT household_animals_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
 CREATE TABLE public.incident_reports (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -192,5 +221,7 @@ CREATE TABLE public.user_profiles (
   role text NOT NULL CHECK (role = ANY (ARRAY['admin'::text, 'dispatcher'::text, 'line_manager'::text, 'citizen'::text])),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'active'::text, 'rejected'::text])),
+  reject_reason text,
   CONSTRAINT user_profiles_pkey PRIMARY KEY (id)
 );

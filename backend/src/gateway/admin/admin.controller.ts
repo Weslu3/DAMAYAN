@@ -38,6 +38,7 @@ import { UpdateFamilyDto } from '../../registrations/dto/update-family.dto.js';
 import { CreateDisasterCoverUploadDto } from '../../uploads/dto/create-disaster-cover-upload.dto.js';
 import { CreateIncidentAttachmentUploadDto } from '../../uploads/dto/create-incident-attachment-upload.dto.js';
 import { CreateObjectViewUrlDto } from '../../uploads/dto/create-object-view-url.dto.js';
+import { CreateWarningBroadcastDto } from './dto/create-warning-broadcast.dto.js';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -114,6 +115,11 @@ export class AdminController {
   @Get('system-health')
   getSystemHealth() {
     return this.adminProxyService.getSystemHealth();
+  }
+
+  @Post('warnings/broadcast')
+  broadcastWarning(@Body() createWarningBroadcastDto: CreateWarningBroadcastDto) {
+    return this.adminProxyService.broadcastWarning(createWarningBroadcastDto);
   }
 
   @Get('organizations/stats')

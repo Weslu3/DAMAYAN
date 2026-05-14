@@ -4,6 +4,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SiteManagerProxyService } from '../site-manager/site-manager.proxy.service.js';
 import { SupabaseService } from '../../supabase/supabase.service.js';
+import { NotificationsService } from '../../notifications/notifications.service.js';
 import { CreateItemDto } from '../../inventory/dto/create-item.dto.js';
 import { UpdateItemDto } from '../../inventory/dto/update-item.dto.js';
 import { AdjustQuantityDto } from '../../inventory/dto/adjust-quantity.dto.js';
@@ -26,12 +27,14 @@ import { UpdateFamilyDto } from '../../registrations/dto/update-family.dto.js';
 import { CreateDisasterCoverUploadDto } from '../../uploads/dto/create-disaster-cover-upload.dto.js';
 import { CreateIncidentAttachmentUploadDto } from '../../uploads/dto/create-incident-attachment-upload.dto.js';
 import { CreateObjectViewUrlDto } from '../../uploads/dto/create-object-view-url.dto.js';
+import { CreateWarningBroadcastDto } from './dto/create-warning-broadcast.dto.js';
 
 @Injectable()
 export class AdminProxyService {
   constructor(
     @Inject(SiteManagerProxyService) private readonly siteManagerProxyService: SiteManagerProxyService,
     @Inject(SupabaseService) private readonly supabaseService: SupabaseService,
+    @Inject(NotificationsService) private readonly notificationsService: NotificationsService,
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {}
 
@@ -217,6 +220,92 @@ export class AdminProxyService {
     results.push(authResult);
 
     return results;
+  }
+
+  async broadcastWarning(payload: CreateWarningBroadcastDto) {
+    const message = payload.message.trim();
+    if (!message) {
+      throw new BadRequestException('message is required');
+    }
+
+    if (!payload.useSMS && !payload.usePush) {
+      throw new BadRequestException('Select at least one broadcast channel');
+    }
+
+    const supabase = this.supabaseService.getClient() as any;
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('auth_user_id, phone');
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    const profiles = (data ?? []) as Array<{ auth_user_id?: string; phone?: string | null }>;
+    const emailTargets = new Set<string>();
+    const smsTargets = new Set<string>();
+
+    for (const profile of profiles) {
+      if (payload.usePush && profile.auth_user_id) {
+        const authResult = await supabase.auth.admin.getUserById(profile.auth_user_id);
+        const email = authResult?.data?.user?.email?.trim();
+        if (email) {
+          emailTargets.add(email);
+        }
+      }
+
+      if (payload.useSMS && profile.phone) {
+        const phone = String(profile.phone).trim();
+        if (phone) {
+          smsTargets.add(phone);
+        }
+      }
+    }
+
+    const subject = `DAMAYAN ${payload.severity.toUpperCase()} ALERT: ${payload.type}`;
+    const body = [
+      `Type: ${payload.type}`,
+      `Severity: ${payload.severity}`,
+      `Areas: ${payload.areas.join(', ') || 'N/A'}`,
+      ``,
+      message,
+    ].join('\n');
+
+    let attempted = 0;
+    let delivered = 0;
+
+    if (payload.usePush) {
+      for (const email of emailTargets) {
+        attempted += 1;
+        const sent = await this.notificationsService.sendBroadcastEmail(email, subject, body);
+        if (sent) {
+          delivered += 1;
+        }
+      }
+    }
+
+    if (payload.useSMS) {
+      for (const phone of smsTargets) {
+        attempted += 1;
+        const sent = await this.notificationsService.sendBroadcastSms(phone, `${subject}\n${message}`);
+        if (sent) {
+          delivered += 1;
+        }
+      }
+    }
+
+    return {
+      type: payload.type,
+      severity: payload.severity,
+      areas: payload.areas,
+      attempted,
+      delivered,
+      failed: Math.max(0, attempted - delivered),
+      channels: {
+        sms: payload.useSMS,
+        push: payload.usePush,
+      },
+    };
   }
 
   private probeTcp(

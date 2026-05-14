@@ -42,4 +42,8 @@ export class UpdateDisasterEventDto {
   @IsOptional()
   @IsString()
   coverImageKey?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
