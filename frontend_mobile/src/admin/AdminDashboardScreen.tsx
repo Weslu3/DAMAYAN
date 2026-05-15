@@ -19,6 +19,7 @@ import {
 } from "../api";
 import { loadSession } from "../session";
 import { styles } from "./AdminDashboardScreen.styles";
+import { subscribeToLiveAlerts, type LiveAlertRecord } from "../supabase";
 
 type HealthTone = "success" | "warning" | "danger";
 type CalamityPhase = "BEFORE" | "DURING" | "AFTER";
@@ -49,6 +50,7 @@ export function AdminDashboardScreen({ onBack }: { onBack: () => void }) {
   const [useSMS, setUseSMS] = useState(true);
   const [usePush, setUsePush] = useState(true);
   const [broadcasting, setBroadcasting] = useState(false);
+  const [liveAlerts, setLiveAlerts] = useState<LiveAlertRecord[]>([]);
 
   const mapStatusToPhase = (status: string): CalamityPhase => {
     const normalized = status.toLowerCase();
@@ -132,6 +134,20 @@ export function AdminDashboardScreen({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToLiveAlerts((alert) => {
+      setLiveAlerts((current) => [alert, ...current].slice(0, 3));
+      Alert.alert(
+        alert.title,
+        `${alert.message}${alert.target ? `\n\nTarget: ${alert.target}` : ""}`,
+      );
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
 
   const kpis = useMemo(() => {
     const totalDispatchOrders = dashboard
@@ -294,6 +310,35 @@ export function AdminDashboardScreen({ onBack }: { onBack: () => void }) {
   return (
     <Screen>
       <MobileHeader title="DAMAYAN Admin Console" subtitle="Admin dashboard" onBack={onBack} />
+      {liveAlerts.length > 0 ? (
+        <SectionCard style={styles.liveAlertCard}>
+          <View style={styles.liveAlertHeader}>
+            <Text style={styles.sectionTitle}>Live Alerts</Text>
+            <Pill label={`${liveAlerts.length} new`} tone="danger" />
+          </View>
+          {liveAlerts.map((alert) => {
+            const tone: HealthTone =
+              alert.severity.toLowerCase() === "critical" || alert.severity.toLowerCase() === "evacuation"
+                ? "danger"
+                : alert.severity.toLowerCase() === "warning"
+                  ? "warning"
+                  : "success";
+
+            return (
+              <View key={alert.id} style={styles.liveAlertRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{alert.title}</Text>
+                  <Text style={styles.rowCopy}>{alert.message}</Text>
+                  <Text style={styles.liveAlertMeta}>
+                    {(alert.scope || "all").toUpperCase()} • {alert.target || "All areas"} • {alert.created_at ? new Date(alert.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Just now"}
+                  </Text>
+                </View>
+                <Pill label={alert.severity.toUpperCase()} tone={tone} />
+              </View>
+            );
+          })}
+        </SectionCard>
+      ) : null}
       <NavPills
         items={["Overview", "Approvals", "System Health", "Disasters", "Broadcast"]}
         active={active}

@@ -12,6 +12,7 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
 import { SignupDto } from './dto/signup.dto.js';
 import { LoginDto } from './dto/login.dto.js';
+import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import {
   ForgotPasswordDto,
   RecoveryMethod,
@@ -20,6 +21,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { AppRole } from '../../libs/contracts/src/roles.js';
+import { CreateGovernmentIdUploadDto } from '../uploads/dto/create-government-id-upload.dto.js';
 
 interface UserProfileRow {
   id: string;
@@ -27,6 +29,7 @@ interface UserProfileRow {
   last_name: string | null;
   phone: string | null;
   role: string | null;
+  status: string | null;
   auth_user_id?: string | null;
 }
 
@@ -48,22 +51,24 @@ export class AuthService {
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(SupabaseService) private readonly supabaseService: SupabaseService,
     @Inject(NotificationsService) private readonly notificationsService: NotificationsService,
-    private readonly configService: ConfigService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
   ) {}
 
   async signup(signupDto: SignupDto) {
     const requestedRole = signupDto.role || AppRole.CITIZEN;
+    const allowManagementSelfSignup = this.getAllowManagementSelfSignup();
     
     // Check if roles are allowed for self-signup
     if (requestedRole !== AppRole.DISPATCHER && requestedRole !== AppRole.CITIZEN) {
-      if (!this.configService.get<boolean>('ALLOW_ADMIN_SELF_SIGNUP')) {
-        throw new BadRequestException('Only dispatcher and citizen roles can self-signup.');
+      if (!allowManagementSelfSignup) {
+        throw new BadRequestException(
+          'Only dispatcher and citizen roles can self-signup. Set ALLOW_ADMIN_SELF_SIGNUP=true to allow line_manager/admin self-signup.',
+        );
       }
     }
 
     const supabase = this.supabaseService.getClient() as any;
     const formattedPhone = this.formatPhoneForStorage(signupDto.phone);
-
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: signupDto.email,
       password: signupDto.password,
@@ -72,6 +77,7 @@ export class AuthService {
           first_name: signupDto.firstName,
           last_name: signupDto.lastName,
           role: requestedRole,
+          government_id_file_name: signupDto.governmentIdFileName ?? null,
         },
       },
     });
@@ -95,6 +101,7 @@ export class AuthService {
         first_name: signupDto.firstName,
         last_name: signupDto.lastName,
         phone: formattedPhone,
+        profile_photo_key: signupDto.governmentIdKey ?? null,
         role: requestedRole,
       });
 
@@ -122,7 +129,49 @@ export class AuthService {
         email: signupDto.email,
         phone: formattedPhone,
         role: requestedRole,
+        accountStatus: 'pending',
       },
+    };
+  }
+
+  async createGovernmentIdUploadUrl(createGovernmentIdUploadDto: CreateGovernmentIdUploadDto) {
+    const supabase = this.supabaseService.getClient();
+    const bucket =
+      this.configService.get<string>('SUPABASE_GOVERNMENT_IDS_BUCKET') ??
+      'government-ids';
+
+    const objectPath = this.buildGovernmentIdObjectPath(createGovernmentIdUploadDto);
+    let { data, error } = await supabase.storage
+      .from(bucket)
+      .createSignedUploadUrl(objectPath);
+
+    const uploadErrorMessage = error?.message?.toLowerCase() ?? '';
+    const shouldCreateBucket =
+      uploadErrorMessage.includes('bucket not found') ||
+      uploadErrorMessage.includes('related resource does not exist') ||
+      uploadErrorMessage.includes('resource does not exist');
+
+    if (shouldCreateBucket) {
+      await this.ensureGovernmentIdBucket(bucket);
+      const retryResult = await supabase.storage
+        .from(bucket)
+        .createSignedUploadUrl(objectPath);
+      data = retryResult.data;
+      error = retryResult.error;
+    }
+
+    if (error || !data) {
+      throw new BadRequestException(
+        error?.message ?? 'Unable to create signed Government ID upload URL',
+      );
+    }
+
+    return {
+      bucket,
+      objectPath,
+      signedUrl: data.signedUrl,
+      token: data.token,
+      path: data.path,
     };
   }
 
@@ -161,7 +210,7 @@ export class AuthService {
     const { data: profile, error: profileError } = await this.withTimeout<any>(
       supabase
         .from('user_profiles')
-        .select('id, first_name, last_name, phone, role')
+        .select('id, first_name, last_name, phone, role, status')
         .eq('auth_user_id', userId)
         .maybeSingle(),
       'Profile lookup timed out during login.',
@@ -211,6 +260,7 @@ export class AuthService {
         email: loginDto.email,
         phone: profile?.phone ?? '',
         role: (profile?.role as AppRole | undefined) ?? AppRole.CITIZEN,
+        accountStatus: (profile?.status as string | undefined) ?? 'active',
       },
     };
   }
@@ -223,7 +273,7 @@ export class AuthService {
         this.withTimeout<any>(
           supabase
             .from('user_profiles')
-            .select('id, first_name, last_name, phone, role, auth_user_id')
+            .select('id, first_name, last_name, phone, role, status, auth_user_id')
             .eq('auth_user_id', userId)
             .maybeSingle(),
           'Profile lookup timed out while loading the current user.',
@@ -255,8 +305,54 @@ export class AuthService {
         email,
         phone: resolvedProfile?.phone ?? '',
         role: (resolvedProfile?.role as AppRole | undefined) ?? AppRole.CITIZEN,
+        accountStatus: (resolvedProfile?.status as string | undefined) ?? 'active',
       },
     };
+  }
+
+  async updateProfile(userId: string, updateProfileDto: UpdateProfileDto) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const profileUpdates: Record<string, string> = {};
+    if (updateProfileDto.firstName) {
+      profileUpdates.first_name = updateProfileDto.firstName;
+    }
+    if (updateProfileDto.lastName) {
+      profileUpdates.last_name = updateProfileDto.lastName;
+    }
+    if (updateProfileDto.phone) {
+      profileUpdates.phone = this.formatPhoneForStorage(updateProfileDto.phone);
+    }
+
+    if (Object.keys(profileUpdates).length > 0) {
+      const { error: profileError } = await this.withTimeout<any>(
+        supabase
+          .from('user_profiles')
+          .update(profileUpdates)
+          .eq('auth_user_id', userId),
+        'Profile update timed out.',
+      );
+
+      if (profileError) {
+        throw new BadRequestException(profileError.message);
+      }
+    }
+
+    if (updateProfileDto.email) {
+      const normalizedEmail = updateProfileDto.email.trim().toLowerCase();
+      const { error: authUpdateError } = await this.withTimeout<any>(
+        supabase.auth.admin.updateUserById(userId, {
+          email: normalizedEmail,
+        }),
+        'Auth email update timed out.',
+      );
+
+      if (authUpdateError) {
+        throw new BadRequestException(authUpdateError.message);
+      }
+    }
+
+    return this.getProfile(userId);
   }
 
   private async withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 15000): Promise<T> {
@@ -548,5 +644,58 @@ export class AuthService {
     }
 
     return timingSafeEqual(leftBuffer, rightBuffer);
+  }
+
+  private getAllowManagementSelfSignup(): boolean {
+    const configuredValue = this.configService?.get<string | boolean>('ALLOW_ADMIN_SELF_SIGNUP');
+
+    if (typeof configuredValue === 'boolean') {
+      return configuredValue;
+    }
+
+    if (typeof configuredValue === 'string') {
+      return configuredValue.toLowerCase() === 'true';
+    }
+
+    return String(process.env.ALLOW_ADMIN_SELF_SIGNUP ?? 'false').toLowerCase() === 'true';
+  }
+
+  private buildGovernmentIdObjectPath(
+    createGovernmentIdUploadDto: CreateGovernmentIdUploadDto,
+  ): string {
+    const applicantRole = createGovernmentIdUploadDto.applicantRole
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-');
+    const applicantEmail = createGovernmentIdUploadDto.applicantEmail
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9@._-]+/g, '-');
+    const sanitizedFileName = createGovernmentIdUploadDto.fileName
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-');
+
+    if (!sanitizedFileName) {
+      throw new BadRequestException('A valid Government ID file name is required');
+    }
+
+    const prefix = `${applicantRole || 'applicant'}/${applicantEmail || 'unknown'}`;
+    return `${prefix}/${Date.now()}-${sanitizedFileName}`;
+  }
+
+  private async ensureGovernmentIdBucket(bucket: string) {
+    const supabase = this.supabaseService.getClient();
+    const { error } = await supabase.storage.createBucket(bucket, {
+      public: false,
+      fileSizeLimit: 5 * 1024 * 1024,
+      allowedMimeTypes: ['image/jpeg', 'image/png'],
+    });
+
+    if (error && !error.message?.toLowerCase().includes('already exists')) {
+      throw new BadRequestException(
+        `Unable to initialize Government ID bucket: ${error.message}`,
+      );
+    }
   }
 }

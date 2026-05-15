@@ -2,6 +2,8 @@ export const AUTH_PATTERNS = {
   SIGNUP: 'auth.signup',
   LOGIN: 'auth.login',
   GET_PROFILE: 'auth.get-profile',
+  UPDATE_PROFILE: 'auth.update-profile',
+  CREATE_GOVERNMENT_ID_UPLOAD_URL: 'auth.create-government-id-upload-url',
   FORGOT_PASSWORD: 'auth.forgot-password',
   RESET_PASSWORD: 'auth.reset-password',
 } as const;

@@ -17,6 +17,7 @@ import {
   type AdminApprovalRecord,
   type AdminSystemHealthRecord,
 } from "../lib/api";
+import { subscribeToLiveAlerts, type LiveAlertRecord } from "../lib/supabase";
 import type { AuthSession, DashboardOverview, DisasterEvent as BackendDisasterEvent } from "../lib/types";
 import { AppRole } from "../lib/types";
 import "./AdminPortal.css";
@@ -139,6 +140,26 @@ interface Notification {
   time: string;
   type: "red" | "blue" | "green" | "amber";
   read: boolean;
+}
+
+function mapSeverityToNotificationType(severity?: string): Notification["type"] {
+  const normalized = String(severity ?? "").toLowerCase();
+  if (normalized === "critical" || normalized === "evacuation") return "red";
+  if (normalized === "warning") return "amber";
+  if (normalized === "info") return "blue";
+  return "green";
+}
+
+function mapLiveAlertToNotification(alert: LiveAlertRecord): Notification {
+  const target = alert.target ? ` · ${alert.target}` : "";
+  return {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    title: alert.title,
+    sub: `${alert.severity.toUpperCase()} · ${alert.message}${target}`,
+    time: alert.created_at ? new Date(alert.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Just now",
+    type: mapSeverityToNotificationType(alert.severity),
+    read: false,
+  };
 }
 
 // ─── Initial Data ─────────────────────────────────────────────────────────────
@@ -3343,6 +3364,11 @@ export default function AdminPortal() {
     setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3500);
   }, []);
 
+  const addLiveNotification = useCallback((alert: LiveAlertRecord) => {
+    setNotifications((current) => [mapLiveAlertToNotification(alert), ...current].slice(0, 12));
+    showToast("info", alert.title, alert.message.slice(0, 90));
+  }, [showToast]);
+
   const addLog = useCallback((type: string, msg: string, col: string) => {
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -3411,6 +3437,16 @@ export default function AdminPortal() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToLiveAlerts((alert) => {
+      addLiveNotification(alert);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [addLiveNotification]);
 
   const pending = accounts.filter((a) => a.status === "PENDING").length;
   const unreadNotifs = notifications.filter((n) => !n.read).length;

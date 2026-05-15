@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import SiteManagerProfilePage from "./SiteManagerProfilePage";
+import SiteManagerRegionalMap from "./SiteManagerRegionalMap";
 import { clearSession, hasRole, loadSession } from "../../lib/session";
 import {
   getDashboard,
@@ -90,6 +91,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
     zone: "",
     groupSize: "",
   });
+  const [readinessStatusMessage, setReadinessStatusMessage] = useState<string | null>(null);
   const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
   const [checkInError, setCheckInError] = useState<string | null>(null);
 
@@ -140,6 +142,11 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
   useEffect(() => {
     const stored = loadSession();
     if (!hasRole(stored, AppRole.LINE_MANAGER)) {
+      router.replace("/site-manager/login");
+      return;
+    }
+
+    if (stored?.user.accountStatus === "pending") {
       router.replace("/site-manager/login");
       return;
     }
@@ -555,13 +562,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
   }[phase];
 
   const displayName = session?.user.name?.trim() || "Site Manager";
-  const fallbackInventory: InventoryItem[] = [
-    { id: "f1", name: "Potable Water", category: "Water", quantity: 15000, unit: "Liters", status: "available" },
-    { id: "f2", name: "Medical Kits", category: "Medical", quantity: 450, unit: "Units", status: "available" },
-    { id: "f3", name: "Blankets & Shelter", category: "Shelter", quantity: 800, unit: "Kits", status: "low_stock" },
-    { id: "f4", name: "Dry Rations", category: "Food", quantity: 2500, unit: "Boxes", status: "available" },
-  ];
-  const effectiveInventory = inventoryItems.length > 0 ? inventoryItems : fallbackInventory;
+  const effectiveInventory = inventoryItems;
   const maxQuantity = Math.max(1, ...effectiveInventory.map((item) => item.quantity));
 
   const inventoryData = effectiveInventory.slice(0, 4).map((item) => {
@@ -669,12 +670,26 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
 
   const activeShelters = overview?.capacity.totalCenters ?? 14;
   const totalPopulation = overview?.capacity.totalOccupancy ?? 2842;
-  const shelterMarkers = (capacityCenters.length > 0 ? capacityCenters : []).map((center, index) => ({
-    ...center,
-    tone: center.utilizationRate >= 90 ? "error" : center.utilizationRate >= 70 ? "warning" : "secure",
-    x: 18 + ((index * 23) % 62),
-    y: 18 + ((index * 17) % 62),
-  }));
+
+  const avatarInitials = (() => {
+    if (!session?.user) {
+      return "SM";
+    }
+
+    const firstInitial = session.user.firstName?.trim()?.[0]?.toUpperCase();
+    const lastInitial = session.user.lastName?.trim()?.[0]?.toUpperCase();
+
+    if (firstInitial && lastInitial) {
+      return `${firstInitial}${lastInitial}`;
+    }
+
+    const nameParts = session.user.name?.trim()?.split(/\s+/)?.filter(Boolean) ?? [];
+    if (nameParts.length >= 2) {
+      return `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase();
+    }
+
+    return (firstInitial ?? nameParts[0]?.[0] ?? "S").toUpperCase();
+  })();
 
   return (
     <div className="bg-[#fafaf5] dark:bg-[#1a1c19] text-[#1a1c19] dark:text-[#e2e3dd] min-h-screen font-['Public_Sans']">
@@ -707,14 +722,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
               className="w-10 h-10 rounded-full overflow-hidden border-2 transition-transform hover:scale-105 flex items-center justify-center font-black text-white bg-gradient-to-br" 
               style={{ borderColor: phaseConfig.primaryColor, backgroundImage: `linear-gradient(135deg, ${phaseConfig.primaryColor}, ${phaseConfig.primaryContainer})` }}
             >
-              {session?.user ? (
-                <span className="text-sm">
-                  {(session.user.firstName?.[0] || 'S').toUpperCase()}
-                  {(session.user.lastName?.[session.user.lastName.length - 1] || 'M').toUpperCase()}
-                </span>
-              ) : (
-                'SM'
-              )}
+              <span className="text-sm">{avatarInitials}</span>
             </button>
             
             {/* Profile Dropdown */}
@@ -855,6 +863,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
             onBack={() => setShowProfile(false)} 
             primaryColor={phaseConfig.primaryColor}
             session={session}
+            onSessionUpdated={setSession}
           />
         ) : (
           <>
@@ -965,12 +974,18 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                     )}
                   </div>
                 )}
-                {checkInError && (
+                {phase === 'during' && checkInError && (
                   <p className="text-red-600 text-sm mb-3">{checkInError}</p>
+                )}
+                {phase === 'before' && readinessStatusMessage && (
+                  <p className="text-[#0d631b] text-sm mb-3">{readinessStatusMessage}</p>
                 )}
                 <button 
                   onClick={() => {
-                    if (phase === 'before') handleSubmitManualCheckIn();
+                    if (phase === 'before') {
+                      setCheckInError(null);
+                      setReadinessStatusMessage('Readiness status logged successfully.');
+                    }
                     else if (phase === 'during') handleSubmitManualCheckIn();
                     else setIsReceiveModalOpen(true);
                   }}
@@ -1229,12 +1244,11 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 <p className="text-[#444743] text-sm">Real-time inventory levels across regional staging areas.</p>
               </div>
               <button 
-                onClick={handleRefreshInventory}
-                disabled={isRefreshingInventory}
+                onClick={() => router.push('/site-manager/inventory')}
                 className="text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg hover:opacity-90 transition-opacity disabled:opacity-50" 
                 style={{ background: phaseConfig.primaryColor }}
               >
-                {isRefreshingInventory ? "Updating..." : "Update Site Inventory"}
+                Update Site Inventory
               </button>
             </div>
             
@@ -1347,60 +1361,20 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-white dark:bg-[#232622] rounded-3xl p-6 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm min-h-[500px] relative overflow-hidden">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(129,199,132,0.15),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(255,179,0,0.12),_transparent_32%),linear-gradient(135deg,_#f7f7f2,_#eef5ef)] dark:bg-[radial-gradient(circle_at_top_left,_rgba(129,199,132,0.12),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(255,179,0,0.08),_transparent_32%),linear-gradient(135deg,_#1a1c19,_#21251f)]" />
-                <div className="relative z-10 h-full min-h-[440px] rounded-[2rem] border border-white/40 dark:border-white/10 overflow-hidden">
-                  <div className="absolute inset-0 grid grid-cols-6 grid-rows-6 opacity-25">
-                    {Array.from({ length: 36 }).map((_, idx) => (
-                      <div key={idx} className="border border-black/5 dark:border-white/5" />
-                    ))}
+                <SiteManagerRegionalMap centers={capacityCenters} height={440} />
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-[#f4f4ef] dark:bg-[#1a1c19] rounded-2xl p-3 border border-[#dadad5] dark:border-[#3b3b3b]">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#707a6c]">Active Shelters</p>
+                    <p className="text-lg font-black" style={{ color: phaseConfig.primaryColor }}>{activeShelters}</p>
                   </div>
-                  {shelterMarkers.map((center) => (
-                    <div
-                      key={center.id}
-                      className="absolute group"
-                      style={{ left: `${center.x}%`, top: `${center.y}%` }}
-                    >
-                      <div className={`w-4 h-4 rounded-full animate-ping absolute -left-1 -top-1 opacity-60 ${center.tone === "error" ? "bg-red-500" : center.tone === "warning" ? "bg-amber-400" : "bg-emerald-500"}`} />
-                      <button
-                        type="button"
-                        className={`relative w-10 h-10 rounded-2xl shadow-xl border-4 border-white dark:border-[#1a1c19] flex items-center justify-center transition-transform group-hover:scale-110 ${center.tone === "error" ? "bg-red-600" : center.tone === "warning" ? "bg-amber-500" : "bg-emerald-600"}`}
-                      >
-                        <span className="material-symbols-outlined text-white text-lg">home</span>
-                      </button>
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20">
-                        <div className="bg-white/95 dark:bg-[#111310]/95 backdrop-blur-md rounded-xl shadow-xl border border-white/30 dark:border-white/10 px-3 py-2 text-left">
-                          <p className="text-[10px] font-black uppercase tracking-widest">{center.name}</p>
-                          <p className="text-[9px] text-[#707a6c] dark:text-[#c4c7c0]">{center.barangay}, {center.municipality}</p>
-                          <p className="text-[9px] font-bold">{center.currentOccupancy.toLocaleString()} / {center.capacity.toLocaleString()} pax</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {shelterMarkers.length === 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center text-sm text-[#707a6c]">No shelter centers returned by the backend yet.</div>
-                  )}
-                </div>
-                <div className="absolute top-6 left-6 bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-white/20">
-                  <h4 className="text-xs font-black uppercase tracking-widest mb-3">Live Telemetry</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-8">
-                      <span className="text-[10px] font-bold text-[#444743]">Active Shelters</span>
-                      <span className="text-xs font-black" style={{ color: phaseConfig.primaryColor }}>{activeShelters} Locations</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-8">
-                      <span className="text-[10px] font-bold text-[#444743]">Total Pop.</span>
-                      <span className="text-xs font-black">{totalPopulation.toLocaleString()} pax</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-8">
-                      <span className="text-[10px] font-bold text-[#444743]">High Utilization</span>
-                      <span className="text-xs font-black">{overview?.capacity.highUtilizationCenters ?? 0}</span>
-                    </div>
+                  <div className="bg-[#f4f4ef] dark:bg-[#1a1c19] rounded-2xl p-3 border border-[#dadad5] dark:border-[#3b3b3b]">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#707a6c]">Total Population</p>
+                    <p className="text-lg font-black">{totalPopulation.toLocaleString()} pax</p>
                   </div>
-                </div>
-                <div className="absolute bottom-6 right-6 flex gap-4">
-                  <button className="bg-white dark:bg-[#1a1c19] w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"><span className="material-symbols-outlined">add</span></button>
-                  <button className="bg-white dark:bg-[#1a1c19] w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"><span className="material-symbols-outlined">remove</span></button>
-                  <button className="text-white w-12 h-12 rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 transition-transform" style={{ background: phaseConfig.primaryColor }}><span className="material-symbols-outlined">my_location</span></button>
+                  <div className="bg-[#f4f4ef] dark:bg-[#1a1c19] rounded-2xl p-3 border border-[#dadad5] dark:border-[#3b3b3b]">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#707a6c]">High Utilization</p>
+                    <p className="text-lg font-black">{overview?.capacity.highUtilizationCenters ?? 0}</p>
+                  </div>
                 </div>
               </div>
 

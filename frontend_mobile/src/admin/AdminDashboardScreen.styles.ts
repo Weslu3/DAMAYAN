@@ -31,6 +31,30 @@ export const styles = StyleSheet.create({
     color: theme.text,
     marginBottom: 14,
   },
+  liveAlertCard: {
+    gap: 12,
+  },
+  liveAlertHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  liveAlertRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.line,
+  },
+  liveAlertMeta: {
+    marginTop: 6,
+    color: theme.textMuted,
+    fontSize: 12,
+    ...fonts.semibold,
+  },
   listCard: {
     backgroundColor: "#f8faf7",
     borderWidth: 1,

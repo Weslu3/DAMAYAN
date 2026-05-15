@@ -1,18 +1,21 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import type { AuthSession } from "../../lib/types";
+import { saveSession } from "../../lib/session";
 
 interface SiteManagerProfilePageProps {
   onBack: () => void;
   primaryColor: string;
   session: AuthSession | null;
+  onSessionUpdated?: (session: AuthSession) => void;
 }
 
-export default function SiteManagerProfilePage({ onBack, primaryColor, session }: SiteManagerProfilePageProps) {
+export default function SiteManagerProfilePage({ onBack, primaryColor, session, onSessionUpdated }: SiteManagerProfilePageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [profileData, setProfileData] = useState({
     firstName: "",
     lastName: "",
@@ -46,22 +49,41 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session }
 
     setIsSaving(true);
     setError(null);
+    setSuccess(null);
 
     try {
       const { updateProfile } = await import("../../lib/api");
       
-      await updateProfile(session.accessToken, {
+      const updated = await updateProfile(session.accessToken, {
         firstName: profileData.firstName,
         lastName: profileData.lastName,
         email: profileData.email,
         phone: profileData.phone,
       });
 
+      const nextSession: AuthSession = {
+        ...session,
+        user: updated.user,
+      };
+
+      saveSession(nextSession);
+      onSessionUpdated?.(nextSession);
+
+      setProfileData((current) => ({
+        ...current,
+        firstName: updated.user.firstName || "",
+        lastName: updated.user.lastName || "",
+        fullName: updated.user.name || "",
+        email: updated.user.email || "",
+        phone: updated.user.phone || "",
+      }));
+
       setIsEditing(false);
-      alert("Profile updated successfully.");
+      setSuccess("Profile updated successfully.");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update profile";
       setError(message);
+      setSuccess(null);
       console.error("Profile update error:", err);
     } finally {
       setIsSaving(false);
@@ -80,7 +102,10 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session }
         </div>
         {!isEditing ? (
           <button 
-            onClick={() => setIsEditing(true)}
+            onClick={() => {
+              setSuccess(null);
+              setIsEditing(true);
+            }}
             className="flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm uppercase tracking-widest transition-colors"
             style={{ color: primaryColor, backgroundColor: primaryColor + "15" }}
           >
@@ -103,6 +128,12 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session }
       {error && (
         <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-2xl text-red-600 dark:text-red-400 text-sm">
           {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-900 rounded-2xl text-green-700 dark:text-green-400 text-sm">
+          {success}
         </div>
       )}
 

@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import AuthLayout from "../../components/AuthLayout";
-import { ApiError, signup } from "../../lib/api";
-import { saveSession } from "../../lib/session";
+import { ApiError, signup, uploadGovernmentIdForSignup } from "../../lib/api";
 
 export default function SiteManagerSignupPage() {
   const router = useRouter();
   const [selectedIdName, setSelectedIdName] = useState("No file selected");
+  const [selectedIdFile, setSelectedIdFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -26,15 +26,33 @@ export default function SiteManagerSignupPage() {
     try {
       setLoading(true);
       setError(null);
+
+      if (!selectedIdFile) {
+        throw new ApiError("Please upload a Government ID before submitting.", 400);
+      }
+
+      if (selectedIdFile.size > 5 * 1024 * 1024) {
+        throw new ApiError("Government ID file must be 5MB or smaller.", 400);
+      }
+
+      const upload = await uploadGovernmentIdForSignup({
+        file: selectedIdFile,
+        applicantRole: "line_manager",
+        applicantEmail: form.email,
+      });
+
       const result = await signup({
         ...form,
         role: "line_manager",
+        governmentIdKey: `${upload.bucket}/${upload.objectPath}`,
+        governmentIdFileName: selectedIdFile.name,
       });
-      saveSession({
-        accessToken: result.access_token,
-        user: result.user,
-      });
-      router.push("/site-manager");
+      if (result?.access_token) {
+        router.push("/site-manager/login?signup=success");
+        return;
+      }
+
+      router.push("/site-manager/login");
     } catch (caughtError) {
       setError(
         caughtError instanceof ApiError
@@ -105,11 +123,11 @@ export default function SiteManagerSignupPage() {
                 cursor: "pointer",
                 zIndex: 2
               }}
-              onChange={(event) =>
-                setSelectedIdName(
-                  event.target.files?.[0]?.name ?? "No file selected"
-                )
-              }
+              onChange={(event) => {
+                const nextFile = event.target.files?.[0] ?? null;
+                setSelectedIdFile(nextFile);
+                setSelectedIdName(nextFile?.name ?? "No file selected");
+              }}
             />
             <div 
               className="auth-upload-backdrop" 
@@ -135,7 +153,7 @@ export default function SiteManagerSignupPage() {
         </div>
 
         <p className="auth-form-sub" style={{ marginTop: -4 }}>
-          Verification document upload is still UI-only until an approval/document backend model is added.
+          Government ID is now uploaded securely and linked to your registration for admin verification.
         </p>
 
         {error ? <p className="auth-error-copy">{error}</p> : null}

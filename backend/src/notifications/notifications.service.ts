@@ -32,6 +32,16 @@ export class NotificationsService {
     contact: string,
     code: string,
   ): Promise<void> {
+    const sentViaSupabaseFunction = await this.sendPasswordResetViaSupabaseFunction(
+      method,
+      contact,
+      code,
+    );
+
+    if (sentViaSupabaseFunction) {
+      return;
+    }
+
     if (method === RecoveryMethod.EMAIL) {
       await this.sendPasswordResetEmail(contact, code);
       return;
@@ -127,6 +137,60 @@ export class NotificationsService {
       this.handleDeliveryFailure(
         error instanceof Error ? error.message : 'Failed to send password reset SMS.',
       );
+    }
+  }
+
+  private async sendPasswordResetViaSupabaseFunction(
+    method: RecoveryMethod,
+    contact: string,
+    code: string,
+  ): Promise<boolean> {
+    const functionName = this.configService.get<string>('SUPABASE_PASSWORD_RESET_FUNCTION_NAME')?.trim();
+    if (!functionName) {
+      return false;
+    }
+
+    const supabaseUrl = this.configService.get<string>('SUPABASE_URL')?.replace(/\/$/, '');
+    const supabaseKey =
+      this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY') ??
+      this.configService.get<string>('SUPABASE_ANON_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.warn(
+        '[NotificationsService] Supabase password reset function is configured, but SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing. Falling back to direct delivery.',
+      );
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${supabaseKey}`,
+          apikey: supabaseKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          method,
+          contact,
+          code,
+        }),
+      });
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.warn(
+          `[NotificationsService] Supabase password reset function ${functionName} returned ${response.status}: ${responseText}. Falling back to direct delivery.`,
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.warn(
+        `[NotificationsService] Supabase password reset function ${functionName} failed: ${error instanceof Error ? error.message : 'Unknown error'}. Falling back to direct delivery.`,
+      );
+      return false;
     }
   }
 

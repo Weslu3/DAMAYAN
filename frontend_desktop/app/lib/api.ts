@@ -34,6 +34,8 @@ export interface AdminApprovalRecord {
   email?: string | null;
   phone?: string | null;
   role?: string;
+  governmentIdKey?: string | null;
+  profile_photo_key?: string | null;
   status?: string;
   rejectReason?: string | null;
   reject_reason?: string | null;
@@ -48,6 +50,14 @@ export interface AdminSystemHealthRecord {
   latency?: string;
   uptime?: string;
   note?: string;
+}
+
+interface GovernmentIdUploadUrlPayload {
+  bucket: string;
+  objectPath: string;
+  signedUrl: string;
+  token: string;
+  path: string;
 }
 
 const API_BASE_URL =
@@ -145,6 +155,8 @@ export async function signup(payload: {
   phone: string;
   password: string;
   role?: string;
+  governmentIdKey?: string;
+  governmentIdFileName?: string;
   registrationType?: string;
   birthDate?: string;
   gender?: string;
@@ -159,6 +171,47 @@ export async function signup(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function createGovernmentIdUploadUrl(payload: {
+  fileName: string;
+  applicantRole: string;
+  applicantEmail: string;
+}) {
+  return request<GovernmentIdUploadUrlPayload>("/auth/uploads/government-id", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadGovernmentIdForSignup(payload: {
+  file: File;
+  applicantRole: string;
+  applicantEmail: string;
+}) {
+  const uploadUrl = await createGovernmentIdUploadUrl({
+    fileName: payload.file.name,
+    applicantRole: payload.applicantRole,
+    applicantEmail: payload.applicantEmail,
+  });
+
+  const uploadResponse = await fetch(uploadUrl.signedUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": payload.file.type || "application/octet-stream",
+      "x-upsert": "false",
+    },
+    body: payload.file,
+  });
+
+  if (!uploadResponse.ok) {
+    throw new ApiError("Unable to upload Government ID file.", uploadResponse.status);
+  }
+
+  return {
+    bucket: uploadUrl.bucket,
+    objectPath: uploadUrl.objectPath,
+  };
 }
 
 export async function forgotPassword(payload: {

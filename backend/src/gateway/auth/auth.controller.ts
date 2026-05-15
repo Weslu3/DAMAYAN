@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Inject,
   Logger,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -15,6 +16,8 @@ import { SignupDto } from '../../auth/dto/signup.dto.js';
 import { LoginDto } from '../../auth/dto/login.dto.js';
 import { ForgotPasswordDto } from '../../auth/dto/forgot-password.dto.js';
 import { ResetPasswordDto } from '../../auth/dto/reset-password.dto.js';
+import { UpdateProfileDto } from '../../auth/dto/update-profile.dto.js';
+import { CreateGovernmentIdUploadDto } from '../../uploads/dto/create-government-id-upload.dto.js';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard.js';
 import { AppRole } from '../../../libs/contracts/src/roles.js';
 
@@ -50,6 +53,24 @@ export class AuthGatewayController {
   @UseGuards(JwtAuthGuard)
   getProfile(@Req() request: RequestWithUser) {
     return this.authProxyService.getProfile(request.user.sub);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateProfile(
+    @Req() request: RequestWithUser,
+    @Body() updateProfileDto: UpdateProfileDto,
+  ) {
+    return this.authProxyService.updateProfile(request.user.sub, updateProfileDto);
+  }
+
+  @Post('uploads/government-id')
+  createGovernmentIdUploadUrl(
+    @Body() createGovernmentIdUploadDto: CreateGovernmentIdUploadDto,
+  ) {
+    return this.authProxyService.createGovernmentIdUploadUrl(
+      createGovernmentIdUploadDto,
+    );
   }
 
   @Post('forgot-password')

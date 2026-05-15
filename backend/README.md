@@ -82,6 +82,8 @@ Important: run backend commands from the `backend` folder. Running `npm run star
 - The gateway uses JWT role claims to protect `admin` and `site-manager` routes. The `site-manager` route group maps to the `line_manager` role from Supabase.
 - `rememberMe` is supported on login and extends token lifetime to 30 days.
 - Password reset requests are stored in Supabase, which is safe for multiple service instances.
+- Password reset delivery can be routed through a Supabase Edge Function by setting `SUPABASE_PASSWORD_RESET_FUNCTION_NAME`; the backend falls back to direct Resend/Twilio delivery if the function is not configured.
 - Admin self-signup is disabled by default. Set `ALLOW_ADMIN_SELF_SIGNUP=true` only if you explicitly want it.
 - The operations microservice now covers `organizations`, `disaster_events`, `dispatch_orders`, `relief_operations`, `incident_reports`, `relief_items`, `evacuation_centers`, `evacuees`, `distributions`, `distribution_items`, `register_citizens`, and `families`.
 - Storage upload flow: request a signed upload URL from the gateway, upload the file directly to Supabase Storage, then save the returned `objectPath` into `cover_image_key` or `attachment_keys` using the related create/update endpoint.
+- Government ID signup flow: request `POST /api/auth/uploads/government-id`, upload directly to the returned signed URL, then include `governmentIdKey` and `governmentIdFileName` in `POST /api/auth/signup`. Configure `SUPABASE_GOVERNMENT_IDS_BUCKET` for the storage bucket name.

@@ -11,6 +11,7 @@
   "dependencies": {
     "@tailwindcss/container-queries": "latest",
     "@tailwindcss/forms": "latest",
+    "@supabase/supabase-js": "^2.49.0",
     "autoprefixer": "latest",
     "leaflet": "^1.9.4",
     "next": "latest",

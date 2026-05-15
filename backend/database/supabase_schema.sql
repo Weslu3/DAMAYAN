@@ -77,6 +77,8 @@ CREATE TABLE public.drm_sos (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT drm_sos_pkey PRIMARY KEY (id)
 );
+ALTER PUBLICATION supabase_realtime ADD TABLE public.drm_alerts;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.drm_sos;
 CREATE TABLE public.evacuation_centers (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL,

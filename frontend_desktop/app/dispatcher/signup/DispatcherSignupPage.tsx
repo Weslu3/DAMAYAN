@@ -3,12 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import AuthLayout from "../../components/AuthLayout";
-import { signup } from "../../lib/api";
+import { ApiError, signup, uploadGovernmentIdForSignup } from "../../lib/api";
 import { AppRole } from "../../lib/types";
 
 export default function DispatcherSignupPage() {
   const router = useRouter();
   const [selectedIdName, setSelectedIdName] = useState("No file selected");
+  const [selectedIdFile, setSelectedIdFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,6 +30,20 @@ export default function DispatcherSignupPage() {
     const lastName = nameParts.slice(1).join(" ") || "User";
 
     try {
+      if (!selectedIdFile) {
+        throw new ApiError("Please upload a Government ID before submitting.", 400);
+      }
+
+      if (selectedIdFile.size > 5 * 1024 * 1024) {
+        throw new ApiError("Government ID file must be 5MB or smaller.", 400);
+      }
+
+      const upload = await uploadGovernmentIdForSignup({
+        file: selectedIdFile,
+        applicantRole: AppRole.DISPATCHER,
+        applicantEmail: email,
+      });
+
       await signup({
         firstName,
         lastName,
@@ -36,6 +51,8 @@ export default function DispatcherSignupPage() {
         phone,
         password,
         role: AppRole.DISPATCHER,
+        governmentIdKey: `${upload.bucket}/${upload.objectPath}`,
+        governmentIdFileName: selectedIdFile.name,
       });
 
       router.push("/dispatcher/login?signup=success");
@@ -98,6 +115,7 @@ export default function DispatcherSignupPage() {
               name="dispatcher-id"
               type="file"
               accept=".jpg,.jpeg,.png"
+              required
               style={{ 
                 position: "absolute",
                 inset: 0,
@@ -105,7 +123,11 @@ export default function DispatcherSignupPage() {
                 cursor: "pointer",
                 zIndex: 2
               }}
-              onChange={(e) => setSelectedIdName(e.target.files?.[0]?.name ?? "No file selected")}
+              onChange={(e) => {
+                const nextFile = e.target.files?.[0] ?? null;
+                setSelectedIdFile(nextFile);
+                setSelectedIdName(nextFile?.name ?? "No file selected");
+              }}
             />
             <div 
               className="auth-upload-backdrop" 

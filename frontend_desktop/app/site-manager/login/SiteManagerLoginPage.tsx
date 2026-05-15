@@ -43,6 +43,11 @@ export default function SiteManagerLoginPage() {
       // Verify token before redirect to avoid page flash then immediate logout.
       const profile = await getProfile(accessToken);
 
+      if (profile.user.accountStatus === "pending") {
+        setError("Your account is still pending admin approval. Please try again later.");
+        return;
+      }
+
       saveSession({
         accessToken,
         expiresIn: result.expiresIn,

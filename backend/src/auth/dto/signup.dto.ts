@@ -35,4 +35,12 @@ export class SignupDto {
     message: 'Role must be one of: admin, dispatcher, line_manager, citizen',
   })
   role!: AppRole;
+
+  @IsOptional()
+  @IsNotEmpty()
+  governmentIdKey?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  governmentIdFileName?: string;
 }

@@ -1,4 +1,5 @@
 import * as net from 'net';
+import { randomUUID } from 'crypto';
 import { Injectable, Inject } from '@nestjs/common';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -46,7 +47,7 @@ export class AdminProxyService {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('id, auth_user_id, first_name, last_name, phone, role, status, reject_reason, created_at')
+      .select('id, auth_user_id, first_name, last_name, phone, role, profile_photo_key, status, reject_reason, created_at')
       .in('role', ['dispatcher', 'line_manager'])
       .eq('status', 'pending')
       .order('created_at', { ascending: true });
@@ -68,6 +69,7 @@ export class AdminProxyService {
           email,
           phone: profile.phone,
           role: profile.role,
+          governmentIdKey: profile.profile_photo_key,
           status: profile.status,
           rejectReason: profile.reject_reason,
           createdAt: profile.created_at,
@@ -294,6 +296,8 @@ export class AdminProxyService {
       }
     }
 
+    await this.createLiveAlert(payload, subject, body);
+
     return {
       type: payload.type,
       severity: payload.severity,
@@ -306,6 +310,28 @@ export class AdminProxyService {
         push: payload.usePush,
       },
     };
+  }
+
+  private async createLiveAlert(payload: CreateWarningBroadcastDto, title: string, message: string) {
+    const supabase = this.supabaseService.getClient() as any;
+    const scope = payload.areas.length > 0 ? 'barangay' : 'all';
+
+    const { error } = await supabase.from('drm_alerts').insert({
+      id: randomUUID(),
+      dispatcher_id: null,
+      scope,
+      target: payload.areas.length > 0 ? payload.areas.join(', ') : null,
+      title,
+      message,
+      severity: payload.severity,
+      disaster_type: payload.type,
+      evacuation_center: null,
+      instructions: [payload.message],
+    });
+
+    if (error) {
+      console.warn(`[AdminProxyService] Failed to persist live alert: ${error.message}`);
+    }
   }
 
   private probeTcp(

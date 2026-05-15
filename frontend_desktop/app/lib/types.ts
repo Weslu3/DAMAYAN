@@ -14,6 +14,7 @@ export interface AuthUser {
   email: string;
   phone: string;
   role: AppRole;
+  accountStatus?: "pending" | "active" | "rejected";
 }
 
 export interface AuthSession {
