@@ -23,6 +23,14 @@ export interface AdminDisasterEventsPayload {
   };
 }
 
+export interface ApprovalDocument {
+  label: string;
+  bucket: string;
+  objectPath: string;
+  uploadedAt: string | null;
+  verificationStatus: "uploaded" | "missing";
+}
+
 export interface AdminApprovalRecord {
   id: string;
   authUserId?: string;
@@ -34,6 +42,8 @@ export interface AdminApprovalRecord {
   email?: string | null;
   phone?: string | null;
   role?: string;
+  documents?: ApprovalDocument[];
+  /** @deprecated use documents[0].objectPath instead */
   governmentIdKey?: string | null;
   profile_photo_key?: string | null;
   status?: string;
@@ -514,6 +524,70 @@ export async function broadcastAdminWarning(
     failed: number;
     channels: { sms: boolean; push: boolean };
   }>("/admin/warnings/broadcast", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function getAdminIncidentReports(
+  token: string,
+  disasterId?: string,
+) {
+  const qs = disasterId
+    ? `?disasterId=${encodeURIComponent(disasterId)}`
+    : "";
+  return request<Array<{ id: string; disasterId?: string; status?: string }>>(
+    `/admin/incident-reports${qs}`,
+    {},
+    token,
+  );
+}
+
+export async function createAdminReliefOperation(
+  token: string,
+  payload: {
+    disasterId: string;
+    name: string;
+    description?: string;
+    startDate: string;
+    endDate?: string;
+    leadAgencyId?: string;
+    leadOfficerId: string;
+    status?: string;
+  },
+) {
+  return request<{ id: string }>("/admin/relief-operations", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function createAdminDispatchOrder(
+  token: string,
+  payload: {
+    reportId: string;
+    operationId: string;
+    assignedTo: string;
+    priority?: string;
+    instructions?: string;
+    status?: string;
+  },
+) {
+  return request<{ id: string }>("/admin/dispatch-orders", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function createAdminObjectViewUrl(
+  token: string,
+  payload: {
+    bucket: string;
+    objectPath: string;
+    expiresIn?: number;
+  },
+) {
+  return request<{ signedUrl: string }>("/admin/uploads/view-url", {
     method: "POST",
     body: JSON.stringify(payload),
   }, token);

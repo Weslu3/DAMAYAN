@@ -47,7 +47,7 @@ export class AdminProxyService {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('id, auth_user_id, first_name, last_name, phone, role, profile_photo_key, status, reject_reason, created_at')
+      .select('id, auth_user_id, first_name, last_name, phone, role, profile_photo_key, status, reject_reason, created_at, updated_at')
       .in('role', ['dispatcher', 'line_manager'])
       .in('status', ['pending', 'active', 'rejected'])
       .order('created_at', { ascending: true });
@@ -56,10 +56,42 @@ export class AdminProxyService {
       throw new BadRequestException(error.message);
     }
 
+    const govIdBucket =
+      this.configService.get<string>('SUPABASE_GOVERNMENT_IDS_BUCKET') ??
+      'government-ids';
+
     const approvals = await Promise.all(
       ((data ?? []) as any[]).map(async (profile) => {
         const authResult = await supabase.auth.admin.getUserById(profile.auth_user_id);
         const email = authResult?.data?.user?.email ?? null;
+
+        const objectPath: string | null = profile.profile_photo_key ?? null;
+
+        const documents: Array<{
+          label: string;
+          bucket: string;
+          objectPath: string;
+          uploadedAt: string | null;
+          verificationStatus: 'uploaded' | 'missing';
+        }> = objectPath
+          ? [
+              {
+                label: 'Government ID',
+                bucket: govIdBucket,
+                objectPath,
+                uploadedAt: profile.updated_at ?? profile.created_at ?? null,
+                verificationStatus: 'uploaded',
+              },
+            ]
+          : [
+              {
+                label: 'Government ID',
+                bucket: govIdBucket,
+                objectPath: '',
+                uploadedAt: null,
+                verificationStatus: 'missing',
+              },
+            ];
 
         return {
           id: profile.id,
@@ -69,7 +101,9 @@ export class AdminProxyService {
           email,
           phone: profile.phone,
           role: profile.role,
-          governmentIdKey: profile.profile_photo_key,
+          documents,
+          // kept for backwards compat during transition
+          governmentIdKey: objectPath,
           status: profile.status,
           rejectReason: profile.reject_reason,
           createdAt: profile.created_at,
@@ -574,5 +608,110 @@ export class AdminProxyService {
 
   adjustInventoryItem(id: string, adjustQuantityDto: AdjustQuantityDto) {
     return this.siteManagerProxyService.adjustInventoryItem(id, adjustQuantityDto);
+  }
+
+  // ── User Management ───────────────────────────────────────────────────────
+
+  async findAllUsers(filters?: { role?: string; status?: string; search?: string }) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    let query = supabase
+      .from('user_profiles')
+      .select('id, auth_user_id, first_name, last_name, phone, role, status, created_at, updated_at')
+      .order('created_at', { ascending: false });
+
+    if (filters?.role) query = query.eq('role', filters.role);
+    if (filters?.status) query = query.eq('status', filters.status);
+    if (filters?.search) {
+      query = query.or(
+        `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`,
+      );
+    }
+
+    const { data: profiles, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+
+    const { data: authListData, error: authListError } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    if (authListError) throw new BadRequestException(authListError.message);
+
+    const emailMap = new Map<string, string>(
+      (authListData?.users ?? []).map((u: { id: string; email?: string }) => [u.id, u.email ?? '']),
+    );
+
+    return {
+      users: ((profiles ?? []) as any[]).map((p) => ({
+        id: p.id,
+        authUserId: p.auth_user_id ?? '',
+        firstName: p.first_name ?? '',
+        lastName: p.last_name ?? '',
+        name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim(),
+        email: emailMap.get(p.auth_user_id ?? '') ?? '',
+        phone: p.phone ?? '',
+        role: p.role,
+        accountStatus: p.status ?? 'active',
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+      })),
+    };
+  }
+
+  async findUserById(profileId: string) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const { data: profile, error } = await supabase
+      .from('user_profiles')
+      .select('id, auth_user_id, first_name, last_name, phone, role, status, created_at, updated_at')
+      .eq('id', profileId)
+      .maybeSingle();
+
+    if (error) throw new BadRequestException(error.message);
+    if (!profile) throw new NotFoundException('User not found');
+
+    const authResult = await supabase.auth.admin.getUserById(profile.auth_user_id ?? '');
+    const email = authResult?.data?.user?.email ?? '';
+
+    return {
+      user: {
+        id: profile.id,
+        authUserId: profile.auth_user_id ?? '',
+        firstName: profile.first_name ?? '',
+        lastName: profile.last_name ?? '',
+        name: `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim(),
+        email,
+        phone: profile.phone ?? '',
+        role: profile.role,
+        accountStatus: profile.status ?? 'active',
+        createdAt: profile.created_at,
+        updatedAt: profile.updated_at,
+      },
+    };
+  }
+
+  async updateUserStatus(profileId: string, newStatus: 'active' | 'inactive') {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('id', profileId);
+
+    if (error) throw new BadRequestException(error.message);
+
+    return { message: `User status updated to '${newStatus}'.` };
+  }
+
+  async updateUserRole(profileId: string, role: string) {
+    if (!role) throw new BadRequestException('role is required');
+
+    const supabase = this.supabaseService.getClient() as any;
+
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ role, updated_at: new Date().toISOString() })
+      .eq('id', profileId);
+
+    if (error) throw new BadRequestException(error.message);
+
+    return { message: `User role updated to '${role}'.` };
   }
 }

@@ -2,12 +2,18 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { hasRole, loadSession, clearSession } from "../lib/session";
+import { hasRole, loadSession, clearSession, saveSession } from "../lib/session";
 import {
   getDashboard,
   getDisasterEvents,
   updateAdminDisasterEvent,
+  updateProfile,
   broadcastAdminWarning,
+  getAdminIncidentReports,
+  createAdminReliefOperation,
+  createAdminDispatchOrder,
+  createAdminObjectViewUrl,
+  generateSiteReport,
   getCitizens,
   getFamilies,
   getPendingApprovals,
@@ -66,13 +72,15 @@ interface PendingAccount {
   area: string;
   email: string;
   submitted: string;
-  docs: { name: string; type: string; status: "VERIFIED" | "PENDING" | "FAILED" }[];
+  docs: { name: string; type: string; status: "VERIFIED" | "PENDING" | "FAILED"; bucket?: string; objectPath?: string }[];
   status: AccountStatus;
   rejectReason?: string;
   qrGenerated?: boolean;
   familyQrRequested?: boolean;
   familyQrGenerated?: boolean;
   familyMembers?: FamilyMember[];
+  governmentIdKey?: string;
+  profilePhotoKey?: string;
 }
 
 interface QRRecord {
@@ -745,6 +753,7 @@ function ApprovalsPage({
   accounts,
   onApprove,
   onReject,
+  onPreviewPrimaryDoc,
   addLog,
   showToast,
   dataStatus,
@@ -752,6 +761,7 @@ function ApprovalsPage({
   accounts: PendingAccount[];
   onApprove: (id: string) => void;
   onReject: (id: string, reason: string) => void;
+  onPreviewPrimaryDoc: (account: PendingAccount) => Promise<boolean>;
   addLog: (type: string, msg: string, col: string) => void;
   showToast: (type: ToastItem["type"], title: string, sub?: string) => void;
   dataStatus: "live" | "unavailable";
@@ -760,6 +770,7 @@ function ApprovalsPage({
   const [rejectTarget, setRejectTarget] = useState<PendingAccount | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [docsTarget, setDocsTarget] = useState<PendingAccount | null>(null);
+  const [previewingAccountId, setPreviewingAccountId] = useState<string | null>(null);
 
   const pending = accounts.filter((a) => a.status === "PENDING");
   const approved = accounts.filter((a) => a.status === "APPROVED");
@@ -771,6 +782,13 @@ function ApprovalsPage({
     showToast("error", "Account Rejected", `${rejectTarget.name}  ${rejectReason.slice(0, 60)}`);
     setRejectTarget(null);
     setRejectReason("");
+  };
+
+  const handlePreview = async (account: PendingAccount) => {
+    if (previewingAccountId) return;
+    setPreviewingAccountId(account.id);
+    await onPreviewPrimaryDoc(account);
+    setPreviewingAccountId(null);
   };
 
   const docStatusBadge = (s: "VERIFIED" | "PENDING" | "FAILED") => {
@@ -911,7 +929,13 @@ function ApprovalsPage({
                 </div>
                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                   {docStatusBadge(doc.status)}
-                  <button className="admin-btn admin-btn-ghost admin-btn-xs">Preview</button>
+                  <button
+                    className="admin-btn admin-btn-ghost admin-btn-xs"
+                    onClick={() => { void handlePreview(docsTarget); }}
+                    disabled={previewingAccountId === docsTarget.id}
+                  >
+                    {previewingAccountId === docsTarget.id ? "Opening..." : "Preview"}
+                  </button>
                 </div>
               </div>
             ))}
@@ -1271,9 +1295,17 @@ function PeopleRecordsPage({ accounts }: { accounts: PendingAccount[] }) {
 function AfterCalamityPage({
   showToast,
   addLog,
+  disasters,
+  setDisasters,
+  authToken,
+  adminUserId,
 }: {
   showToast: (type: ToastItem["type"], title: string, sub?: string) => void;
   addLog: (type: string, msg: string, col: string) => void;
+  disasters: DisasterEvent[];
+  setDisasters: React.Dispatch<React.SetStateAction<DisasterEvent[]>>;
+  authToken?: string;
+  adminUserId?: string;
 }) {
   type AfterStep =
     | "analyze_occupancy"
@@ -1287,7 +1319,17 @@ function AfterCalamityPage({
 
   const [step, setStep] = useState<AfterStep>("analyze_occupancy");
   const [reportGenerated, setReportGenerated] = useState(false);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const resetCycle = () => { setStep("analyze_occupancy"); setReportGenerated(false); };
+
+  const activeDisaster =
+    disasters.find((d) => d.phase === "DURING") ??
+    disasters.find((d) => d.phase === "AFTER") ??
+    disasters[0] ??
+    null;
 
   const STEPS: AfterStep[] = [
     "analyze_occupancy",
@@ -1312,6 +1354,142 @@ function AfterCalamityPage({
 
   const currentIdx = STEPS.indexOf(step);
 
+  const handleApproveDeployment = useCallback(async () => {
+    if (!authToken || !adminUserId || !activeDisaster?.id) {
+      showToast("error", "Deployment Failed", "Missing active disaster or admin session context.");
+      return;
+    }
+
+    setDeploying(true);
+    try {
+      const relief = await createAdminReliefOperation(authToken, {
+        disasterId: activeDisaster.id,
+        name: `${activeDisaster.name} Relief Deployment`,
+        description: `Auto-created from Admin After Calamity workflow for ${activeDisaster.name}.`,
+        startDate: new Date().toISOString(),
+        leadOfficerId: adminUserId,
+        status: "active",
+      });
+
+      let dispatchCreated = false;
+      if (typeof relief?.id === "string" && relief.id) {
+        const reports = await getAdminIncidentReports(authToken, activeDisaster.id);
+        const reportId = reports.find((report) => typeof report.id === "string" && report.id)?.id;
+
+        if (reportId) {
+          await createAdminDispatchOrder(authToken, {
+            reportId,
+            operationId: relief.id,
+            assignedTo: adminUserId,
+            priority: "high",
+            status: "pending",
+            instructions: `Route relief goods for ${activeDisaster.name}.`,
+          });
+          dispatchCreated = true;
+        }
+      }
+
+      setStep("broadcast_safe");
+      if (dispatchCreated) {
+        showToast("success", "Deployment Approved", "Relief operation and dispatch order created.");
+        addLog("APPROVED", `Relief operation + dispatch created for ${activeDisaster.name}`, "var(--admin-green)");
+      } else {
+        showToast("warning", "Deployment Partially Created", "Relief operation created; no incident report found for dispatch order.");
+        addLog("APPROVED", `Relief operation created for ${activeDisaster.name}; dispatch pending incident report`, "var(--admin-amber)");
+      }
+    } catch {
+      showToast("error", "Deployment Failed", "Could not create relief deployment in backend.");
+    } finally {
+      setDeploying(false);
+    }
+  }, [activeDisaster, addLog, adminUserId, authToken, showToast]);
+
+  const handleBroadcastAllClear = useCallback(async () => {
+    if (!authToken || !activeDisaster?.id) {
+      showToast("error", "Broadcast Failed", "Missing active disaster or admin session context.");
+      return;
+    }
+
+    setBroadcasting(true);
+    try {
+      const targetAreas = activeDisaster.areas
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+      const result = await broadcastAdminWarning(authToken, {
+        type: "all_clear",
+        severity: "info",
+        areas: targetAreas.length > 0 ? targetAreas : ["Teresa"],
+        message: `All clear for ${activeDisaster.name}. It is now safe to return home. Follow local authority guidance.`,
+        useSMS: true,
+        usePush: true,
+      });
+
+      setStep("archive_event");
+      showToast("success", "Broadcast Sent", `All-clear delivered to ${result.delivered}/${result.attempted} recipients.`);
+      addLog("BROADCAST", `All-clear sent for ${activeDisaster.name} (${result.delivered}/${result.attempted} delivered)`, "var(--admin-green)");
+    } catch {
+      showToast("error", "Broadcast Failed", "Could not send all-clear broadcast.");
+    } finally {
+      setBroadcasting(false);
+    }
+  }, [activeDisaster, addLog, authToken, showToast]);
+
+  const handleArchiveEvent = useCallback(async () => {
+    if (!authToken || !activeDisaster?.id) {
+      showToast("error", "Archive Failed", "Missing active disaster or admin session context.");
+      return;
+    }
+
+    setArchiving(true);
+    try {
+      await updateAdminDisasterEvent(authToken, activeDisaster.id, {
+        status: "resolved",
+        dateEnded: new Date().toISOString(),
+      });
+
+      setDisasters((current) =>
+        current.map((event) =>
+          event.id === activeDisaster.id
+            ? { ...event, phase: "AFTER" as CalamityPhase }
+            : event,
+        ),
+      );
+
+      setStep("review_statistics");
+      showToast("info", "Event Archived", "Disaster event marked as resolved.");
+      addLog("APPROVED", `Disaster event archived: ${activeDisaster.name}`, "var(--admin-blue)");
+    } catch {
+      showToast("error", "Archive Failed", "Could not archive disaster event in backend.");
+    } finally {
+      setArchiving(false);
+    }
+  }, [activeDisaster, addLog, authToken, setDisasters, showToast]);
+
+  const handleGenerateFinalReport = useCallback(async () => {
+    if (!authToken) {
+      showToast("error", "Report Generation Failed", "Session expired. Please log in again.");
+      return;
+    }
+
+    setReportSubmitting(true);
+    try {
+      const result = await generateSiteReport(authToken);
+      const generatedAt = typeof result?.generatedAt === "string"
+        ? new Date(result.generatedAt).toLocaleString("en-PH")
+        : "just now";
+
+      setReportGenerated(true);
+      showToast("success", "Report Generated", `Post-calamity report created at ${generatedAt}.`);
+      addLog("APPROVED", `Post-calamity summary report generated (${generatedAt})`, "var(--admin-green)");
+    } catch {
+      showToast("error", "Report Generation Failed", "Unable to generate summary report from backend.");
+    } finally {
+      setReportSubmitting(false);
+    }
+  }, [addLog, authToken, showToast]);
+
   return (
     <div className="admin-page">
       <div className="admin-page-head">
@@ -1328,6 +1506,15 @@ function AfterCalamityPage({
           </button>
         </div>
       </div>
+
+      {!activeDisaster && (
+        <div className="admin-alert warning" style={{ marginBottom: "1.25rem" }}>
+          <span className="admin-alert-icon material-symbols-outlined">warning</span>
+          <div>
+            No disaster event is currently loaded. Load an active event in Disaster Monitoring before approving deployment.
+          </div>
+        </div>
+      )}
 
       {/* Progress tracker */}
       <div className="admin-card" style={{ marginBottom: "1.25rem" }}>
@@ -1690,21 +1877,10 @@ function AfterCalamityPage({
                 <button
                   className="admin-btn admin-btn-success"
                   style={{ flex: 1, justifyContent: "center", padding: "0.85rem" }}
-                  onClick={() => {
-                    setStep("broadcast_safe");
-                    showToast(
-                      "success",
-                      "Deployment Approved",
-                      "Routes dispatched via Teresa Logistics"
-                    );
-                    addLog(
-                      "APPROVED",
-                      "Relief deployment order approved and routed via Teresa Logistics",
-                      "var(--admin-green)"
-                    );
-                  }}
+                  onClick={() => { void handleApproveDeployment(); }}
+                  disabled={deploying || !activeDisaster}
                 >
-                  Approve & Route Deployment Order
+                  {deploying ? "Approving..." : "Approve & Route Deployment Order"}
                 </button>
               </div>
             </div>
@@ -1775,13 +1951,10 @@ function AfterCalamityPage({
                 <button
                   className="admin-btn admin-btn-success"
                   style={{ flex: 1, justifyContent: "center", padding: "0.85rem" }}
-                  onClick={() => {
-                    setStep("archive_event");
-                    showToast("success", "Broadcast Sent", "All-clear notification delivered to 18K+ citizens");
-                    addLog("BROADCAST", "All-clear broadcast sent - calamity ended, safe to return", "var(--admin-green)");
-                  }}
+                  onClick={() => { void handleBroadcastAllClear(); }}
+                  disabled={broadcasting || !activeDisaster}
                 >
-                  Send All-Clear Broadcast
+                  {broadcasting ? "Sending..." : "Send All-Clear Broadcast"}
                 </button>
               </div>
             </div>
@@ -1815,13 +1988,10 @@ function AfterCalamityPage({
                 </button>
                 <button
                   className="admin-btn admin-btn-accent"
-                  onClick={() => {
-                    setStep("review_statistics");
-                    showToast("info", "Event Archived", "Disaster event moved to archive");
-                    addLog("APPROVED", "Disaster event archived successfully", "var(--admin-blue)");
-                  }}
+                  onClick={() => { void handleArchiveEvent(); }}
+                  disabled={archiving || !activeDisaster}
                 >
-                  Archive Event & Proceed
+                  {archiving ? "Archiving..." : "Archive Event & Proceed"}
                 </button>
               </div>
             </div>
@@ -1861,13 +2031,10 @@ function AfterCalamityPage({
                     <button
                       className="admin-btn admin-btn-accent"
                       style={{ flex: 1, justifyContent: "center", padding: "0.85rem" }}
-                      onClick={() => {
-                        setReportGenerated(true);
-                        showToast("success", "Report Generated", "Post-calamity incident report created and submitted");
-                        addLog("APPROVED", "Post-calamity report generated and submitted to NDRRMC", "var(--admin-green)");
-                      }}
+                      onClick={() => { void handleGenerateFinalReport(); }}
+                      disabled={reportSubmitting}
                     >
-                      Generate & Submit Report
+                      {reportSubmitting ? "Generating..." : "Generate & Submit Report"}
                     </button>
                   </div>
                 </>
@@ -2144,12 +2311,14 @@ function DisasterMonitoringPage({
 // 
 function EarlyWarningPage({
   disasters,
+  setDisasters,
   showToast,
   addLog,
   setPage,
   authToken,
 }: {
   disasters: DisasterEvent[];
+  setDisasters: React.Dispatch<React.SetStateAction<DisasterEvent[]>>;
   showToast: (type: ToastItem["type"], title: string, sub?: string) => void;
   addLog: (type: string, msg: string, col: string) => void;
   setPage: (p: AdminPage) => void;
@@ -2162,6 +2331,11 @@ function EarlyWarningPage({
   const [broadcasting, setBroadcasting] = useState(false);
   const [calamityEnded, setCalamityEnded] = useState<boolean | null>(null);
   const [riskIncreased, setRiskIncreased] = useState<boolean | null>(null);
+  const [escalating, setEscalating] = useState(false);
+  const [deescalating, setDeescalating] = useState(false);
+  const [endingCalamity, setEndingCalamity] = useState(false);
+  const [allClearDelivered, setAllClearDelivered] = useState<number | null>(null);
+  const [allClearAttempted, setAllClearAttempted] = useState<number | null>(null);
 
   const STEPS = [
     { id: "monitor",          label: "Monitor Data",       icon: "sensors" },
@@ -2218,6 +2392,102 @@ function EarlyWarningPage({
       showToast("error", "Broadcast Failed", "Unable to deliver warning broadcast right now.");
     } finally {
       setBroadcasting(false);
+    }
+  };
+
+  // Active disaster = first non-resolved event (used for severity/status patches)
+  const activeDisaster = disasters.find((d) => d.phase !== "AFTER") ?? disasters[0] ?? null;
+
+  const handleEscalate = async () => {
+    if (!authToken || !activeDisaster) {
+      setRiskIncreased(true);
+      setStep("escalate");
+      showToast("error", "Warnings Escalated", "Risk level has increased");
+      addLog("BROADCAST", "Warnings escalated – risk level increased (no active event found)", "var(--admin-red)");
+      return;
+    }
+    try {
+      setEscalating(true);
+      await updateAdminDisasterEvent(authToken, activeDisaster.id, { severityLevel: "CRITICAL" });
+      setDisasters((prev) =>
+        prev.map((d) => d.id === activeDisaster.id ? { ...d, severity: "CRITICAL", riskLevel: "CRITICAL" } : d),
+      );
+      setRiskIncreased(true);
+      setStep("escalate");
+      addLog("BROADCAST", `Warnings escalated – ${activeDisaster.name} severity set to CRITICAL`, "var(--admin-red)");
+      showToast("error", "Warnings Escalated", "Disaster event severity updated to CRITICAL");
+    } catch {
+      showToast("error", "Escalate Failed", "Could not update disaster event severity.");
+    } finally {
+      setEscalating(false);
+    }
+  };
+
+  const handleDeescalate = async () => {
+    if (!authToken || !activeDisaster) {
+      setRiskIncreased(false);
+      setStep("deescalate");
+      showToast("info", "Warnings De-escalated", "Situation stabilizing");
+      addLog("BROADCAST", "Warnings de-escalated / maintained", "var(--admin-blue)");
+      return;
+    }
+    try {
+      setDeescalating(true);
+      await updateAdminDisasterEvent(authToken, activeDisaster.id, { severityLevel: "MODERATE" });
+      setDisasters((prev) =>
+        prev.map((d) => d.id === activeDisaster.id ? { ...d, severity: "MODERATE", riskLevel: "MEDIUM" } : d),
+      );
+      setRiskIncreased(false);
+      setStep("deescalate");
+      addLog("BROADCAST", `Warnings de-escalated – ${activeDisaster.name} severity set to MODERATE`, "var(--admin-blue)");
+      showToast("info", "Warnings De-escalated", "Disaster event severity updated to MODERATE");
+    } catch {
+      showToast("error", "De-escalate Failed", "Could not update disaster event severity.");
+    } finally {
+      setDeescalating(false);
+    }
+  };
+
+  const handleCalamityEnded = async () => {
+    if (!authToken || !activeDisaster) {
+      setStep("notify_passed");
+      return;
+    }
+    try {
+      setEndingCalamity(true);
+      const eventAreas = String(activeDisaster.areas ?? "")
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean);
+
+      // Send all-clear broadcast
+      const result = await broadcastAdminWarning(authToken, {
+        type: activeDisaster.type || "Disaster",
+        severity: "LOW",
+        areas: eventAreas.length > 0 ? eventAreas : ["All Areas"],
+        message: `All-clear: The ${activeDisaster.name} calamity has passed. Normal operations may resume.`,
+        useSMS: true,
+        usePush: true,
+      });
+
+      // Mark disaster as resolved
+      await updateAdminDisasterEvent(authToken, activeDisaster.id, {
+        status: "resolved",
+        dateEnded: new Date().toISOString(),
+      });
+      setDisasters((prev) =>
+        prev.map((d) => d.id === activeDisaster.id ? { ...d, phase: "AFTER" } : d),
+      );
+
+      setAllClearDelivered(result.delivered);
+      setAllClearAttempted(result.attempted);
+      addLog("BROADCAST", `Calamity ended – all-clear sent for ${activeDisaster.name}, ${result.delivered}/${result.attempted} notified`, "var(--admin-green)");
+      showToast("success", "Calamity Marked as Ended", `All-clear sent – ${result.delivered}/${result.attempted} notified`);
+      setStep("notify_passed");
+    } catch {
+      showToast("error", "Failed to End Calamity", "Could not send all-clear or update event status.");
+    } finally {
+      setEndingCalamity(false);
     }
   };
 
@@ -2767,10 +3037,11 @@ function EarlyWarningPage({
                     <button
                       className="admin-btn admin-btn-success"
                       style={{ flex: 1, justifyContent: "center" }}
-                      onClick={() => { setCalamityEnded(true); setStep("notify_passed"); showToast("success", "All-Clear Initiated", "Calamity end notification in progress"); addLog("BROADCAST", "Calamity ended  All-clear notification sent", "var(--admin-green)"); }}
+                      disabled={endingCalamity}
+                      onClick={() => { void handleCalamityEnded(); }}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: "0.9rem", marginRight: "0.3rem" }}>check</span>
-                      Yes  All-Clear
+                      {endingCalamity ? "Sending All-Clear…" : "Yes – All-Clear"}
                     </button>
                     <button
                       className="admin-btn admin-btn-ghost"
@@ -2793,18 +3064,20 @@ function EarlyWarningPage({
                     <button
                       className="admin-btn admin-btn-danger"
                       style={{ flex: 1, justifyContent: "center" }}
-                      onClick={() => { setRiskIncreased(true); setStep("escalate"); showToast("error", "Warnings Escalated", "Risk level has increased"); addLog("BROADCAST", "Warnings escalated  risk level increased", "var(--admin-red)"); }}
+                      disabled={escalating}
+                      onClick={() => { void handleEscalate(); }}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: "0.9rem", marginRight: "0.3rem" }}>trending_up</span>
-                      Escalate
+                      {escalating ? "Escalating…" : "Escalate"}
                     </button>
                     <button
                       className="admin-btn admin-btn-ghost"
                       style={{ flex: 1, justifyContent: "center" }}
-                      onClick={() => { setRiskIncreased(false); setStep("deescalate"); showToast("info", "Warnings De-escalated", "Situation stabilizing"); addLog("BROADCAST", "Warnings de-escalated / maintained", "var(--admin-blue)"); }}
+                      disabled={deescalating}
+                      onClick={() => { void handleDeescalate(); }}
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: "0.9rem", marginRight: "0.3rem" }}>trending_down</span>
-                      De-Escalate
+                      {deescalating ? "Updating…" : "De-Escalate"}
                     </button>
                   </div>
                 </div>
@@ -2835,7 +3108,7 @@ function EarlyWarningPage({
                 <button className="admin-btn admin-btn-ghost" onClick={() => setStep("monitor_response")}>
                   <span className="material-symbols-outlined" style={{ fontSize: "0.9rem", marginRight: "0.25rem" }}>arrow_back</span>Back
                 </button>
-                <button className="admin-btn admin-btn-accent" onClick={() => setStep("notify_passed")}>Mark Calamity Ended</button>
+                <button className="admin-btn admin-btn-accent" disabled={endingCalamity} onClick={() => { void handleCalamityEnded(); }}>{endingCalamity ? "Ending…" : "Mark Calamity Ended"}</button>
                 <button className="admin-btn admin-btn-ghost" onClick={resetCycle}>New Cycle</button>
               </div>
             </div>
@@ -2852,7 +3125,7 @@ function EarlyWarningPage({
                 <button className="admin-btn admin-btn-ghost" onClick={() => setStep("monitor_response")}>
                   <span className="material-symbols-outlined" style={{ fontSize: "0.9rem", marginRight: "0.25rem" }}>arrow_back</span>Back
                 </button>
-                <button className="admin-btn admin-btn-success" onClick={() => setStep("notify_passed")}>Calamity Has Ended</button>
+                <button className="admin-btn admin-btn-success" disabled={endingCalamity} onClick={() => { void handleCalamityEnded(); }}>{endingCalamity ? "Sending All-Clear…" : "Calamity Has Ended"}</button>
                 <button className="admin-btn admin-btn-ghost" onClick={resetCycle}>New Cycle</button>
               </div>
             </div>
@@ -2884,7 +3157,9 @@ function EarlyWarningPage({
                 <div className="admin-stat blue">
                   <span className="material-symbols-outlined" style={{ fontSize: "1.1rem", display: "block", marginBottom: "0.3rem" }}>people</span>
                   <div className="admin-stat-label">Citizens Notified</div>
-                  <div className="admin-stat-value" style={{ fontSize: "1.3rem" }}>18K+</div>
+                  <div className="admin-stat-value" style={{ fontSize: "1.3rem" }}>
+                    {allClearDelivered !== null ? `${allClearDelivered}/${allClearAttempted}` : "—"}
+                  </div>
                 </div>
                 <div className="admin-stat green">
                   <span className="material-symbols-outlined" style={{ fontSize: "1.1rem", display: "block", marginBottom: "0.3rem" }}>task_alt</span>
@@ -3036,13 +3311,21 @@ function SystemHealthPage({
 // 
 //  PROFILE PAGE
 // 
-function ProfilePage({ profile, onSave, showToast }: { profile: AdminProfile; onSave: (p: AdminProfile) => void; showToast: (type: ToastItem["type"], title: string, sub?: string) => void }) {
+function ProfilePage({ profile, onSave, showToast }: { profile: AdminProfile; onSave: (p: AdminProfile) => Promise<boolean>; showToast: (type: ToastItem["type"], title: string, sub?: string) => void }) {
   const [form, setForm] = useState(profile);
   const [pwd, setPwd] = useState({ current: "", next: "", confirm: "" });
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => { onSave(form); showToast("success", "Profile Updated", "Changes saved successfully"); };
+  const handleSave = async () => {
+    setSaving(true);
+    const ok = await onSave(form);
+    if (ok) {
+      showToast("success", "Profile Updated", "Changes saved successfully");
+    }
+    setSaving(false);
+  };
   const handleOtp = () => { setOtpSent(true); showToast("info", "OTP Sent", `Code sent to ${form.email}`); };
   const handlePwdChange = () => {
     if (!otp || pwd.next !== pwd.confirm) { showToast("error", "Password Error", "OTP or password mismatch"); return; }
@@ -3073,7 +3356,7 @@ function ProfilePage({ profile, onSave, showToast }: { profile: AdminProfile; on
               <div className="admin-form-group"><label className="admin-form-label">Email</label><input className="admin-form-input" type="email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></div>
               <div className="admin-form-group"><label className="admin-form-label">Phone</label><input className="admin-form-input" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></div>
               <div className="admin-form-group"><label className="admin-form-label">Station / Office</label><input className="admin-form-input" value={form.station} onChange={(e) => setForm((p) => ({ ...p, station: e.target.value }))} /></div>
-              <button className="admin-btn admin-btn-accent" onClick={handleSave}>Save Changes</button>
+              <button className="admin-btn admin-btn-accent" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</button>
             </div>
           </div>
         </div>
@@ -3143,6 +3426,18 @@ function mapApprovalToAccount(record: AdminApprovalRecord): PendingAccount {
     status === "active" ? "APPROVED" : status === "rejected" ? "REJECTED" : "PENDING";
   const role = String(record.role ?? "dispatcher").toLowerCase();
   const labelRole = role === "line_manager" ? "Site Manager" : "Dispatcher";
+  // Map documents from rich backend metadata (with fallback for old shape)
+  const docs: PendingAccount["docs"] = record.documents && record.documents.length > 0
+    ? record.documents.map((doc) => ({
+        name: doc.label,
+        type: doc.verificationStatus === "uploaded" ? "Uploaded" : "Missing",
+        status: doc.verificationStatus === "uploaded" ? ("PENDING" as const) : ("FAILED" as const),
+        bucket: doc.bucket,
+        objectPath: doc.objectPath || undefined,
+      }))
+    : Boolean(record.governmentIdKey)
+      ? [{ name: "Government ID", type: "Uploaded", status: "PENDING" as const }]
+      : [{ name: "Government ID", type: "Missing", status: "FAILED" as const }];
 
   return {
     id: record.id,
@@ -3151,9 +3446,11 @@ function mapApprovalToAccount(record: AdminApprovalRecord): PendingAccount {
     area: "Unassigned",
     email: record.email ?? "No email",
     submitted: submittedAt ? new Date(submittedAt).toLocaleDateString("en-PH") : "Unknown",
-    docs: [],
+    docs,
     status: normalizedStatus,
     rejectReason: record.rejectReason ?? record.reject_reason ?? undefined,
+    governmentIdKey: record.governmentIdKey ?? undefined,
+    profilePhotoKey: record.profile_photo_key ?? undefined,
   };
 }
 
@@ -3207,6 +3504,7 @@ export default function AdminPortal() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [broadcastModal, setBroadcastModal] = useState(false);
   const [broadcastMsg, setBroadcastMsg] = useState("");
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const toastRef = useRef(0);
@@ -3406,13 +3704,74 @@ export default function AdminPortal() {
       });
   }, [accounts, addLog]);
 
-  const sendBroadcast = () => {
-    if (!broadcastMsg.trim()) return;
-    addLog("BROADCAST", `System broadcast: "${broadcastMsg.slice(0, 60)}"`, "var(--admin-red)");
-    showToast("warning", "Broadcast Sent", broadcastMsg.slice(0, 80));
-    setBroadcastModal(false);
-    setBroadcastMsg("");
-  };
+  const sendBroadcast = useCallback(async () => {
+    const message = broadcastMsg.trim();
+    if (!message) return;
+
+    if (!session?.accessToken) {
+      showToast("error", "Broadcast Failed", "Session expired. Please log in again.");
+      return;
+    }
+
+    const fallbackAreas = ["Teresa"];
+    const areas = Array.from(new Set(
+      disasters
+        .flatMap((d) => d.areas.split(",").map((part) => part.trim()).filter(Boolean)),
+    ));
+
+    setSendingBroadcast(true);
+    try {
+      const result = await broadcastAdminWarning(session.accessToken, {
+        type: "system_alert",
+        severity: "warning",
+        areas: areas.length > 0 ? areas : fallbackAreas,
+        message,
+        useSMS: true,
+        usePush: true,
+      });
+
+      addLog("BROADCAST", `System broadcast delivered ${result.delivered}/${result.attempted}: "${message.slice(0, 60)}"`, "var(--admin-red)");
+      showToast("warning", "Broadcast Sent", `${result.delivered}/${result.attempted} recipients notified`);
+      setBroadcastModal(false);
+      setBroadcastMsg("");
+    } catch {
+      showToast("error", "Broadcast Failed", "Could not send system broadcast.");
+    } finally {
+      setSendingBroadcast(false);
+    }
+  }, [addLog, broadcastMsg, disasters, session, showToast]);
+
+  const handlePreviewPrimaryDoc = useCallback(async (account: PendingAccount) => {
+    if (!session?.accessToken) {
+      showToast("error", "Preview Failed", "Session expired. Please log in again.");
+      return false;
+    }
+
+    // Use the first uploaded doc with metadata; fall back to governmentIdKey if docs are old-shape
+    const primaryDoc = account.docs.find((d) => d.objectPath);
+    const bucket = primaryDoc?.bucket ?? "government-ids";
+    const objectPath = primaryDoc?.objectPath ?? account.governmentIdKey;
+
+    if (!objectPath) {
+      showToast("warning", "No Document", "No government ID file is attached to this account.");
+      return false;
+    }
+
+    try {
+      const view = await createAdminObjectViewUrl(session.accessToken, {
+        bucket,
+        objectPath,
+        expiresIn: 900,
+      });
+
+      window.open(view.signedUrl, "_blank", "noopener,noreferrer");
+      addLog("INFO", `Opened Government ID for ${account.name}`, "var(--admin-blue)");
+      return true;
+    } catch {
+      showToast("error", "Preview Failed", "Unable to open Government ID file right now.");
+      return false;
+    }
+  }, [addLog, session, showToast]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -3436,6 +3795,49 @@ export default function AdminPortal() {
 
   const pending = accounts.filter((a) => a.status === "PENDING").length;
   const unreadNotifs = notifications.filter((n) => !n.read).length;
+
+  const handleProfileSave = useCallback(async (nextProfile: AdminProfile) => {
+    const stored = loadSession();
+    if (!stored?.accessToken) {
+      showToast("error", "Profile Update Failed", "Session expired. Please log in again.");
+      return false;
+    }
+
+    const parts = nextProfile.name.trim().split(/\s+/).filter(Boolean);
+    const firstName = parts[0] ?? "";
+    const lastName = parts.slice(1).join(" ");
+
+    try {
+      const result = await updateProfile(stored.accessToken, {
+        firstName: firstName || undefined,
+        lastName: lastName || undefined,
+        email: nextProfile.email || undefined,
+        phone: nextProfile.phone || undefined,
+      });
+
+      const updatedUser = result.user;
+      const updatedSession: AuthSession = { ...stored, user: updatedUser };
+      saveSession(updatedSession);
+      setSession(updatedSession);
+
+      const initials = ((updatedUser.firstName?.[0] ?? "") + (updatedUser.lastName?.[0] ?? "")).toUpperCase() || "AD";
+      const resolvedName = updatedUser.name || `${updatedUser.firstName ?? ""} ${updatedUser.lastName ?? ""}`.trim() || updatedUser.email;
+
+      setProfile((prev) => ({
+        ...prev,
+        ...nextProfile,
+        initials,
+        name: resolvedName,
+        email: updatedUser.email,
+        phone: updatedUser.phone || "",
+      }));
+
+      return true;
+    } catch {
+      showToast("error", "Profile Update Failed", "Unable to persist profile changes right now.");
+      return false;
+    }
+  }, [showToast]);
 
   const PAGE_TITLES: Record<AdminPage, { title: string; sub: string }> = {
     overview: { title: "Overview", sub: "System-wide status and key metrics" },
@@ -3578,13 +3980,28 @@ export default function AdminPortal() {
             />
           )}
           {page === "approvals" && (
-            <ApprovalsPage accounts={accounts} onApprove={handleApprove} onReject={handleReject} addLog={addLog} showToast={showToast} dataStatus={approvalsDataStatus} />
+            <ApprovalsPage
+              accounts={accounts}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onPreviewPrimaryDoc={handlePreviewPrimaryDoc}
+              addLog={addLog}
+              showToast={showToast}
+              dataStatus={approvalsDataStatus}
+            />
           )}
           {page === "people_records" && (
             <PeopleRecordsPage accounts={accounts} />
           )}
           {page === "after_calamity" && (
-            <AfterCalamityPage showToast={showToast} addLog={addLog} />
+            <AfterCalamityPage
+              showToast={showToast}
+              addLog={addLog}
+              disasters={disasters}
+              setDisasters={setDisasters}
+              authToken={session?.accessToken}
+              adminUserId={session?.user.id}
+            />
           )}
           {page === "disaster_monitoring" && (
             <DisasterMonitoringPage
@@ -3598,6 +4015,7 @@ export default function AdminPortal() {
           {page === "early_warning" && (
             <EarlyWarningPage
               disasters={disasters}
+              setDisasters={setDisasters}
               showToast={showToast}
               addLog={addLog}
               setPage={setPage}
@@ -3613,7 +4031,7 @@ export default function AdminPortal() {
             />
           )}
           {page === "profile" && (
-            <ProfilePage profile={profile} onSave={setProfile} showToast={showToast} />
+            <ProfilePage profile={profile} onSave={handleProfileSave} showToast={showToast} />
           )}
         </div>
       </div>
@@ -3627,8 +4045,8 @@ export default function AdminPortal() {
           footer={
             <>
               <button className="admin-btn admin-btn-ghost" onClick={() => { setBroadcastModal(false); setBroadcastMsg(""); }}>Cancel</button>
-              <button className="admin-btn admin-btn-broadcast" onClick={sendBroadcast} disabled={!broadcastMsg.trim()}>
-                Send Broadcast Now
+              <button className="admin-btn admin-btn-broadcast" onClick={() => { void sendBroadcast(); }} disabled={!broadcastMsg.trim() || sendingBroadcast}>
+                {sendingBroadcast ? "Sending..." : "Send Broadcast Now"}
               </button>
             </>
           }

@@ -53,4 +53,34 @@ export class AuthMessageController {
   resetPassword(@Payload() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(resetPasswordDto);
   }
+
+  @MessagePattern(AUTH_PATTERNS.FIND_ALL_USERS)
+  findAllUsers(@Payload() filters: { role?: string; status?: string; search?: string }) {
+    return this.authService.findAllUsers(filters);
+  }
+
+  @MessagePattern(AUTH_PATTERNS.FIND_USER_BY_ID)
+  findUserById(@Payload() payload: { profileId: string }) {
+    return this.authService.findUserById(payload.profileId);
+  }
+
+  @MessagePattern(AUTH_PATTERNS.UPDATE_USER_STATUS)
+  updateUserStatus(@Payload() payload: { profileId: string; status: 'active' | 'inactive' }) {
+    return this.authService.updateUserStatus(payload.profileId, payload.status);
+  }
+
+  @MessagePattern(AUTH_PATTERNS.UPDATE_USER_ROLE)
+  updateUserRole(@Payload() payload: { profileId: string; role: import('../../../libs/contracts/src/roles.js').AppRole }) {
+    return this.authService.updateUserRole(payload.profileId, payload.role);
+  }
+
+  @MessagePattern(AUTH_PATTERNS.UPDATE_DUTY_STATUS)
+  updateDutyStatus(@Payload() payload: { authUserId: string; isOnDuty: boolean }) {
+    return this.authService.updateDutyStatus(payload.authUserId, payload.isOnDuty);
+  }
+
+  @MessagePattern(AUTH_PATTERNS.UPDATE_ZONE)
+  updateZone(@Payload() payload: { authUserId: string; zone: { barangay?: string; municipality?: string; province?: string } }) {
+    return this.authService.updateZone(payload.authUserId, payload.zone);
+  }
 }

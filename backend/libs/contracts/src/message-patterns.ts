@@ -6,6 +6,14 @@ export const AUTH_PATTERNS = {
   CREATE_GOVERNMENT_ID_UPLOAD_URL: 'auth.create-government-id-upload-url',
   FORGOT_PASSWORD: 'auth.forgot-password',
   RESET_PASSWORD: 'auth.reset-password',
+  // Admin user management
+  FIND_ALL_USERS: 'auth.find-all-users',
+  FIND_USER_BY_ID: 'auth.find-user-by-id',
+  UPDATE_USER_STATUS: 'auth.update-user-status',
+  UPDATE_USER_ROLE: 'auth.update-user-role',
+  // Site manager profile
+  UPDATE_DUTY_STATUS: 'auth.update-duty-status',
+  UPDATE_ZONE: 'auth.update-zone',
 } as const;
 
 export const INVENTORY_PATTERNS = {
@@ -35,6 +43,7 @@ export const ORGANIZATION_PATTERNS = {
 export const DISASTER_EVENT_PATTERNS = {
   FIND_ALL: 'operations.disaster-events.find-all',
   FIND_ONE: 'operations.disaster-events.find-one',
+  FIND_ACTIVE: 'operations.disaster-events.find-active',
   CREATE: 'operations.disaster-events.create',
   UPDATE: 'operations.disaster-events.update',
   DELETE: 'operations.disaster-events.delete',
@@ -84,10 +93,15 @@ export const REGISTRATION_PATTERNS = {
   UPDATE_CITIZEN: 'operations.registrations.update-citizen',
   DELETE_CITIZEN: 'operations.registrations.delete-citizen',
   FIND_FAMILIES: 'operations.registrations.find-families',
+  FIND_FAMILIES_BY_HEAD: 'operations.registrations.find-families-by-head',
   FIND_FAMILY: 'operations.registrations.find-family',
   CREATE_FAMILY: 'operations.registrations.create-family',
   UPDATE_FAMILY: 'operations.registrations.update-family',
   DELETE_FAMILY: 'operations.registrations.delete-family',
+  DELETE_FAMILY_BY_QR: 'operations.registrations.delete-family-by-qr',
+  CREATE_ANIMAL: 'operations.registrations.create-animal',
+  FIND_ANIMALS_BY_USER: 'operations.registrations.find-animals-by-user',
+  DELETE_ANIMALS_BY_USER: 'operations.registrations.delete-animals-by-user',
   GET_STATS: 'operations.registrations.get-stats',
 } as const;
 

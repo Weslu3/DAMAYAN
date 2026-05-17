@@ -387,4 +387,35 @@ export class AdminController {
       limit ? Number.parseInt(limit, 10) : undefined,
     );
   }
+
+  // ── User Management ───────────────────────────────────────────────────────
+
+  @Get('users')
+  findAllUsers(
+    @Query('role') role?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.adminProxyService.findAllUsers({ role, status, search });
+  }
+
+  @Get('users/:id')
+  findUserById(@Param('id') id: string) {
+    return this.adminProxyService.findUserById(id);
+  }
+
+  @Patch('users/:id/deactivate')
+  deactivateUser(@Param('id') id: string) {
+    return this.adminProxyService.updateUserStatus(id, 'inactive');
+  }
+
+  @Patch('users/:id/activate')
+  activateUser(@Param('id') id: string) {
+    return this.adminProxyService.updateUserStatus(id, 'active');
+  }
+
+  @Patch('users/:id/role')
+  changeUserRole(@Param('id') id: string, @Body('role') role: AppRole) {
+    return this.adminProxyService.updateUserRole(id, role);
+  }
 }

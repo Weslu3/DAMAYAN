@@ -734,4 +734,191 @@ export class AuthService {
       );
     }
   }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Admin: User Management
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async findAllUsers(filters?: { role?: string; status?: string; search?: string }) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    let query = supabase
+      .from('user_profiles')
+      .select('id, auth_user_id, first_name, last_name, phone, role, status, created_at, updated_at')
+      .order('created_at', { ascending: false });
+
+    if (filters?.role) {
+      query = query.eq('role', filters.role);
+    }
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    }
+    if (filters?.search) {
+      query = query.or(
+        `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`,
+      );
+    }
+
+    const { data: profiles, error } = await this.withTimeout<any>(
+      query,
+      'User list query timed out.',
+    );
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    const { data: authListData, error: authListError } = await this.withTimeout<any>(
+      supabase.auth.admin.listUsers({ perPage: 1000 }),
+      'Auth user list timed out.',
+    );
+
+    if (authListError) {
+      throw new BadRequestException(authListError.message);
+    }
+
+    const emailMap = new Map<string, string>(
+      (authListData?.users ?? []).map((u: { id: string; email?: string }) => [u.id, u.email ?? '']),
+    );
+
+    return {
+      users: (profiles as UserProfileRow[]).map((p) => ({
+        id: p.id,
+        authUserId: p.auth_user_id ?? '',
+        firstName: p.first_name ?? '',
+        lastName: p.last_name ?? '',
+        name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim(),
+        email: emailMap.get(p.auth_user_id ?? '') ?? '',
+        phone: p.phone ?? '',
+        role: p.role as AppRole,
+        accountStatus: p.status ?? 'active',
+      })),
+    };
+  }
+
+  async findUserById(profileId: string) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const { data: profile, error } = await this.withTimeout<any>(
+      supabase
+        .from('user_profiles')
+        .select('id, auth_user_id, first_name, last_name, phone, role, status, created_at, updated_at')
+        .eq('id', profileId)
+        .maybeSingle(),
+      'User lookup timed out.',
+    );
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+    if (!profile) {
+      throw new BadRequestException('User not found');
+    }
+
+    const p = profile as UserProfileRow;
+    const { data: authData, error: authError } = await this.withTimeout<any>(
+      supabase.auth.admin.getUserById(p.auth_user_id ?? ''),
+      'Auth user lookup timed out.',
+    );
+
+    if (authError) {
+      throw new BadRequestException(authError.message);
+    }
+
+    return {
+      user: {
+        id: p.id,
+        authUserId: p.auth_user_id ?? '',
+        firstName: p.first_name ?? '',
+        lastName: p.last_name ?? '',
+        name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim(),
+        email: authData?.user?.email ?? '',
+        phone: p.phone ?? '',
+        role: p.role as AppRole,
+        accountStatus: p.status ?? 'active',
+      },
+    };
+  }
+
+  async updateUserStatus(profileId: string, newStatus: 'active' | 'inactive') {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const { error } = await this.withTimeout<any>(
+      supabase
+        .from('user_profiles')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', profileId),
+      'User status update timed out.',
+    );
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return { message: `User status updated to '${newStatus}'.` };
+  }
+
+  async updateUserRole(profileId: string, role: AppRole) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const { error } = await this.withTimeout<any>(
+      supabase
+        .from('user_profiles')
+        .update({ role, updated_at: new Date().toISOString() })
+        .eq('id', profileId),
+      'User role update timed out.',
+    );
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return { message: `User role updated to '${role}'.` };
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Site Manager: On-duty / Zone
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async updateDutyStatus(authUserId: string, isOnDuty: boolean) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const { error } = await this.withTimeout<any>(
+      supabase
+        .from('user_profiles')
+        .update({ is_on_duty: isOnDuty, updated_at: new Date().toISOString() })
+        .eq('auth_user_id', authUserId),
+      'Duty status update timed out.',
+    );
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return { message: `On-duty status set to ${isOnDuty}.`, isOnDuty };
+  }
+
+  async updateZone(authUserId: string, zone: { barangay?: string; municipality?: string; province?: string }) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    const updates: Record<string, string | undefined> = {};
+    if (zone.barangay !== undefined) updates.barangay = zone.barangay;
+    if (zone.municipality !== undefined) updates.municipality = zone.municipality;
+    if (zone.province !== undefined) updates.province = zone.province;
+    updates.updated_at = new Date().toISOString();
+
+    const { error } = await this.withTimeout<any>(
+      supabase
+        .from('user_profiles')
+        .update(updates)
+        .eq('auth_user_id', authUserId),
+      'Zone update timed out.',
+    );
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return { message: 'Zone updated successfully.', zone };
+  }
 }

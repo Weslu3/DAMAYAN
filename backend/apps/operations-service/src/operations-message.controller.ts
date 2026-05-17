@@ -41,6 +41,7 @@ import { CreateCitizenDto } from '../../../src/registrations/dto/create-citizen.
 import { CreateFamilyDto } from '../../../src/registrations/dto/create-family.dto.js';
 import { UpdateCitizenDto } from '../../../src/registrations/dto/update-citizen.dto.js';
 import { UpdateFamilyDto } from '../../../src/registrations/dto/update-family.dto.js';
+import { CreateAnimalDto } from '../../../src/registrations/dto/create-animal.dto.js';
 import { RegistrationsService } from '../../../src/registrations/registrations.service.js';
 import { CreateReliefOperationDto } from '../../../src/relief-operations/dto/create-relief-operation.dto.js';
 import { UpdateReliefOperationDto } from '../../../src/relief-operations/dto/update-relief-operation.dto.js';
@@ -437,5 +438,35 @@ export class OperationsMessageController {
   @MessagePattern(DASHBOARD_PATTERNS.GET_OVERVIEW)
   getDashboardOverview(@Payload() payload: { scope?: 'admin' | 'site-manager' }) {
     return this.dashboardService.getOverview(payload?.scope ?? 'site-manager');
+  }
+
+  @MessagePattern(DISASTER_EVENT_PATTERNS.FIND_ACTIVE)
+  findActiveDisasterEvent() {
+    return this.disasterEventsService.findActive();
+  }
+
+  @MessagePattern(REGISTRATION_PATTERNS.FIND_FAMILIES_BY_HEAD)
+  findFamiliesByHead(@Payload() payload: { headUserId: string }) {
+    return this.registrationsService.findFamiliesByHead(payload.headUserId);
+  }
+
+  @MessagePattern(REGISTRATION_PATTERNS.DELETE_FAMILY_BY_QR)
+  deleteFamilyMembersByQr(@Payload() payload: { qrCodeId: string }) {
+    return this.registrationsService.deleteFamilyMembersByQr(payload.qrCodeId);
+  }
+
+  @MessagePattern(REGISTRATION_PATTERNS.CREATE_ANIMAL)
+  createAnimal(@Payload() createAnimalDto: CreateAnimalDto) {
+    return this.registrationsService.createAnimal(createAnimalDto);
+  }
+
+  @MessagePattern(REGISTRATION_PATTERNS.FIND_ANIMALS_BY_USER)
+  findAnimalsByUser(@Payload() payload: { userId: string }) {
+    return this.registrationsService.findAnimalsByUser(payload.userId);
+  }
+
+  @MessagePattern(REGISTRATION_PATTERNS.DELETE_ANIMALS_BY_USER)
+  deleteAnimalsByUser(@Payload() payload: { userId: string }) {
+    return this.registrationsService.deleteAnimalsByUser(payload.userId);
   }
 }

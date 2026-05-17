@@ -9,6 +9,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard.js';
@@ -375,7 +376,26 @@ export class SiteManagerController {
   }
 
   @Post('reports/summary')
+  @Roles(AppRole.LINE_MANAGER, AppRole.ADMIN)
   generateSiteSummaryReport() {
     return this.siteManagerProxyService.generateSiteSummaryReport();
+  }
+
+  // ── Profile: On-Duty Status & Zone ────────────────────────────────────────
+
+  @Patch('status')
+  updateDutyStatus(
+    @Req() request: { user: { sub: string } },
+    @Body('isOnDuty') isOnDuty: boolean,
+  ) {
+    return this.siteManagerProxyService.updateDutyStatus(request.user.sub, isOnDuty);
+  }
+
+  @Patch('zone')
+  updateZone(
+    @Req() request: { user: { sub: string } },
+    @Body() zone: { barangay?: string; municipality?: string; province?: string },
+  ) {
+    return this.siteManagerProxyService.updateZone(request.user.sub, zone);
   }
 }
