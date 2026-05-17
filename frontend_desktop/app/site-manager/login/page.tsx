@@ -1,5 +1,6 @@
-import SiteManagerLoginPage from "./SiteManagerLoginPage";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return <SiteManagerLoginPage />;
+export default function SiteManagerLoginRedirect() {
+  // Perform server-side redirect directly to the consolidated login page
+  redirect("/login");
 }

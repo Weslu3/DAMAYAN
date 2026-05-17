@@ -22,6 +22,7 @@ import { SupabaseService } from '../supabase/supabase.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { AppRole } from '../../libs/contracts/src/roles.js';
 import { CreateGovernmentIdUploadDto } from '../uploads/dto/create-government-id-upload.dto.js';
+import { createClient } from '@supabase/supabase-js';
 
 interface UserProfileRow {
   id: string;
@@ -69,21 +70,22 @@ export class AuthService {
 
     const supabase = this.supabaseService.getClient() as any;
     const formattedPhone = this.formatPhoneForStorage(signupDto.phone);
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+
+    // Create the auth user using Supabase Admin API (bypassing RLS trigger issue since execution is by service_role)
+    const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
       email: signupDto.email,
       password: signupDto.password,
-      options: {
-        data: {
-          first_name: signupDto.firstName,
-          last_name: signupDto.lastName,
-          role: requestedRole,
-          government_id_file_name: signupDto.governmentIdFileName ?? null,
-        },
+      email_confirm: true, // Automatically confirm email to avoid verification friction
+      user_metadata: {
+        first_name: signupDto.firstName,
+        last_name: signupDto.lastName,
+        role: requestedRole,
+        government_id_file_name: signupDto.governmentIdFileName ?? null,
       },
     });
 
     if (signUpError) {
-      if (signUpError.message.toLowerCase().includes('already registered')) {
+      if (signUpError.message.toLowerCase().includes('already registered') || signUpError.message.toLowerCase().includes('already exists')) {
         throw new ConflictException('User with this email already exists');
       }
       throw new BadRequestException(signUpError.message);
@@ -94,15 +96,22 @@ export class AuthService {
       throw new BadRequestException('Unable to create auth user');
     }
 
+    // Execute database upsert with service_role client (bypassing RLS and supporting auto-triggers cleanly)
     const { error: profileError } = await supabase
       .from('user_profiles')
-      .insert({
+      .upsert({
         auth_user_id: authUser.id,
         first_name: signupDto.firstName,
         last_name: signupDto.lastName,
         phone: formattedPhone,
+        address: signupDto.address ?? null,
+        barangay: signupDto.barangay ?? null,
+        municipality: signupDto.municipality ?? null,
+        province: signupDto.province ?? null,
         profile_photo_key: signupDto.governmentIdKey ?? null,
         role: requestedRole,
+      }, {
+        onConflict: 'auth_user_id'
       });
 
     if (profileError) {
@@ -178,9 +187,23 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     this.logger.log(`AuthService.login Payload: ${JSON.stringify(loginDto)}`);
     const supabase = this.supabaseService.getClient() as any;
+    
+    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+    const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new BadRequestException('Supabase connection parameters are missing in environment.');
+    }
+
+    // Ephemeral client for isolated login to keep admin client untouched
+    const ephemeralClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
 
     const { data, error } = await this.withTimeout<any>(
-      supabase.auth.signInWithPassword({
+      ephemeralClient.auth.signInWithPassword({
         email: loginDto.email,
         password: loginDto.password,
       }),
@@ -345,6 +368,19 @@ export class AuthService {
           email: normalizedEmail,
         }),
         'Auth email update timed out.',
+      );
+
+      if (authUpdateError) {
+        throw new BadRequestException(authUpdateError.message);
+      }
+    }
+
+    if (updateProfileDto.password) {
+      const { error: authUpdateError } = await this.withTimeout<any>(
+        supabase.auth.admin.updateUserById(userId, {
+          password: updateProfileDto.password,
+        }),
+        'Auth password update timed out.',
       );
 
       if (authUpdateError) {

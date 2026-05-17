@@ -2362,6 +2362,6 @@ export default function DispatcherPortal() {
   return (
     stage === "login"    ? <LoginPage    onLogin={() => setStage("portal")} onRegister={() => setStage("awaiting")} /> :
     stage === "awaiting" ? <AwaitingPage onProceed={() => setStage("portal")} /> :
-    <Shell onLogout={() => { window.location.href = "/dispatcher/login"; }} />
+    <Shell onLogout={() => { window.location.href = "/login"; }} />
   );
 }

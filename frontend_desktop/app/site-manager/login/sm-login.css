@@ -1,6 +1,0 @@
-/* Site Manager login accent overrides */
-.sm-auth {
-  --auth-accent: #1b5e20;
-  --auth-accent-light: rgba(27, 94, 32, 0.1);
-  --auth-accent-ring: rgba(76, 156, 86, 0.32);
-}

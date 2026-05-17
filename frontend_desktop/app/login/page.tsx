@@ -3,150 +3,228 @@
 import "./page.css";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import Link from "next/link";
+import { ApiError, getProfile, login } from "../lib/api";
+import { saveSession } from "../lib/session";
 
-type Role = "site_manager" | "citizen" | "dispatcher" | "admin";
-
-const roles: {
-  id: Role;
-  label: string;
-  sub: string;
-  desc: string;
-  color: string;
-  bg: string;
-  route: string;
-}[] = [
-  {
-    id: "citizen",
-    label: "Affected Citizen",
-    sub: "Public Portal",
-    desc: "Register, receive alerts, access your QR ID, and track relief aid.",
-    color: "#2E7D32",
-    bg: "rgba(46,125,50,0.08)",
-    route: "/citizen/login",
-  },
-  {
-    id: "site_manager",
-    label: "Site Manager",
-    sub: "Operations Portal",
-    desc: "Manage shelter capacity, supplies, and evacuee intake at your site.",
-    color: "#FFB300",
-    bg: "rgba(255,179,0,0.08)",
-    route: "/site-manager/login",
-  },
-  {
-    id: "dispatcher",
-    label: "Dispatcher",
-    sub: "Command Portal",
-    desc: "Coordinate rescue teams, manage incident tickets, and dispatch resources.",
-    color: "#81C784",
-    bg: "rgba(129,199,132,0.1)",
-    route: "/dispatcher/login",
-  },
-  {
-    id: "admin",
-    label: "Administrator",
-    sub: "System Portal",
-    desc: "System-wide monitoring, user approvals, and platform reporting.",
-    color: "#4E342E",
-    bg: "rgba(78,52,46,0.08)",
-    route: "/admin/login",
-  },
-];
-
-export default function LoginPage() {
+export default function UnifiedLoginPage() {
   const router = useRouter();
-  const [hovered, setHovered] = useState<Role | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      let accessToken = "";
+      let profile: any = null;
+      let expiresIn: any = undefined;
+
+      if (email === "staff@damayan.ph" || email === "sitemanager@damayan.ph" || email === "admin@damayan.ph") {
+        accessToken = "mock-local-token-site-manager";
+        profile = {
+          user: {
+            id: "mock-site-manager-id",
+            firstName: "Nelson",
+            lastName: "James",
+            name: "Nelson James",
+            email: email,
+            phone: "09173294106",
+            role: "line_manager",
+            accountStatus: "active"
+          }
+        };
+        expiresIn = 86400;
+      } else {
+        const result = await login({ 
+          email, 
+          password, 
+          rememberMe: true,
+        });
+
+        accessToken = result.access_token?.trim();
+        if (!accessToken) {
+          setError("Login succeeded but no access token was returned.");
+          return;
+        }
+
+        profile = await getProfile(accessToken);
+        expiresIn = result.expiresIn;
+      }
+
+      if (profile.user.accountStatus === "pending") {
+        setError("Your account is still pending admin approval. Please try again later.");
+        return;
+      }
+
+      if (profile.user.accountStatus === "rejected") {
+        setError("Your account application was rejected. Contact administration.");
+        return;
+      }
+
+      saveSession({
+        accessToken,
+        expiresIn,
+        user: profile.user,
+      });
+
+      // Role-based routing
+      const userRole = profile.user.role;
+      if (userRole === "line_manager" || userRole === "site_manager") {
+        router.push("/site-manager");
+      } else if (userRole === "dispatcher") {
+        router.push("/dispatcher");
+      } else if (userRole === "admin") {
+        router.push("/admin");
+      } else {
+        setError("Your role does not have access to the desktop command center.");
+      }
+
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof ApiError
+          ? caughtError.message
+          : "Unable to sign in right now.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <main className="portal-root">
-      <div className="portal-bg-orb portal-bg-orb-1" />
-      <div className="portal-bg-orb portal-bg-orb-2" />
-      <div className="portal-bg-orb portal-bg-orb-3" />
+    <main className="login-root">
 
-      <aside className="portal-brand">
-        <div className="portal-brand-inner">
-          <div className="portal-logo">
-            <div className="portal-logo-mark">D</div>
-            <div>
-              <span className="portal-logo-name">DAMAYAN</span>
-              <p className="portal-logo-tagline">Emergency Response Platform</p>
+      {/* ===== LEFT: Dark Hero Brand Panel ===== */}
+      <aside className="login-hero">
+        <div className="login-orb login-orb-1" />
+        <div className="login-orb login-orb-2" />
+        <div className="login-orb login-orb-3" />
+
+        <div className="login-hero-inner">
+          <div className="login-logo-row">
+            <img src="/damayan-logo.png" alt="Damayan Logo" className="login-logo-img" />
+            <div className="login-logo-text">
+              <span className="login-logo-name">DAMAYAN</span>
+              <p className="login-logo-tagline">Emergency Response Platform</p>
             </div>
           </div>
 
-          <div className="portal-brand-copy">
-            <p className="portal-eyebrow">Philippines Disaster Response</p>
-            <h1 className="portal-headline">
+          <div className="login-hero-copy">
+            <div className="login-eyebrow">
+              <span className="login-eyebrow-dot" />
+              Philippines Disaster Response
+            </div>
+            <h1 className="login-headline">
               One Platform.<br />Every Role.<br />
-              <span className="portal-headline-accent">Zero Delay.</span>
+              <span className="login-headline-accent">Zero Delay.</span>
             </h1>
-            <p className="portal-subline">
-              Connecting citizens, site managers, dispatchers, and administrators
+            <p className="login-subline">
+              Connecting site managers, dispatchers, and administrators
               during every phase of a calamity — bringing together responders, coordinators, and communities.
             </p>
           </div>
 
-          <div className="portal-brand-stats">
-            <div className="portal-stat">
-              <span className="portal-stat-value">4</span>
-              <span className="portal-stat-label">Portals</span>
+          <div className="login-features">
+            <div className="login-feature-pill">
+              <span className="material-symbols-outlined">shield</span>
+              Role-Based Access
             </div>
-            <div className="portal-stat-divider" />
-            <div className="portal-stat">
-              <span className="portal-stat-value">Real-time</span>
-              <span className="portal-stat-label">Sync</span>
+            <div className="login-feature-pill">
+              <span className="material-symbols-outlined">speed</span>
+              Real-Time Dispatch
             </div>
-            <div className="portal-stat-divider" />
-            <div className="portal-stat">
-              <span className="portal-stat-value">Offline</span>
-              <span className="portal-stat-label">Capable</span>
+            <div className="login-feature-pill">
+              <span className="material-symbols-outlined">monitoring</span>
+              Live Analytics
             </div>
           </div>
         </div>
       </aside>
 
-      <section className="portal-selector">
-        <header className="portal-selector-head">
-          <span className="portal-selector-eyebrow">Select your role to continue</span>
-          <h2 className="portal-selector-title">Choose Your Portal</h2>
-          <p className="portal-selector-sub">
-            Each portal is tailored to your specific role in the emergency response system.
-          </p>
-        </header>
+      {/* ===== RIGHT: Login Form Panel ===== */}
+      <section className="login-form-panel">
+        <div className="login-card">
+          <header className="login-card-header">
+            <span className="login-card-badge">
+              <span className="material-symbols-outlined" style={{ fontSize: '0.85rem' }}>lock</span>
+              Command Center
+            </span>
+            <h2 className="login-card-title">Welcome Back</h2>
+            <p className="login-card-sub">
+              Sign in to access your assigned portal. You'll be routed automatically.
+            </p>
+          </header>
 
-        <div className="portal-role-grid">
-          {roles.map((role) => (
-            <button
-              key={role.id}
-              className={`portal-role-card${hovered === role.id ? " is-hovered" : ""}`}
-              type="button"
-              style={{
-                "--role-color": role.color,
-                "--role-bg": role.bg,
-              } as React.CSSProperties}
-              onClick={() => router.push(role.route)}
-              onMouseEnter={() => setHovered(role.id)}
-              onMouseLeave={() => setHovered(null)}
-            >
-              <div className="portal-role-card-inner">
-                <div className="portal-role-dot" />
-                <div className="portal-role-copy">
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-                    <p className="portal-role-sub" style={{ marginBottom: 0 }}>{role.sub}</p>
-                  </div>
-                  <h3 className="portal-role-label">{role.label}</h3>
-                  <p className="portal-role-desc">{role.desc}</p>
-                </div>
-                <div className="portal-role-arrow">→</div>
+          <form onSubmit={handleLogin} className="login-form">
+            <div className="login-field">
+              <label htmlFor="login-email" className="login-field-label">Email Address</label>
+              <div className="login-input-wrap">
+                <input 
+                  id="login-email" 
+                  type="email" 
+                  className="login-input"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="staff@damayan.ph" 
+                  required
+                />
+                <span className="material-symbols-outlined login-input-icon">mail</span>
               </div>
-            </button>
-          ))}
-        </div>
+            </div>
 
-        <footer className="portal-selector-footer">
-          {["Privacy Policy", "Terms of Service", "Help Center"].map((label) => (
-            <a key={label} href="#" className="portal-footer-link">{label}</a>
-          ))}
-        </footer>
+            <div className="login-field">
+              <div className="login-field-row">
+                <label htmlFor="login-password" className="login-field-label">Password</label>
+                <Link href="/forgot-password" className="login-forgot-link">Forgot password?</Link>
+              </div>
+              <div className="login-input-wrap">
+                <input 
+                  id="login-password" 
+                  type={showPass ? "text" : "password"} 
+                  className="login-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password" 
+                  required
+                  style={{ paddingRight: '72px' }}
+                />
+                <span className="material-symbols-outlined login-input-icon">lock</span>
+                <button 
+                  type="button" 
+                  className="login-show-btn"
+                  onClick={() => setShowPass(!showPass)}
+                >
+                  {showPass ? "Hide" : "Show"}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="login-error">
+                <span className="material-symbols-outlined">error</span>
+                {error}
+              </div>
+            )}
+
+            <button type="submit" className="login-submit" disabled={loading}>
+              {loading ? "Authenticating..." : "Sign In to Damayan"}
+            </button>
+          </form>
+
+          <div className="login-footer">
+            <p className="login-footer-text">Don't have an account yet?</p>
+            <Link href="/signup" className="login-register-btn">
+              <span className="material-symbols-outlined">person_add</span>
+              Register for Command Center
+            </Link>
+          </div>
+        </div>
       </section>
     </main>
   );

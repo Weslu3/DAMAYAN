@@ -1,7 +1,21 @@
-import React from "react";
+"use client";
+
+import React, { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import SiteManagerDashboard from "../components/SiteManagerDashboard";
 
-export default function SiteManagerInventoryPage() {
-  return <SiteManagerDashboard phase="before" />;
+function InventoryContent() {
+  const searchParams = useSearchParams();
+  const phaseParam = searchParams.get("phase") || "before";
+  const phase = (phaseParam === "during" || phaseParam === "after" || phaseParam === "before") ? phaseParam : "before";
+
+  return <SiteManagerDashboard phase={phase} />;
 }
 
+export default function SiteManagerInventoryPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#fafaf5] dark:bg-[#1a1c19] flex items-center justify-center font-bold">Loading Inventory...</div>}>
+      <InventoryContent />
+    </Suspense>
+  );
+}

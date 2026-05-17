@@ -155,6 +155,11 @@ export async function signup(payload: {
   phone: string;
   password: string;
   role?: string;
+  address?: string;
+  barangay?: string;
+  municipality?: string;
+  province?: string;
+  profilePhotoKey?: string;
   governmentIdKey?: string;
   governmentIdFileName?: string;
   registrationType?: string;
@@ -250,6 +255,7 @@ export async function updateProfile(
     lastName?: string;
     email?: string;
     phone?: string;
+    password?: string;
   },
 ) {
   return request<{ user: AuthSession["user"] }>("/auth/me", {

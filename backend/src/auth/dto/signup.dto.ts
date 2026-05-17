@@ -43,4 +43,20 @@ export class SignupDto {
   @IsOptional()
   @IsNotEmpty()
   governmentIdFileName?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  address?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  barangay?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  municipality?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  province?: string;
 }

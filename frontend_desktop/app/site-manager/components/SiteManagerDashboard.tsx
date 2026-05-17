@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import SiteManagerProfilePage from "./SiteManagerProfilePage";
 import SiteManagerRegionalMap from "./SiteManagerRegionalMap";
+import CustomSelect from "./CustomSelect";
 import { clearSession, hasRole, loadSession } from "../../lib/session";
 import {
   getDashboard,
@@ -124,6 +125,80 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
   const [isClosingOperations, setIsClosingOperations] = useState(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [isRefreshingInventory, setIsRefreshingInventory] = useState(false);
+
+  // Recovery Phase (After Calamity) Interactive States
+  const [recoveryTab, setRecoveryTab] = useState<"assess" | "structure" | "plans" | "audit">("assess");
+  const [damageAssessment, setDamageAssessment] = useState({
+    infraStatus: "Partially Restored",
+    estimatedCost: "450000",
+    reliefNeeded: "200",
+    durationDays: "14",
+    shelterRating: "4",
+    successNotes: "Swift coordination of primary evacuation center within 30 minutes of peak water levels. No casualties recorded inside the hub.",
+    bottlenecks: "Water drainage backflow at low-lying entry point. Power grid disconnected for 18 hours without immediate secondary generator activation.",
+    isSubmitted: false
+  });
+  const [structureDamageForm, setStructureDamageForm] = useState({
+    ownerName: "",
+    address: "",
+    severity: "Major Damage",
+    needsAid: true,
+  });
+  const [structureDamageRecords, setStructureDamageRecords] = useState([
+    { id: "SDA-101", ownerName: "Manuel Santos", address: "124 Rizal St, Zone 2", severity: "Severe / Collapse", needsAid: true, status: "Processed" },
+    { id: "SDA-102", ownerName: "Elena Cruz", address: "45 Bonifacio Ave, Zone 1", severity: "Major Damage", needsAid: true, status: "Under Review" },
+    { id: "SDA-103", ownerName: "Amara Legaspi", address: "88 Mabini St, Zone 3", severity: "Minor Damage", needsAid: false, status: "Approved" },
+  ]);
+  const [recoveryPlans, setRecoveryPlans] = useState([
+    { id: "plan-1", name: "Shelter Decongestion & Resettlement Handover", progress: 75, lead: "Nelson James", status: "Active" },
+    { id: "plan-2", name: "Power Grid & Comms Restoration", progress: 40, lead: "Meralco / Ground Team", status: "Active" },
+    { id: "plan-3", name: "Health, Sanitation & Clean-up Drive", progress: 90, lead: "Brgy Health Team", status: "Near Completion" },
+    { id: "plan-4", name: "Structural Rehabilitation & Financial Aid Dispatch", progress: 15, lead: "Admin / DSWD", status: "Planning" },
+  ]);
+
+  // System Auditing & Historical Logging States
+  const [pastAssignedTasks, setPastAssignedTasks] = useState([
+    { id: "TSK-001", name: "Deploy Primary Perimeter Fencing & Lighting", timestamp: "May 15, 2026 08:30 AM", duration: "25 mins", targetDuration: "30 mins", efficiencyScore: 98, status: "Optimal", feedback: "Auxiliary power links successfully tested. Staging done ahead of schedule." },
+    { id: "TSK-002", name: "Intake Staging & Rapid Roster Alignment", timestamp: "May 15, 2026 09:15 AM", duration: "45 mins", targetDuration: "40 mins", efficiencyScore: 88, status: "Optimal", feedback: "Slight delay due to mobile network congestion. Shifted roster alignment to VHF radio backup." },
+    { id: "TSK-003", name: "Emergency Auxiliary Generator Backup Boot", timestamp: "May 16, 2026 02:10 AM", duration: "12 mins", targetDuration: "15 mins", efficiencyScore: 95, status: "Optimal", feedback: "Pre-start check list reduced boot delay during localized blackout. Outstanding team execution." },
+    { id: "TSK-004", name: "Critical Medical Aux Staging for Evacuees", timestamp: "May 16, 2026 04:45 AM", duration: "55 mins", targetDuration: "30 mins", efficiencyScore: 68, status: "Needs Review", feedback: "Delays in inventory handoff at Zone 3 due to missing triage keys. Key redundancy protocol recommended." },
+    { id: "TSK-005", name: "Coordinate Barangay Evacuee Transits", timestamp: "May 16, 2026 08:00 AM", duration: "90 mins", targetDuration: "120 mins", efficiencyScore: 99, status: "Optimal", feedback: "Smooth integration with local transit team. All transit vehicles tracked live on command system." }
+  ]);
+  const [historicalDisasterReports, setHistoricalDisasterReports] = useState([
+    {
+      id: "RPT-2024-PEPITO",
+      name: "Super Typhoon Pepito Impact Report",
+      date: "November 2024",
+      evacuees: 4200,
+      aidDistributed: "8,500 packs",
+      infraStatus: "North Wing Unroofed",
+      lessonsLearned: "Pre-staging of double-weighted roof anchors prevented full loss. Communication blackouts highlighted critical reliance on localized VHF systems.",
+      fullText: "Super Typhoon Pepito made landfall with 215 km/h winds. Evacuation was 98% successful due to early alert notifications. Zone 4 recorded roof degradation. Recommendations: Increase high-ground staging areas and reinforce communications structures."
+    },
+    {
+      id: "RPT-2024-KRISTINE",
+      name: "Severe Tropical Storm Kristine Flood Assessment",
+      date: "October 2024",
+      evacuees: 6500,
+      aidDistributed: "12,000 packs",
+      infraStatus: "Ground Floor Water Levels +1.5m",
+      lessonsLearned: "Submersible water pumps handled the main lobby backflow, but drainage channels were choked. Recommend seasonal de-silting by municipality before September.",
+      fullText: "Kristine brought record-breaking rainfall, turning low-lying zones into retention reservoirs. Evacuee containment at Evacuation Hub reached peak capacity in 6 hours. Recommendations: Elevate ground floor thresholds and purchase 4 additional motorized rescue dinghies."
+    },
+    {
+      id: "RPT-2020-ULYSSES",
+      name: "Typhoon Ulysses Incident Log",
+      date: "November 2020",
+      evacuees: 3100,
+      aidDistributed: "6,000 packs",
+      infraStatus: "Minor Road Blockages Cleared",
+      lessonsLearned: "Mobile auxiliary power staging was excellent, but mudslides delayed the main supply route by 12 hours. High-shelf inventory pre-allocation resolved early nutritional distress.",
+      fullText: "Typhoon Ulysses triggered major regional water level rises. Road blockages near North Bridge cut off supplies. Staged auxiliary inventory on upper levels kept all 3,100 evacuees supplied for 2 days. Recommendations: Retain 3-day dry food reserve on high shelving indefinitely."
+    }
+  ]);
+  const [historySearchQuery, setHistorySearchQuery] = useState("");
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [userAuditNotes, setUserAuditNotes] = useState<Record<string, string>>({});
   
   const pathname = usePathname();
 
@@ -147,12 +222,12 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
   useEffect(() => {
     const stored = loadSession();
     if (!hasRole(stored, AppRole.LINE_MANAGER)) {
-      router.replace("/site-manager/login");
+      router.replace("/login");
       return;
     }
 
     if (stored?.user.accountStatus === "pending") {
-      router.replace("/site-manager/login");
+      router.replace("/login");
       return;
     }
 
@@ -441,21 +516,51 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
     setNewBatchSuccess(null);
 
     try {
-      const { createInventoryBatch } = await import("../../lib/api");
-      const submittedBatchName =
-        newBatchState.name.trim() || `Batch-${new Date().toISOString()}`;
-      
-      const batchResult = await createInventoryBatch(session.accessToken, {
-        name: submittedBatchName,
-        items: [{ itemId: selectedItemId, quantity: parsedQuantity }],
-      });
+      let successMsg = "";
+      let refName = "";
+
+      if (phase === 'during') {
+        const { adjustInventoryItem } = await import("../../lib/api");
+        await adjustInventoryItem(session.accessToken, selectedItemId, -parsedQuantity);
+        
+        const defaultPrefix = "Disp";
+        refName = newBatchState.name.trim() || `${defaultPrefix}-${new Date().toISOString().split('T')[0]}-${Math.floor(Math.random()*1000)}`;
+        successMsg = `Recorded distribution of ${parsedQuantity} units. (Ref: ${refName})`;
+      } else if (phase === 'after') {
+        const { adjustInventoryItem } = await import("../../lib/api");
+        const currentItem = inventoryItems.find(item => item.id === selectedItemId);
+        const currentQuantity = currentItem ? Number(currentItem.quantity) : 0;
+        const adjustment = parsedQuantity - currentQuantity;
+
+        await adjustInventoryItem(session.accessToken, selectedItemId, adjustment);
+        
+        const defaultPrefix = "Aud";
+        refName = newBatchState.name.trim() || `${defaultPrefix}-${new Date().toISOString().split('T')[0]}-${Math.floor(Math.random()*1000)}`;
+        successMsg = `Final inventory count updated to exactly ${parsedQuantity} units. (Ref: ${refName})`;
+      } else {
+        const { createInventoryBatch } = await import("../../lib/api");
+        
+        let defaultPrefix = "Req";
+
+        const submittedBatchName =
+          newBatchState.name.trim() || `${defaultPrefix}-${new Date().toISOString().split('T')[0]}-${Math.floor(Math.random()*1000)}`;
+        
+        const batchResult = await createInventoryBatch(session.accessToken, {
+          name: submittedBatchName,
+          items: [{ itemId: selectedItemId, quantity: parsedQuantity }],
+        });
+        
+        refName = batchResult?.batchName ?? submittedBatchName;
+        successMsg = `Added ${parsedQuantity} units to shelter supplies. (Ref: ${refName})`;
+      }
 
       setNewBatchState({ name: "", itemId: "", quantity: "" });
       const freshInventory = await getInventory("site-manager", session.accessToken);
       setInventoryItems(freshInventory);
-      setNewBatchSuccess(`Batch processed: ${batchResult?.batchName ?? "Batch"}. Inventory quantity updated.`);
+      
+      setNewBatchSuccess(successMsg);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create batch";
+      const message = error instanceof Error ? error.message : "Failed to process inventory update";
       setNewBatchError(message);
       setNewBatchSuccess(null);
       console.error("New batch error:", error);
@@ -520,6 +625,27 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
       console.error("Generate report error:", error);
     } finally {
       setIsGeneratingReport(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      const headers = ["Category", "Stock Level", "Incoming", "ETA", "Status"];
+      const csvRows = inventoryTable.map(row => 
+        `"${row.category}","${row.stock}","${row.incoming}","${row.eta}","${row.status}"`
+      );
+      const csvContent = [headers.join(","), ...csvRows].join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `damayan_inventory_export_${phase}_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error("Failed to export CSV:", err);
+      alert("Failed to export CSV. Please try again.");
     }
   };
 
@@ -681,7 +807,24 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
     ),
   );
 
-  const essentialTasks = [
+  const essentialTasks = phase === 'after' ? [
+    {
+      t: "Final Damage Report",
+      s: damageAssessment.isSubmitted ? "Complete" : "Pending Submission",
+    },
+    {
+      t: "Shelter Performance Evaluation",
+      s: damageAssessment.isSubmitted ? "Evaluated" : "In Progress",
+    },
+    {
+      t: "Registered Structure Damage",
+      s: `${structureDamageRecords.length} Units Logged`,
+    },
+    {
+      t: "Recovery Plan Progress",
+      s: `${Math.round(recoveryPlans.reduce((acc, p) => acc + p.progress, 0) / recoveryPlans.length)}% Avg`,
+    },
+  ] : [
     {
       t: "Inventory Validation",
       s: loadingData ? "Loading" : inventoryItems.length > 0 ? "Ready" : "Pending",
@@ -809,25 +952,13 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                     </div>
                     <span className="text-base font-black text-[#1a1c19] dark:text-[#e2e3dd]">View Profile</span>
                   </button>
-                  <button 
-                    onClick={() => {
-                      setIsProfileOpen(false);
-                      // In a real app, this would navigate to edit profile
-                    }}
-                    className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-[#f4f4ef] dark:hover:bg-white/5 transition-all group text-left"
-                  >
-                    <div className="w-12 h-12 rounded-[1.25rem] flex items-center justify-center shrink-0 bg-[#FFF8E1] dark:bg-[#FFB300]/20">
-                      <span className="material-symbols-outlined text-2xl text-[#FFB300]">edit</span>
-                    </div>
-                    <span className="text-base font-black text-[#1a1c19] dark:text-[#e2e3dd]">Edit Profile</span>
-                  </button>
                 </div>
 
                 <div className="mt-2 pt-2 border-t border-[#dadad5]/50 dark:border-[#3b3b3b]/50 px-3">
                   <button
                     onClick={() => {
                       clearSession();
-                      router.replace("/site-manager/login");
+                      router.replace("/login");
                     }}
                     className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-red-50 dark:hover:bg-red-500/10 transition-all group text-left"
                   >
@@ -857,9 +988,9 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
 
         <nav className="space-y-2 flex-grow">
           {[
-            { id: 'Dashboard', label: 'Dashboard', icon: 'grid_view', path: '/site-manager' },
-            { id: 'Inventory', label: 'Inventory', icon: 'inventory_2', path: '/site-manager/inventory' },
-            { id: 'SiteMap', label: 'Site Map', icon: 'map', path: '/site-manager/sitemap' },
+            { id: 'Dashboard', label: 'Dashboard', icon: 'grid_view', path: `/site-manager/${phase}calamity` },
+            { id: 'Inventory', label: 'Inventory', icon: 'inventory_2', path: `/site-manager/inventory?phase=${phase}` },
+            { id: 'SiteMap', label: 'Interactive Site Map', icon: 'map', path: `/site-manager/sitemap?phase=${phase}` },
           ].map((item) => {
             const isActive = activeTab === item.id && !showProfile;
             return (
@@ -888,20 +1019,35 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
         </nav>
 
         <div className="space-y-4">
-          <Link 
-            href={`/site-manager/${nextPhase}calamity`}
-            className="w-full group relative overflow-hidden rounded-3xl p-px transition-all hover:scale-[1.02] active:scale-95 shadow-xl block"
-          >
-            <div className="absolute inset-0 opacity-10 animate-pulse" style={{ background: phaseConfig.primaryColor }}></div>
-            <div 
-              className="relative flex items-center justify-center gap-3 px-6 py-5 rounded-[1.4rem] transition-colors"
-              style={{ background: `linear-gradient(135deg, ${phaseConfig.primaryColor}, ${phaseConfig.primaryContainer})` }}
+          {phase !== "before" && (
+            <Link 
+              href={`/site-manager/${phase === "after" ? "during" : "before"}calamity`}
+              className="w-full group relative overflow-hidden rounded-3xl p-px transition-all hover:scale-[1.02] active:scale-95 shadow-sm block"
             >
-               <span className="material-symbols-outlined text-white animate-pulse text-xl">arrow_forward</span>
-               <span className="text-white text-[11px] font-black uppercase tracking-[0.2em]">Next: {nextPhase}</span>
-            </div>
-          </Link>
+              <div 
+                className="relative flex items-center justify-center gap-3 px-6 py-4 rounded-[1.4rem] transition-colors border border-[#dadad5] dark:border-[#3b3b3b] bg-white dark:bg-[#232622] hover:bg-[#f4f4ef] dark:hover:bg-white/5"
+              >
+                 <span className="material-symbols-outlined text-[#707a6c] transition-transform group-hover:-translate-x-1 text-xl">arrow_backward</span>
+                 <span className="text-[#707a6c] text-[10px] font-black uppercase tracking-[0.2em]">Back: {phase === "after" ? "During" : "Before"}</span>
+              </div>
+            </Link>
+          )}
 
+          {phase !== "after" && (
+            <Link 
+              href={`/site-manager/${nextPhase}calamity`}
+              className="w-full group relative overflow-hidden rounded-3xl p-px transition-all hover:scale-[1.02] active:scale-95 shadow-xl block"
+            >
+              <div className="absolute inset-0 opacity-10 animate-pulse" style={{ background: phaseConfig.primaryColor }}></div>
+              <div 
+                className="relative flex items-center justify-center gap-3 px-6 py-5 rounded-[1.4rem] transition-colors"
+                style={{ background: `linear-gradient(135deg, ${phaseConfig.primaryColor}, ${phaseConfig.primaryContainer})` }}
+              >
+                 <span className="material-symbols-outlined text-white animate-pulse text-xl">arrow_forward</span>
+                 <span className="text-white text-[11px] font-black uppercase tracking-[0.2em]">Next: {nextPhase}</span>
+              </div>
+            </Link>
+          )}
         </div>
       </aside>
 
@@ -963,7 +1109,683 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
             </div>
 
             {/* Checklist / Scanner Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            {phase === 'after' ? (
+              <div className="space-y-6 mb-8 animate-in fade-in duration-500">
+                {/* Custom Recovery Tabs */}
+                <div className="flex gap-2 bg-[#dadad5]/40 dark:bg-[#3b3b3b]/30 p-1.5 rounded-2xl w-full max-w-2xl">
+                  <button 
+                    onClick={() => setRecoveryTab("assess")}
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "assess" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">analytics</span>
+                    1. Damage & Shelter
+                  </button>
+                  <button 
+                    onClick={() => setRecoveryTab("structure")}
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "structure" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">home_work</span>
+                    2. Structure Intake
+                  </button>
+                  <button 
+                    onClick={() => setRecoveryTab("plans")}
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "plans" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">target</span>
+                    3. Recovery Plans
+                  </button>
+                  <button 
+                    onClick={() => setRecoveryTab("audit")}
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "audit" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">assignment</span>
+                    4. Audit & History
+                  </button>
+                </div>
+
+                {/* Tab Content 1: Damage & Shelter Assessment Form */}
+                {recoveryTab === "assess" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-[#f4f4ef] dark:bg-[#232622] p-6 md:p-8 rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b]">
+                    <div className="lg:col-span-8 space-y-6">
+                      <div>
+                        <h4 className="text-lg font-black flex items-center gap-2 text-[#1a1c19] dark:text-white">
+                          <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>analytics</span>
+                          Post-Disaster Impact & Shelter Evaluation
+                        </h4>
+                        <p className="text-xs text-[#707a6c] mt-1">Submit reports for central administration evaluation and aid calculations.</p>
+                      </div>
+
+                      {damageAssessment.isSubmitted ? (
+                        <div className="bg-[#e8f5e9] dark:bg-green-950/20 border border-green-200 dark:border-green-900/50 p-6 rounded-2xl space-y-4 text-left">
+                          <div className="flex items-center gap-3 text-[#2E7D32] dark:text-[#81C784]">
+                            <span className="material-symbols-outlined text-3xl">check_circle</span>
+                            <div>
+                              <p className="font-black text-sm uppercase tracking-wider">Reports Successfully Submitted</p>
+                              <p className="text-[10px] text-[#444743]">Instantly synchronized with Central Disaster Administration Office</p>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-[#dadad5]/50 text-xs">
+                            <div>
+                              <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Infrastructure Status</p>
+                              <p className="font-black text-sm text-green-700 mt-0.5">{damageAssessment.infraStatus}</p>
+                            </div>
+                            <div>
+                              <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Est. Financial Damage</p>
+                              <p className="font-black text-sm text-green-700 mt-0.5">PHP {parseInt(damageAssessment.estimatedCost).toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Relief Kits Required</p>
+                              <p className="font-black text-sm text-green-700 mt-0.5">{parseInt(damageAssessment.reliefNeeded).toLocaleString()} units</p>
+                            </div>
+                            <div>
+                              <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Est. Rebuilding Duration</p>
+                              <p className="font-black text-sm text-green-700 mt-0.5">{damageAssessment.durationDays} days</p>
+                            </div>
+                          </div>
+
+                          <div className="pt-4 border-t border-[#dadad5]/50 text-xs">
+                            <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Shelter Performance Rating</p>
+                            <div className="flex gap-1 mt-1">
+                              {Array.from({ length: 5 }).map((_, idx) => (
+                                <span key={idx} className="material-symbols-outlined text-sm" style={{ color: idx < parseInt(damageAssessment.shelterRating) ? '#FFB300' : '#dadad5' }}>
+                                  star
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="pt-4 border-t border-[#dadad5]/50 text-xs">
+                            <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Operational Successes Summary</p>
+                            <p className="text-[#1a1c19] dark:text-[#e2e3dd] mt-1 leading-relaxed">{damageAssessment.successNotes}</p>
+                          </div>
+
+                          <div className="pt-4 border-t border-[#dadad5]/50 text-xs">
+                            <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Challenges / Staging Bottlenecks</p>
+                            <p className="text-[#1a1c19] dark:text-[#e2e3dd] mt-1 leading-relaxed">{damageAssessment.bottlenecks}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4 text-left">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Infrastructure Status</label>
+                              <CustomSelect 
+                                value={damageAssessment.infraStatus}
+                                onChange={(val: any) => setDamageAssessment(prev => ({ ...prev, infraStatus: val }))}
+                                options={[
+                                  { value: "Fully Restored", label: "Fully Restored" },
+                                  { value: "Partially Restored", label: "Partially Restored" },
+                                  { value: "Severely Degraded", label: "Severely Degraded" },
+                                  { value: "Non-Functional", label: "Non-Functional" },
+                                ]}
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Est. Financial Damage (PHP)</label>
+                              <input 
+                                type="number"
+                                value={damageAssessment.estimatedCost}
+                                onChange={(e) => setDamageAssessment(prev => ({ ...prev, estimatedCost: e.target.value }))}
+                                className="w-full bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-xs font-bold outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Relief Kits Required</label>
+                              <input 
+                                type="number"
+                                value={damageAssessment.reliefNeeded}
+                                onChange={(e) => setDamageAssessment(prev => ({ ...prev, reliefNeeded: e.target.value }))}
+                                className="w-full bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-xs font-bold outline-none"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Est. Rebuilding Duration (Days)</label>
+                              <input 
+                                type="number"
+                                value={damageAssessment.durationDays}
+                                onChange={(e) => setDamageAssessment(prev => ({ ...prev, durationDays: e.target.value }))}
+                                className="w-full bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-xs font-bold outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Evacuation Shelter Performance Rating</label>
+                            <div className="flex gap-2 items-center">
+                              {Array.from({ length: 5 }).map((_, idx) => (
+                                <button 
+                                  key={idx} 
+                                  onClick={() => setDamageAssessment(prev => ({ ...prev, shelterRating: String(idx + 1) }))}
+                                  className="hover:scale-110 active:scale-95 transition-transform"
+                                >
+                                  <span className="material-symbols-outlined text-2xl" style={{ color: idx < parseInt(damageAssessment.shelterRating) ? '#FFB300' : '#dadad5' }}>
+                                    star
+                                  </span>
+                                </button>
+                              ))}
+                              <span className="text-xs text-[#707a6c] font-black ml-2">({damageAssessment.shelterRating} / 5 Stars)</span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Operational Successes Summary</label>
+                            <textarea 
+                              rows={2}
+                              value={damageAssessment.successNotes}
+                              onChange={(e) => setDamageAssessment(prev => ({ ...prev, successNotes: e.target.value }))}
+                              className="w-full bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-xs font-bold outline-none resize-none"
+                              placeholder="What protocols went perfectly? (e.g. swift evacuation, pre-staged kits, zero casualties...)"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Challenges & Staging Bottlenecks</label>
+                            <textarea 
+                              rows={2}
+                              value={damageAssessment.bottlenecks}
+                              onChange={(e) => setDamageAssessment(prev => ({ ...prev, bottlenecks: e.target.value }))}
+                              className="w-full bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-xs font-bold outline-none resize-none"
+                              placeholder="What delays occurred? (e.g. water backups, power outages, comms delays...)"
+                            />
+                          </div>
+
+                          <button 
+                            onClick={() => {
+                              setDamageAssessment(prev => ({ ...prev, isSubmitted: true }));
+                              alert("🎉 Success! Central assessment report compiled and dispatched successfully.");
+                            }}
+                            className="w-full text-white font-black uppercase tracking-wider text-xs py-3.5 rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 hover:brightness-110"
+                            style={{ background: phaseConfig.primaryColor }}
+                          >
+                            <span className="material-symbols-outlined text-sm">assignment_turned_in</span>
+                            Generate & Submit Final Reports
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* PDF Style Printable Overview Sidebar */}
+                    <div className="lg:col-span-4 bg-white dark:bg-[#1a1c19] p-6 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] flex flex-col justify-between gap-6">
+                      <div className="text-left">
+                        <div className="flex justify-between items-start border-b border-[#dadad5]/50 pb-3.5">
+                          <div>
+                            <h5 className="font-black text-xs text-[#1a1c19] dark:text-[#e2e3dd] uppercase tracking-wider">Digital PDF Docket</h5>
+                            <p className="text-[9px] text-[#707a6c] uppercase font-bold mt-0.5">Doc Ref: DD-AFTER-2026</p>
+                          </div>
+                          <span className="material-symbols-outlined text-[#707a6c]">picture_as_pdf</span>
+                        </div>
+
+                        <div className="space-y-4 mt-6 text-xs">
+                          <div className="bg-[#f4f4ef] dark:bg-[#232622] p-3.5 rounded-xl">
+                            <p className="font-black text-[9px] text-[#707a6c] uppercase tracking-widest">Report Verification Status</p>
+                            <p className="font-bold mt-1 text-[#1a1c19] dark:text-white flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: damageAssessment.isSubmitted ? '#2E7D32' : '#ba1a1a' }}></span>
+                              {damageAssessment.isSubmitted ? 'SIGNED & SYNCHRONIZED' : 'DRAFT - PENDING SIGNATURE'}
+                            </p>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <span className="text-[9px] font-black uppercase text-[#707a6c]">Security Hash ID</span>
+                            <p className="font-mono text-[9px] bg-[#f4f4ef] dark:bg-[#232622] p-2 rounded text-[#444743] dark:text-[#a0a39f] truncate">
+                              {damageAssessment.isSubmitted ? 'SHA-256: 8f9b2d8e411b4efc8c12a7f8e83344b5a2662f2d93e1a6c42dfbe9ea100c' : 'DRAFT_INCOMPLETE_NO_SEC_KEY'}
+                            </p>
+                          </div>
+
+                          <div className="pt-3.5">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-[#707a6c] mb-2">Intended Central Recipients</p>
+                            <ul className="space-y-2 text-[10px] text-[#444743] dark:text-[#a0a39f] font-bold">
+                              <li className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-green-700">done_all</span>
+                                DSWD Regional Office III
+                              </li>
+                              <li className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-green-700">done_all</span>
+                                OCD Central Command Hub
+                              </li>
+                              <li className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-green-700">done_all</span>
+                                PAGASA Climate Risk Desk
+                              </li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={() => {
+                          if (!damageAssessment.isSubmitted) {
+                            alert('🔒 Please fill out the report and submit it first before generating a print job.');
+                            return;
+                          }
+                          window.print();
+                        }}
+                        className="w-full bg-[#1a1c19] dark:bg-white text-white dark:text-black py-3 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all shadow-md flex items-center justify-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-sm">print</span>
+                        Print Assessment PDF
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab Content 2: Structure Damage Intake Form & Table */}
+                {recoveryTab === "structure" && (
+                  <div className="bg-[#f4f4ef] dark:bg-[#232622] p-6 md:p-8 rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-6 animate-in fade-in duration-500">
+                    <div className="text-left">
+                      <h4 className="text-lg font-black flex items-center gap-2 text-[#1a1c19] dark:text-white">
+                        <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>home_work</span>
+                        Digital Structure Damage Registration Portal
+                      </h4>
+                      <p className="text-xs text-[#707a6c] mt-1">Register impacted household structures to expedite government emergency recovery grant payouts.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                      {/* Form Block */}
+                      <div className="lg:col-span-5 bg-white dark:bg-[#1a1c19] p-6 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4 text-left">
+                        <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white pb-3 border-b border-[#dadad5]/50">Register New Damaged Unit</h5>
+                        
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Homeowner Full Name</label>
+                          <input 
+                            type="text" 
+                            value={structureDamageForm.ownerName}
+                            onChange={(e) => setStructureDamageForm(prev => ({ ...prev, ownerName: e.target.value }))}
+                            placeholder="e.g. Juan Dela Cruz"
+                            className="w-full bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Structure Address</label>
+                          <input 
+                            type="text" 
+                            value={structureDamageForm.address}
+                            onChange={(e) => setStructureDamageForm(prev => ({ ...prev, address: e.target.value }))}
+                            placeholder="e.g. 123 Mabini St, Zone 2"
+                            className="w-full bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Damage Severity Level</label>
+                          <CustomSelect 
+                            value={structureDamageForm.severity}
+                            onChange={(val: any) => setStructureDamageForm(prev => ({ ...prev, severity: val }))}
+                            options={[
+                              { value: "Severe / Collapse", label: "Severe / Collapse" },
+                              { value: "Major Damage", label: "Major Damage" },
+                              { value: "Minor Damage", label: "Minor Damage" },
+                            ]}
+                          />
+                        </div>
+
+                        <label className="flex items-center gap-3 p-3 bg-[#dadad5]/20 dark:bg-white/5 rounded-xl cursor-pointer">
+                          <input 
+                            type="checkbox"
+                            checked={structureDamageForm.needsAid}
+                            onChange={(e) => setStructureDamageForm(prev => ({ ...prev, needsAid: e.target.checked }))}
+                            className="w-4 h-4 rounded border-[#dadad5] text-green-700 focus:ring-green-500"
+                          />
+                          <span className="text-[10px] font-black uppercase text-[#444743] dark:text-[#a0a39f] select-none">Requires Immediate Financial Assistance</span>
+                        </label>
+
+                        <button 
+                          onClick={() => {
+                            if (!structureDamageForm.ownerName.trim() || !structureDamageForm.address.trim()) {
+                              alert('⚠️ Owner name and address are required to log structural assessments.');
+                              return;
+                            }
+                            const newRecord = {
+                              id: `SDA-${Math.floor(100 + Math.random() * 900)}`,
+                              ownerName: structureDamageForm.ownerName.trim(),
+                              address: structureDamageForm.address.trim(),
+                              severity: structureDamageForm.severity,
+                              needsAid: structureDamageForm.needsAid,
+                              status: "Processed"
+                            };
+                            setStructureDamageRecords(prev => [newRecord, ...prev]);
+                            setStructureDamageForm({ ownerName: "", address: "", severity: "Major Damage", needsAid: true });
+                          }}
+                          className="w-full text-white font-black uppercase tracking-wider text-xs py-3.5 rounded-2xl shadow-md hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
+                          style={{ background: phaseConfig.primaryColor }}
+                        >
+                          <span className="material-symbols-outlined text-sm">home_work</span>
+                          Register Structure Damage
+                        </button>
+                      </div>
+
+                      {/* Records Table */}
+                      <div className="lg:col-span-7 bg-white dark:bg-[#1a1c19] p-6 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] overflow-hidden">
+                        <div className="flex justify-between items-center pb-3.5 border-b border-[#dadad5]/50 mb-4">
+                          <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">Registered Damage Intake Logs</h5>
+                          <span className="bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300 px-2.5 py-0.5 rounded text-[9px] font-black uppercase border border-green-200/50">Synchronized Live</span>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs min-w-[500px]">
+                            <thead>
+                              <tr className="border-b border-[#dadad5]/50 text-[#707a6c] font-black text-[9px] uppercase tracking-wider">
+                                <th className="pb-3">ID</th>
+                                <th className="pb-3">Homeowner</th>
+                                <th className="pb-3">Address</th>
+                                <th className="pb-3">Severity</th>
+                                <th className="pb-3 text-center">Financial Aid</th>
+                                <th className="pb-3 text-right">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#dadad5]/30">
+                              {structureDamageRecords.map((rec) => (
+                                <tr key={rec.id} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors font-bold">
+                                  <td className="py-3.5 font-mono text-[10px]">{rec.id}</td>
+                                  <td className="py-3.5 text-[#1a1c19] dark:text-white">{rec.ownerName}</td>
+                                  <td className="py-3.5 text-[#444743] dark:text-[#a0a39f]">{rec.address}</td>
+                                  <td className="py-3.5">
+                                    <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase ${
+                                      rec.severity === 'Severe / Collapse' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' :
+                                      rec.severity === 'Major Damage' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' :
+                                      'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300'
+                                    }`}>
+                                      {rec.severity}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5 text-center">
+                                    <span className="material-symbols-outlined text-sm font-black" style={{ color: rec.needsAid ? '#2E7D32' : '#707a6c' }}>
+                                      {rec.needsAid ? 'check_box' : 'disabled_by_default'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5 text-right">
+                                    <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase bg-[#f4f4ef] dark:bg-[#232622] px-2 py-0.5 rounded">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                      {rec.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab Content 3: Track Progress on Recovery Plans */}
+                {recoveryTab === "plans" && (
+                  <div className="bg-[#f4f4ef] dark:bg-[#232622] p-6 md:p-8 rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-6">
+                    <div>
+                      <h4 className="text-lg font-black flex items-center gap-2 text-[#1a1c19] dark:text-white">
+                        <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>target</span>
+                        Published Rehabilitation & Recovery Plans
+                      </h4>
+                      <p className="text-xs text-[#707a6c] mt-1">Oversight panel to track, adjust, and report progress on ground execution.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {recoveryPlans.map((plan) => (
+                        <div key={plan.id} className="bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] flex flex-col justify-between gap-4 shadow-sm text-left">
+                          <div>
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-green-50 text-[#2E7D32] dark:bg-green-950/40 dark:text-[#81C784] border border-[#2E7D32]/10">{plan.status}</span>
+                              <span className="text-[10px] text-[#707a6c] font-bold">Lead: {plan.lead}</span>
+                            </div>
+                            <h5 className="font-black text-sm text-[#1a1c19] dark:text-white mt-3.5 leading-snug">{plan.name}</h5>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-bold text-[#444743] dark:text-[#a0a39f]">Completion Progress</span>
+                              <span className="font-black text-sm" style={{ color: phaseConfig.primaryColor }}>{plan.progress}%</span>
+                            </div>
+                            {/* Visual Progress Bar */}
+                            <div className="w-full bg-[#f4f4ef] dark:bg-[#232622] h-2.5 rounded-full overflow-hidden border border-[#dadad5] dark:border-[#3b3b3b]">
+                              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${plan.progress}%`, background: phaseConfig.primaryColor }}></div>
+                            </div>
+
+                            {/* Control Adjustments */}
+                            <div className="flex justify-end gap-2 pt-1">
+                              <button 
+                                onClick={() => {
+                                  const updatedProgress = Math.max(0, plan.progress - 10);
+                                  setRecoveryPlans(prev => prev.map(p => p.id === plan.id ? { ...p, progress: updatedProgress } : p));
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg border border-[#dadad5] dark:border-[#3b3b3b] hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 text-[10px] font-black uppercase tracking-wider active:scale-95 transition-all text-[#1a1c19] dark:text-[#e2e3dd]"
+                              >
+                                - 10%
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  const updatedProgress = Math.min(100, plan.progress + 10);
+                                  setRecoveryPlans(prev => prev.map(p => p.id === plan.id ? { ...p, progress: updatedProgress } : p));
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-white shadow-sm active:scale-95 transition-all hover:opacity-90"
+                                style={{ background: phaseConfig.primaryColor }}
+                              >
+                                + 10%
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab Content 4: System Auditing & Historical Logging */}
+                {recoveryTab === "audit" && (
+                  <div className="bg-[#f4f4ef] dark:bg-[#232622] p-6 md:p-8 rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-6 animate-in fade-in duration-500">
+                    <div className="text-left flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-lg font-black flex items-center gap-2 text-[#1a1c19] dark:text-white">
+                          <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>history</span>
+                          System Auditing & Historical Incident Logs
+                        </h4>
+                        <p className="text-xs text-[#707a6c] mt-1">Review staging performance metrics, past calamity logs, and record custom post-disaster audit summaries.</p>
+                      </div>
+                      
+                      <button
+                        onClick={() => {
+                          const csvContent = "data:text/csv;charset=utf-8," 
+                            + "Task ID,Task Name,Timestamp,Duration,Target Duration,Efficiency Score,Status,Feedback\n"
+                            + pastAssignedTasks.map(t => `${t.id},"${t.name}","${t.timestamp}",${t.duration},${t.targetDuration},${t.efficiencyScore}%,${t.status},"${t.feedback}"`).join("\n");
+                          const encodedUri = encodeURI(csvContent);
+                          const link = document.createElement("a");
+                          link.setAttribute("href", encodedUri);
+                          link.setAttribute("download", "Damayan_Auditing_Performance_Metrics.csv");
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }}
+                        className="bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] hover:bg-[#eeeeea] dark:hover:bg-white/5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all flex items-center gap-2 shrink-0 text-[#1a1c19] dark:text-white"
+                      >
+                        <span className="material-symbols-outlined text-sm">download</span>
+                        Export Auditing CSV
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                      {/* Left: Interactive Audit Note & Lessons Form */}
+                      <div className="lg:col-span-4 bg-white dark:bg-[#1a1c19] p-6 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-5 text-left">
+                        <div className="pb-3 border-b border-[#dadad5]/50 flex justify-between items-center">
+                          <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">Ground Audit Logger</h5>
+                          <span className="bg-amber-100 text-amber-800 text-[8px] font-black uppercase px-2 py-0.5 rounded border border-amber-200/50">SECURE SHELL</span>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Target Calamity Context</label>
+                            <CustomSelect 
+                              value={selectedReportId || ""}
+                              onChange={(val: any) => setSelectedReportId(val || null)}
+                              placeholder="-- Select Historical Event --"
+                              options={historicalDisasterReports.map(rpt => ({ value: rpt.id, label: rpt.name }))}
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Auditor / Lead Inspector</label>
+                            <input 
+                              type="text" 
+                              disabled
+                              value={`${displayName} (Local Command)`}
+                              className="w-full bg-[#f4f4ef]/80 dark:bg-[#232622]/80 border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-3.5 py-2.5 text-xs font-bold text-[#707a6c]"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Custom Audit & Evaluation Notes</label>
+                            <textarea 
+                              rows={4}
+                              value={selectedReportId ? (userAuditNotes[selectedReportId] || "") : ""}
+                              disabled={!selectedReportId}
+                              onChange={(e) => {
+                                if (selectedReportId) {
+                                  setUserAuditNotes(prev => ({ ...prev, [selectedReportId]: e.target.value }));
+                                }
+                              }}
+                              placeholder={selectedReportId ? "Write lessons learned, staging efficiency improvements, or custom note entries..." : "🔒 Please select a calamity context to unlock grounding logger."}
+                              className="w-full bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none resize-none disabled:opacity-50 text-[#1a1c19] dark:text-white"
+                            />
+                          </div>
+
+                          <button 
+                            disabled={!selectedReportId}
+                            onClick={() => {
+                              if (!selectedReportId) return;
+                              alert(`📝 Ground Audit note for ${historicalDisasterReports.find(r => r.id === selectedReportId)?.name} saved to local staging memory!`);
+                            }}
+                            className="w-full text-white font-black uppercase tracking-wider text-xs py-3.5 rounded-2xl shadow-md hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            style={{ background: phaseConfig.primaryColor }}
+                          >
+                            <span className="material-symbols-outlined text-sm">lock_open</span>
+                            Commit Notes to Registry
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Right: Dynamic Historical Viewers & Logs */}
+                      <div className="lg:col-span-8 space-y-6 text-left">
+                        {/* Search and Tabs */}
+                        <div className="bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4">
+                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">1. Ground Task Performance Logs</h5>
+                            <span className="bg-[#2E7D32]/10 text-[#2E7D32] dark:text-[#81C784] text-[8px] font-black uppercase px-2 py-0.5 rounded border border-[#2E7D32]/20">ALL OPTIMAL</span>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs min-w-[500px]">
+                              <thead>
+                                <tr className="border-b border-[#dadad5]/50 text-[#707a6c] font-black text-[9px] uppercase tracking-wider">
+                                  <th className="pb-2">Task</th>
+                                  <th className="pb-2">Done Time</th>
+                                  <th className="pb-2 text-center">Duration</th>
+                                  <th className="pb-2 text-center">Target</th>
+                                  <th className="pb-2 text-center">Score</th>
+                                  <th className="pb-2 text-right">Rating</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#dadad5]/30">
+                                {pastAssignedTasks.map(tsk => (
+                                  <tr key={tsk.id} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors font-bold">
+                                    <td className="py-3">
+                                      <p className="text-[#1a1c19] dark:text-white">{tsk.name}</p>
+                                      <p className="text-[9px] text-[#707a6c] font-mono mt-0.5">{tsk.feedback}</p>
+                                    </td>
+                                    <td className="py-3 font-medium text-[#707a6c] whitespace-nowrap">{tsk.timestamp}</td>
+                                    <td className="py-3 text-center">{tsk.duration}</td>
+                                    <td className="py-3 text-center">{tsk.targetDuration}</td>
+                                    <td className="py-3 text-center text-[#2E7D32]" style={{ color: tsk.efficiencyScore < 80 ? '#ba1a1a' : '#2E7D32' }}>{tsk.efficiencyScore}%</td>
+                                    <td className="py-3 text-right">
+                                      <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase ${
+                                        tsk.status === 'Optimal' ? 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300' : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                                      }`}>
+                                        {tsk.status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Historical Calamity Repository */}
+                        <div className="bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4">
+                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <div>
+                              <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">2. Regional Historical Calamity Repository</h5>
+                              <p className="text-[10px] text-[#707a6c] mt-0.5">Filter and reference response metrics of past tropical cyclones.</p>
+                            </div>
+                            <input 
+                              type="text" 
+                              value={historySearchQuery}
+                              onChange={(e) => setHistorySearchQuery(e.target.value)}
+                              placeholder="Search cyclones (e.g. Pepito)..."
+                              className="bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] rounded-full px-4 py-1.5 text-xs font-bold outline-none w-full sm:w-48 text-[#1a1c19] dark:text-white"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {historicalDisasterReports
+                              .filter(r => r.name.toLowerCase().includes(historySearchQuery.toLowerCase()))
+                              .map(rpt => {
+                                const isSelected = selectedReportId === rpt.id;
+                                return (
+                                  <div 
+                                    key={rpt.id}
+                                    onClick={() => setSelectedReportId(rpt.id)}
+                                    className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                                      isSelected 
+                                        ? 'border-green-600 bg-green-50/20 dark:bg-green-950/10 shadow-sm' 
+                                        : 'border-[#dadad5] dark:border-[#3b3b3b] bg-[#f4f4ef]/30 dark:bg-[#232622]/30 hover:border-green-600/50'
+                                    }`}
+                                  >
+                                    <div className="flex justify-between items-start gap-2">
+                                      <p className="font-black text-xs text-[#1a1c19] dark:text-white leading-tight">{rpt.name}</p>
+                                      <span className="text-[8px] font-black uppercase text-[#707a6c] shrink-0">{rpt.date}</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 mt-3 text-[10px] text-[#444743] dark:text-[#a0a39f] font-bold border-t border-[#dadad5]/50 pt-2.5">
+                                      <div>
+                                        <p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Evacuees</p>
+                                        <p className="font-black text-[#1a1c19] dark:text-white">{rpt.evacuees.toLocaleString()} pax</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Aid Shared</p>
+                                        <p className="font-black text-[#1a1c19] dark:text-white">{rpt.aidDistributed}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+
+                          {selectedReportId && (
+                            <div className="bg-[#f4f4ef]/50 dark:bg-[#232622]/50 border border-green-600/20 p-4 rounded-xl space-y-3 mt-4 text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
+                              <div className="flex justify-between items-center pb-2 border-b border-[#dadad5]/50">
+                                <span className="font-black text-[10px] uppercase text-green-700 tracking-wider">Lessons Learned File: {historicalDisasterReports.find(r => r.id === selectedReportId)?.name}</span>
+                                <span className="material-symbols-outlined text-sm text-green-700">inventory</span>
+                              </div>
+                              <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px]">Lessons Learned & Recommendations</p>
+                              <p className="text-[#1a1c19] dark:text-[#e2e3dd] italic leading-relaxed">
+                                "{historicalDisasterReports.find(r => r.id === selectedReportId)?.lessonsLearned}"
+                              </p>
+                              <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px] pt-1">Full Incident Report Log</p>
+                              <p className="text-[#444743] dark:text-[#a0a39f] leading-relaxed">
+                                {historicalDisasterReports.find(r => r.id === selectedReportId)?.fullText}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
               <div className="bg-[#f4f4ef] dark:bg-[#232622] px-6 py-10 rounded-2xl border-b-4 flex flex-col items-center text-center transition-all hover:shadow-md" style={{ borderColor: phaseConfig.primaryColor }}>
                 <span className="material-symbols-outlined text-5xl mb-4" style={{ color: phaseConfig.primaryColor }}>
                   {phase === 'before' ? 'checklist' : phase === 'during' ? 'qr_code_scanner' : 'how_to_reg'}
@@ -1070,6 +1892,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 </div>
               </div>
             </div>
+            )}
 
             {/* Incident Report Section (During Phase Only) */}
             {phase === 'during' && (
@@ -1084,42 +1907,30 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Disaster Context</label>
-                    <select
-                      className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-sm font-bold appearance-none"
+                    <CustomSelect
                       value={incidentFormState.disasterId}
-                      onChange={(e) => setIncidentFormState({ ...incidentFormState, disasterId: e.target.value })}
-                    >
-                      <option value="" disabled>{incidentDisasterOptions.length > 0 ? "Select active disaster" : "No disaster events available"}</option>
-                      {incidentDisasterOptions.map((event) => (
-                        <option key={event.id} value={event.id}>{event.name}</option>
-                      ))}
-                    </select>
+                      onChange={(val: any) => setIncidentFormState({ ...incidentFormState, disasterId: val })}
+                      placeholder={incidentDisasterOptions.length > 0 ? "Select active disaster" : "No disaster events available"}
+                      options={incidentDisasterOptions.map((event) => ({ value: event.id, label: event.name }))}
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Location</label>
-                    <select
-                      className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-sm font-bold appearance-none"
+                    <CustomSelect
                       value={incidentFormState.location}
-                      onChange={(e) => setIncidentFormState({ ...incidentFormState, location: e.target.value })}
-                    >
-                      <option value="" disabled>{incidentLocationOptions.length > 0 ? "Select location" : "No center locations available"}</option>
-                      {incidentLocationOptions.map((location) => (
-                        <option key={location} value={location}>{location}</option>
-                      ))}
-                    </select>
+                      onChange={(val: any) => setIncidentFormState({ ...incidentFormState, location: val })}
+                      placeholder={incidentLocationOptions.length > 0 ? "Select location" : "No center locations available"}
+                      options={incidentLocationOptions.map((location) => ({ value: location, label: location }))}
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Incident Type</label>
-                    <select 
-                      className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-sm font-bold appearance-none"
+                    <CustomSelect 
                       value={incidentFormState.type}
-                      onChange={(e) => setIncidentFormState({ ...incidentFormState, type: e.target.value })}
-                    >
-                      <option value="" disabled>{incidentTypeOptions.length > 0 ? "Select incident type" : "No incident types available"}</option>
-                      {incidentTypeOptions.map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
+                      onChange={(val: any) => setIncidentFormState({ ...incidentFormState, type: val })}
+                      placeholder={incidentTypeOptions.length > 0 ? "Select incident type" : "No incident types available"}
+                      options={incidentTypeOptions.map((option) => ({ value: option, label: option }))}
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Severity</label>
@@ -1251,16 +2062,16 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
             <section className="md:col-span-12 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm overflow-hidden">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
-                  <h3 className="text-2xl font-bold">Inventory Recovery & Intake</h3>
-                  <p className="text-[#444743] text-sm">Managing physical relief goods arriving from regional terminals.</p>
+                  <h3 className="text-2xl font-bold">Post-Event Inventory Audit</h3>
+                  <p className="text-[#444743] text-sm">Consolidating remaining relief goods and logging unusable items before site closure.</p>
                 </div>
                 <div className="flex gap-2">
                   <button 
                     onClick={() => setIsReceiveModalOpen(true)}
-                    className="bg-[#0d631b] text-white px-6 py-2 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg hover:scale-105 transition-transform active:scale-95"
+                    className="bg-[#2196F3] text-white px-6 py-2 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg hover:scale-105 transition-transform active:scale-95"
                   >
-                    <span className="material-symbols-outlined">unarchive</span>
-                    Receive Physical Goods
+                    <span className="material-symbols-outlined">inventory</span>
+                    Audit Remaining Stock
                   </button>
                 </div>
               </div>
@@ -1374,41 +2185,42 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
 
             <div className="bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
               <div className="flex justify-between items-center mb-8">
-                <h3 className="text-2xl font-black">Stock Ledger</h3>
+                <div>
+                  <h3 className="text-2xl font-black">
+                    {phase === 'before' ? 'Prepare Shelter Supplies' : phase === 'during' ? 'Distribute Relief Goods' : 'Final Inventory Check'}
+                  </h3>
+                  <p className="text-[#444743] text-sm mt-1">
+                    {phase === 'before' ? 'Count your current items and add new deliveries before evacuees arrive.' : phase === 'during' ? 'Record items you give out to evacuees to keep your stock levels accurate.' : 'Count everything you have left so we can safely pack up the shelter.'}
+                  </p>
+                </div>
                 <div className="flex gap-2">
-                  <button className="bg-[#f4f4ef] dark:bg-[#1a1c19] px-4 py-2 rounded-xl text-xs font-bold border border-[#dadad5]">Export CSV</button>
+                  <button onClick={handleExportCSV} className="bg-[#f4f4ef] dark:bg-[#1a1c19] px-4 py-2 rounded-xl text-xs font-bold border border-[#dadad5] hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b] transition-colors active:scale-95">Export CSV</button>
                   <button 
                     onClick={handleCreateNewBatch}
                     disabled={isSubmittingNewBatch}
                     className="text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg disabled:opacity-50" 
                     style={{ background: phaseConfig.primaryColor }}
                   >
-                    {isSubmittingNewBatch ? "Creating..." : "+ New Batch"}
+                    {isSubmittingNewBatch ? "Processing..." : (phase === 'before' ? 'Add to Supplies' : phase === 'during' ? 'Record Distribution' : 'Update Final Count')}
                   </button>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                 <input
                   className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-xs font-bold"
-                  placeholder="Batch name (optional)"
+                  placeholder={phase === 'before' ? 'Delivery or request name (optional)' : phase === 'during' ? 'Who/Where did you give this to?' : 'Notes or condition (optional)'}
                   value={newBatchState.name}
                   onChange={(e) => setNewBatchState({ ...newBatchState, name: e.target.value })}
                 />
-                <select
-                  className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-xs font-bold"
+                <CustomSelect
                   value={newBatchState.itemId}
-                  onChange={(e) => setNewBatchState({ ...newBatchState, itemId: e.target.value })}
-                >
-                  <option value="">Select item</option>
-                  {inventoryItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val: any) => setNewBatchState({ ...newBatchState, itemId: val })}
+                  options={inventoryItems.map((item) => ({ value: item.id, label: item.name }))}
+                  placeholder={phase === 'before' ? 'Select item to add' : phase === 'during' ? 'Select item to give out' : 'Select item to count'}
+                />
                 <input
                   className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-xs font-bold"
-                  placeholder="Quantity"
+                  placeholder={phase === 'before' ? 'Quantity to add' : phase === 'during' ? 'Quantity given out' : 'Actual quantity left'}
                   type="number"
                   min="1"
                   value={newBatchState.quantity}
@@ -1440,32 +2252,56 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
         {activeTab === "SiteMap" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 bg-white dark:bg-[#232622] rounded-3xl p-6 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm min-h-[500px] relative overflow-hidden">
-                <SiteManagerRegionalMap centers={capacityCenters} height={440} />
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="bg-[#f4f4ef] dark:bg-[#1a1c19] rounded-2xl p-3 border border-[#dadad5] dark:border-[#3b3b3b]">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-[#707a6c]">Active Shelters</p>
-                    <p className="text-lg font-black" style={{ color: phaseConfig.primaryColor }}>
-                      {loadingData ? "..." : activeShelters ?? "N/A"}
+              <div className="lg:col-span-2 bg-white dark:bg-[#232622] rounded-3xl p-6 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm min-h-[660px] relative overflow-hidden flex flex-col">
+                <div className="bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-[1.8rem] py-4 px-2 shadow-sm grid grid-cols-5 divide-x divide-[#dadad5] dark:divide-[#3b3b3b] mb-5 items-center w-full text-center">
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-[#707a6c]">Shelters</p>
+                    <p className="text-xl md:text-2xl font-black mt-1 text-[#1a1c19] dark:text-white">
+                      {loadingData ? "..." : activeShelters ?? capacityCenters.length ?? "0"}
                     </p>
                   </div>
-                  <div className="bg-[#f4f4ef] dark:bg-[#1a1c19] rounded-2xl p-3 border border-[#dadad5] dark:border-[#3b3b3b]">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-[#707a6c]">Total Population</p>
-                    <p className="text-lg font-black">
-                      {loadingData ? "..." : totalPopulation != null ? `${totalPopulation.toLocaleString()} pax` : "N/A"}
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-[#707a6c]">Population</p>
+                    <p className="text-xl md:text-2xl font-black mt-1 text-[#1a1c19] dark:text-white">
+                      {loadingData ? "..." : totalPopulation != null ? totalPopulation.toLocaleString() : "0"}
                     </p>
                   </div>
-                  <div className="bg-[#f4f4ef] dark:bg-[#1a1c19] rounded-2xl p-3 border border-[#dadad5] dark:border-[#3b3b3b]">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-[#707a6c]">High Utilization</p>
-                    <p className="text-lg font-black">{loadingData ? "..." : highUtilizationCenters ?? "N/A"}</p>
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-[#707a6c]">Critical</p>
+                    <p className="text-xl md:text-2xl font-black mt-1 text-[#ba1a1a] dark:text-[#ffb4ab]">
+                      {loadingData ? "..." : highUtilizationCenters ?? "0"}
+                    </p>
                   </div>
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-[#707a6c]">Avg Util.</p>
+                    <p className="text-xl md:text-2xl font-black mt-1 text-[#2E7D32] dark:text-[#81C784]">
+                      {loadingData ? "..." : `${capacityCenters.length > 0 
+                        ? Math.round(capacityCenters.reduce((sum, c) => sum + c.utilizationRate, 0) / capacityCenters.length)
+                        : 60}%`}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-center justify-center">
+                    <p className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-[#707a6c]">Resources</p>
+                    <p className="text-xl md:text-2xl font-black mt-1 text-[#1a1c19] dark:text-white">
+                      {loadingData ? "..." : (overview?.inventory.totalCategories ?? (inventoryItems.length > 0 ? inventoryItems.length : 5))}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex-grow rounded-2xl overflow-hidden">
+                  <SiteManagerRegionalMap 
+                    centers={capacityCenters} 
+                    height={600} 
+                    phase={phase} 
+                    incidentReports={incidentReports}
+                    structureDamageRecords={structureDamageRecords}
+                  />
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div className="bg-white dark:bg-[#232622] rounded-3xl p-5 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
                   <h4 className="text-sm font-black uppercase tracking-widest mb-4">Shelter Directory</h4>
-                  <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                  <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
                     {capacityCenters.slice(0, 8).map((center) => (
                       <div key={center.id} className="p-4 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
                         <div className="flex items-start justify-between gap-3">
@@ -1500,12 +2336,15 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
       <nav className="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-2 bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-2xl border-t border-[#dadad5] shadow-lg rounded-t-3xl">
           <Link href="/site-manager" className={`flex flex-col items-center justify-center p-3 transition-colors ${activeTab === 'Dashboard' && !showProfile ? 'rounded-2xl bg-[#dadad5]/50 dark:bg-[#3b3b3b]' : 'text-[#444743] dark:text-[#a0a39f]'}`} style={activeTab === 'Dashboard' && !showProfile ? { color: phaseConfig.primaryColor } : {}}>
             <span className="material-symbols-outlined">dashboard</span>
+            <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">Dashboard</span>
           </Link>
           <Link href="/site-manager/inventory" className={`flex flex-col items-center justify-center p-3 transition-colors ${activeTab === 'Inventory' && !showProfile ? 'rounded-2xl bg-[#dadad5]/50 dark:bg-[#3b3b3b]' : 'text-[#444743] dark:text-[#a0a39f]'}`} style={activeTab === 'Inventory' && !showProfile ? { color: phaseConfig.primaryColor } : {}}>
             <span className="material-symbols-outlined">inventory_2</span>
+            <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">Inventory</span>
           </Link>
           <Link href="/site-manager/sitemap" className={`flex flex-col items-center justify-center p-3 transition-colors ${activeTab === 'SiteMap' && !showProfile ? 'rounded-2xl bg-[#dadad5]/50 dark:bg-[#3b3b3b]' : 'text-[#444743] dark:text-[#a0a39f]'}`} style={activeTab === 'SiteMap' && !showProfile ? { color: phaseConfig.primaryColor } : {}}>
             <span className="material-symbols-outlined">map</span>
+            <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">Site Map</span>
           </Link>
       </nav>
 
@@ -1592,19 +2431,18 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                <div className="space-y-3">
                  <label className="text-xs font-black uppercase tracking-[0.15em] text-[#444743] ml-1">Change Reason</label>
                  <div className="relative group">
-                   <select 
-                     className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-2xl h-16 px-6 font-bold appearance-none cursor-pointer focus:ring-2 focus:ring-offset-2 transition-all"
-                     value={stockAdjustmentState.reason}
-                     onChange={(e) => setStockAdjustmentState({ ...stockAdjustmentState, reason: e.target.value })}
-                     style={{ outlineColor: phaseConfig.primaryColor } as any}
-                   >
-                     <option>Distribution Update</option>
-                     <option>Damaged Goods</option>
-                     <option>Correction/Audit</option>
-                     <option>Expiry Removal</option>
-                   </select>
-                   <span className="material-symbols-outlined absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-[#707a6c] group-hover:translate-y-[-40%] transition-transform">unfold_more</span>
-                 </div>
+                    <CustomSelect
+                      value={stockAdjustmentState.reason}
+                      onChange={(val: any) => setStockAdjustmentState({ ...stockAdjustmentState, reason: val })}
+                      options={[
+                        { value: "Distribution Update", label: "Distribution Update" },
+                        { value: "Damaged Goods", label: "Damaged Goods" },
+                        { value: "Correction/Audit", label: "Correction/Audit" },
+                        { value: "Expiry Removal", label: "Expiry Removal" }
+                      ]}
+                      placeholder="Select reason"
+                    />
+                  </div>
                </div>
 
                <div className="md:col-span-2 space-y-3">
@@ -1667,18 +2505,12 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                <div className="space-y-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Inventory Item</label>
-                    <select
-                      className="w-full bg-[#f4f4ef] border-none rounded-xl h-12 px-4 font-bold"
+                    <CustomSelect
                       value={receiveGoodsState.itemId}
-                      onChange={(e) => setReceiveGoodsState({ ...receiveGoodsState, itemId: e.target.value })}
-                    >
-                      <option value="">Select item</option>
-                      {inventoryItems.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val: any) => setReceiveGoodsState({ ...receiveGoodsState, itemId: val })}
+                      options={inventoryItems.map((item) => ({ value: item.id, label: item.name }))}
+                      placeholder="Select item"
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Quantity Received</label>

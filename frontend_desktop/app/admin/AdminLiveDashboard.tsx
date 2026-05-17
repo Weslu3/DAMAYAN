@@ -59,7 +59,7 @@ export default function AdminLiveDashboard() {
 
     if (!hasRole(stored, AppRole.ADMIN)) {
       clearSession();
-      router.replace("/admin/login");
+      router.replace("/login");
       return;
     }
 
@@ -90,7 +90,7 @@ export default function AdminLiveDashboard() {
       } catch (caughtError) {
         if (caughtError instanceof ApiError && caughtError.status === 401) {
           clearSession();
-          router.replace("/admin/login");
+          router.replace("/login");
           return;
         }
 
@@ -194,7 +194,7 @@ export default function AdminLiveDashboard() {
               type="button"
               onClick={() => {
                 clearSession();
-                router.replace("/admin/login");
+                router.replace("/login");
               }}
               style={{
                 border: 0,

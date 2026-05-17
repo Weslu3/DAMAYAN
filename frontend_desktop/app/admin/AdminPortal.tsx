@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -3238,7 +3238,7 @@ export default function AdminPortal() {
   useEffect(() => {
     const stored = loadSession();
     if (!hasRole(stored, AppRole.ADMIN)) {
-      router.replace("/admin/login");
+      router.replace("/login");
       return;
     }
     setSession(stored);
@@ -3555,7 +3555,7 @@ export default function AdminPortal() {
                   <button className="admin-profile-dropdown-item" onClick={() => { setPage("profile"); setProfileOpen(false); }}><span className="material-symbols-outlined" style={{ fontSize: "0.95rem" }}>person</span> View Profile</button>
                   <button className="admin-profile-dropdown-item" onClick={() => { setPage("profile"); setProfileOpen(false); }}><span className="material-symbols-outlined" style={{ fontSize: "0.95rem" }}>edit</span> Edit Profile</button>
                   <div style={{ height: "1px", background: "var(--admin-outline)" }} />
-                  <button className="admin-profile-dropdown-item danger" onClick={() => { clearSession(); router.replace("/admin/login"); }}>
+                  <button className="admin-profile-dropdown-item danger" onClick={() => { clearSession(); router.replace("/login"); }}>
                     <span className="material-symbols-outlined" style={{ fontSize: "0.95rem" }}>logout</span> Log Out
                   </button>
                 </div>
