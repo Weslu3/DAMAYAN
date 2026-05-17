@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TribeClient } from '@implementsprint/sdk';
-import type { EmailSendRequest, SmsSendRequest } from '@implementsprint/sdk';
+import type { EmailSendRequest, GeoGeocodeAddressRequest, SmsSendRequest } from '@implementsprint/sdk';
 
 @Injectable()
 export class ApiCenterService {
@@ -48,6 +48,12 @@ export class ApiCenterService {
   async sendSms(payload: SmsSendRequest) {
     const client = await this.authenticateClient();
     return client.smsSend(payload);
+  }
+
+  async geoGeocode(address: string) {
+    const client = await this.authenticateClient();
+    const payload: GeoGeocodeAddressRequest = { address, region: 'PH' };
+    return client.geoGeocodeAddress(payload);
   }
 
   private async authenticateClient() {

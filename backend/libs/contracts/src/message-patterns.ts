@@ -119,6 +119,11 @@ export const DASHBOARD_PATTERNS = {
   GET_OVERVIEW: 'operations.dashboard.get-overview',
 } as const;
 
+export const AFTER_ACTION_ASSESSMENT_PATTERNS = {
+  GET_LATEST: 'operations.after-action-assessment.get-latest',
+  UPSERT: 'operations.after-action-assessment.upsert',
+} as const;
+
 export const UPLOAD_PATTERNS = {
   CREATE_DISASTER_COVER_UPLOAD_URL: 'operations.uploads.create-disaster-cover-upload-url',
   CREATE_INCIDENT_ATTACHMENT_UPLOAD_URL: 'operations.uploads.create-incident-attachment-upload-url',

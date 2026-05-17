@@ -294,6 +294,22 @@ export async function getCapacity(token: string) {
   return request<CapacityCenter[]>("/site-manager/capacity", {}, token);
 }
 
+export interface GeoAddressResult {
+  formattedAddress: string;
+  latitude: number;
+  longitude: number;
+  placeId?: string;
+  provider: string;
+}
+
+export async function geocodeAddress(token: string, address: string): Promise<GeoAddressResult> {
+  return request<GeoAddressResult>(
+    `/site-manager/geo/geocode?address=${encodeURIComponent(address)}`,
+    {},
+    token,
+  );
+}
+
 export async function getDisasterEvents(
   scope: "admin" | "site-manager",
   token: string,

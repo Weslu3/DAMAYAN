@@ -21,186 +21,227 @@ interface SiteManagerDashboardProps {
   phase: "before" | "during" | "after";
 }
 
-function getInventoryTone(status: string): "secure" | "warning" | "error" {
-  const normalized = status.toLowerCase();
-  if (normalized.includes("critical") || normalized.includes("depleted")) {
-    return "error";
-  }
-  if (normalized.includes("low") || normalized.includes("transit") || normalized.includes("scheduled")) {
-    return "warning";
-  }
-  return "secure";
+interface StructureDamageRecord {
+  id: string;
+  ownerName: string;
+  address: string;
+  severity: string;
+  needsAid: boolean;
+  status: string;
 }
 
-function formatRelativeTime(iso?: string): string {
-  if (!iso) {
-    return "Recent";
+function normalizeDamageSeverity(severity: string, content?: string): string {
+  const combined = `${severity} ${content ?? ""}`.toLowerCase();
+  if (combined.includes("collapse") || combined.includes("severe")) {
+    return "Severe / Collapse";
   }
-  const at = new Date(iso).getTime();
-  if (Number.isNaN(at)) {
-    return "Recent";
+  if (combined.includes("major")) {
+    return "Major Damage";
   }
-  const minutes = Math.max(0, Math.floor((Date.now() - at) / 60000));
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return "Minor Damage";
 }
 
-const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) => {
-  const router = useRouter();
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [checkInMode, setCheckInMode] = useState<"scan" | "manual">("scan");
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [activeTab, setActiveTab] = useState<"Dashboard" | "Inventory" | "SiteMap">("Dashboard");
-  const [selectedItem, setSelectedItem] = useState<any>(null);
-  const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
-  const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(null);
-  const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [checkIns, setCheckIns] = useState<CheckInRecord[]>([]);
-  const [incidentReports, setIncidentReports] = useState<IncidentReport[]>([]);
-  const [capacityCenters, setCapacityCenters] = useState<CapacityCenter[]>([]);
-  const [disasterEvents, setDisasterEvents] = useState<DisasterEvent[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  
-  // Incident Report Form State
-  const [incidentFormState, setIncidentFormState] = useState({
-    disasterId: "",
-    location: "",
-    type: "",
-    severity: "",
-    description: "",
-  });
-  const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
-  const [incidentSubmitError, setIncidentSubmitError] = useState<string | null>(null);
-  
-  // Stock Adjustment Form State
-  const [stockAdjustmentState, setStockAdjustmentState] = useState({
-    quantity: 0,
-    reason: "Distribution Update",
-    notes: "",
-  });
-  const [isSubmittingStockAdjustment, setIsSubmittingStockAdjustment] = useState(false);
-  const [stockAdjustmentError, setStockAdjustmentError] = useState<string | null>(null);
+function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord | null {
+  const combinedText = `${report.title} ${report.content}`.toLowerCase();
+  const looksLikeDamageRecord =
+    report.title.toLowerCase().startsWith("damage assessment") ||
+    /(damage|collapse|structural|rehab|house|home assessment)/i.test(combinedText);
 
-  // Manual Check-in Form State
-  const [manualCheckInState, setManualCheckInState] = useState({
-    citizenName: "",
-    zone: "",
-    groupSize: "",
-  });
-  const [readinessStatusMessage, setReadinessStatusMessage] = useState<string | null>(null);
-  const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
-  const [checkInError, setCheckInError] = useState<string | null>(null);
+  if (!looksLikeDamageRecord) {
+    return null;
+  }
 
-  // Receive Goods Form State
-  const [receiveGoodsState, setReceiveGoodsState] = useState({
-    arrivalTerminal: "",
-    waybillNumber: "",
-    condition: "Intact",
-    itemId: "",
-    quantity: "",
-  });
-  const [isSubmittingReceiveGoods, setIsSubmittingReceiveGoods] = useState(false);
-  const [receiveGoodsError, setReceiveGoodsError] = useState<string | null>(null);
+  const ownerName = report.title.replace(/^damage assessment:\s*/i, "").trim() || report.reportedBy;
+  const needsAid =
+    /immediate financial assistance:\s*yes/i.test(report.content) ||
+    /(severe|major)/i.test(report.severity);
 
-  // New Batch Form State
-  const [newBatchState, setNewBatchState] = useState({
-    name: "",
-    itemId: "",
-    quantity: "",
-  });
-  const [isSubmittingNewBatch, setIsSubmittingNewBatch] = useState(false);
-  const [newBatchError, setNewBatchError] = useState<string | null>(null);
-  const [newBatchSuccess, setNewBatchSuccess] = useState<string | null>(null);
+  return {
+    id: report.id,
+    ownerName: ownerName || "Unspecified homeowner",
+    address: report.location,
+    severity: normalizeDamageSeverity(report.severity, report.content),
+    needsAid,
+    status: report.status || "logged",
+  };
+}
 
-  // Operations States
-  const [isClosingOperations, setIsClosingOperations] = useState(false);
-  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const [isRefreshingInventory, setIsRefreshingInventory] = useState(false);
 
-  // Recovery Phase (After Calamity) Interactive States
-  const [recoveryTab, setRecoveryTab] = useState<"assess" | "structure" | "plans" | "audit">("assess");
-  const [damageAssessment, setDamageAssessment] = useState({
-    infraStatus: "Partially Restored",
-    estimatedCost: "450000",
-    reliefNeeded: "200",
-    durationDays: "14",
-    shelterRating: "4",
-    successNotes: "Swift coordination of primary evacuation center within 30 minutes of peak water levels. No casualties recorded inside the hub.",
-    bottlenecks: "Water drainage backflow at low-lying entry point. Power grid disconnected for 18 hours without immediate secondary generator activation.",
-    isSubmitted: false
-  });
-  const [structureDamageForm, setStructureDamageForm] = useState({
-    ownerName: "",
-    address: "",
-    severity: "Major Damage",
-    needsAid: true,
-  });
-  const [structureDamageRecords, setStructureDamageRecords] = useState([
-    { id: "SDA-101", ownerName: "Manuel Santos", address: "124 Rizal St, Zone 2", severity: "Severe / Collapse", needsAid: true, status: "Processed" },
-    { id: "SDA-102", ownerName: "Elena Cruz", address: "45 Bonifacio Ave, Zone 1", severity: "Major Damage", needsAid: true, status: "Under Review" },
-    { id: "SDA-103", ownerName: "Amara Legaspi", address: "88 Mabini St, Zone 3", severity: "Minor Damage", needsAid: false, status: "Approved" },
-  ]);
-  const [recoveryPlans, setRecoveryPlans] = useState([
-    { id: "plan-1", name: "Shelter Decongestion & Resettlement Handover", progress: 75, lead: "Nelson James", status: "Active" },
-    { id: "plan-2", name: "Power Grid & Comms Restoration", progress: 40, lead: "Meralco / Ground Team", status: "Active" },
-    { id: "plan-3", name: "Health, Sanitation & Clean-up Drive", progress: 90, lead: "Brgy Health Team", status: "Near Completion" },
-    { id: "plan-4", name: "Structural Rehabilitation & Financial Aid Dispatch", progress: 15, lead: "Admin / DSWD", status: "Planning" },
-  ]);
+  interface RecoveryPlanCard {
+    id: string;
+    name: string;
+    progress: number;
+    lead: string;
+    status: string;
+  }
 
-  // System Auditing & Historical Logging States
-  const [pastAssignedTasks, setPastAssignedTasks] = useState([
-    { id: "TSK-001", name: "Deploy Primary Perimeter Fencing & Lighting", timestamp: "May 15, 2026 08:30 AM", duration: "25 mins", targetDuration: "30 mins", efficiencyScore: 98, status: "Optimal", feedback: "Auxiliary power links successfully tested. Staging done ahead of schedule." },
-    { id: "TSK-002", name: "Intake Staging & Rapid Roster Alignment", timestamp: "May 15, 2026 09:15 AM", duration: "45 mins", targetDuration: "40 mins", efficiencyScore: 88, status: "Optimal", feedback: "Slight delay due to mobile network congestion. Shifted roster alignment to VHF radio backup." },
-    { id: "TSK-003", name: "Emergency Auxiliary Generator Backup Boot", timestamp: "May 16, 2026 02:10 AM", duration: "12 mins", targetDuration: "15 mins", efficiencyScore: 95, status: "Optimal", feedback: "Pre-start check list reduced boot delay during localized blackout. Outstanding team execution." },
-    { id: "TSK-004", name: "Critical Medical Aux Staging for Evacuees", timestamp: "May 16, 2026 04:45 AM", duration: "55 mins", targetDuration: "30 mins", efficiencyScore: 68, status: "Needs Review", feedback: "Delays in inventory handoff at Zone 3 due to missing triage keys. Key redundancy protocol recommended." },
-    { id: "TSK-005", name: "Coordinate Barangay Evacuee Transits", timestamp: "May 16, 2026 08:00 AM", duration: "90 mins", targetDuration: "120 mins", efficiencyScore: 99, status: "Optimal", feedback: "Smooth integration with local transit team. All transit vehicles tracked live on command system." }
-  ]);
-  const [historicalDisasterReports, setHistoricalDisasterReports] = useState([
-    {
-      id: "RPT-2024-PEPITO",
-      name: "Super Typhoon Pepito Impact Report",
-      date: "November 2024",
-      evacuees: 4200,
-      aidDistributed: "8,500 packs",
-      infraStatus: "North Wing Unroofed",
-      lessonsLearned: "Pre-staging of double-weighted roof anchors prevented full loss. Communication blackouts highlighted critical reliance on localized VHF systems.",
-      fullText: "Super Typhoon Pepito made landfall with 215 km/h winds. Evacuation was 98% successful due to early alert notifications. Zone 4 recorded roof degradation. Recommendations: Increase high-ground staging areas and reinforce communications structures."
-    },
-    {
-      id: "RPT-2024-KRISTINE",
-      name: "Severe Tropical Storm Kristine Flood Assessment",
-      date: "October 2024",
-      evacuees: 6500,
-      aidDistributed: "12,000 packs",
-      infraStatus: "Ground Floor Water Levels +1.5m",
-      lessonsLearned: "Submersible water pumps handled the main lobby backflow, but drainage channels were choked. Recommend seasonal de-silting by municipality before September.",
-      fullText: "Kristine brought record-breaking rainfall, turning low-lying zones into retention reservoirs. Evacuee containment at Evacuation Hub reached peak capacity in 6 hours. Recommendations: Elevate ground floor thresholds and purchase 4 additional motorized rescue dinghies."
-    },
-    {
-      id: "RPT-2020-ULYSSES",
-      name: "Typhoon Ulysses Incident Log",
-      date: "November 2020",
-      evacuees: 3100,
-      aidDistributed: "6,000 packs",
-      infraStatus: "Minor Road Blockages Cleared",
-      lessonsLearned: "Mobile auxiliary power staging was excellent, but mudslides delayed the main supply route by 12 hours. High-shelf inventory pre-allocation resolved early nutritional distress.",
-      fullText: "Typhoon Ulysses triggered major regional water level rises. Road blockages near North Bridge cut off supplies. Staged auxiliary inventory on upper levels kept all 3,100 evacuees supplied for 2 days. Recommendations: Retain 3-day dry food reserve on high shelving indefinitely."
+  interface AuditEntry {
+    id: string;
+    title: string;
+    timestamp: string;
+    source: string;
+    status: string;
+    note: string;
+    sortAt: number;
+  }
+
+  interface HistoricalDisasterRecord {
+    id: string;
+    name: string;
+    date: string;
+    severity: string;
+    province: string;
+    affectedAreas: number;
+    status: string;
+    lessonsLearned: string;
+    fullText: string;
+  }
+
+  function clampProgress(value: number): number {
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+
+  function progressStatus(progress: number): string {
+    if (progress >= 100) return "Complete";
+    if (progress >= 70) return "Active";
+    if (progress >= 40) return "In Progress";
+    return "Planning";
+  }
+
+  function formatTimestamp(value?: string): string {
+    if (!value) return "No timestamp";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString();
+  }
+
+  function formatMonthYear(value?: string): string {
+    if (!value) return "Unknown date";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  }
+
+  function getInventoryTone(status: string): "secure" | "warning" | "error" {
+    const normalized = status.toLowerCase();
+    if (normalized.includes("critical") || normalized.includes("depleted")) {
+      return "error";
     }
-  ]);
-  const [historySearchQuery, setHistorySearchQuery] = useState("");
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
-  const [userAuditNotes, setUserAuditNotes] = useState<Record<string, string>>({});
-  
-  const pathname = usePathname();
+    if (normalized.includes("low") || normalized.includes("transit") || normalized.includes("scheduled")) {
+      return "warning";
+    }
+    return "secure";
+  }
+
+  function formatRelativeTime(iso?: string): string {
+    if (!iso) {
+      return "Recent";
+    }
+    const at = new Date(iso).getTime();
+    if (Number.isNaN(at)) {
+      return "Recent";
+    }
+    const minutes = Math.max(0, Math.floor((Date.now() - at) / 60000));
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) => {
+    const router = useRouter();
+    const menuRef = useRef<HTMLDivElement>(null);
+    const [checkInMode, setCheckInMode] = useState<"scan" | "manual">("scan");
+    const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isDarkMode, setIsDarkMode] = useState(false);
+    const [showProfile, setShowProfile] = useState(false);
+    const [activeTab, setActiveTab] = useState<"Dashboard" | "Inventory" | "SiteMap">("Dashboard");
+    const [selectedItem, setSelectedItem] = useState<any>(null);
+    const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
+    const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
+    const [session, setSession] = useState<AuthSession | null>(null);
+    const [overview, setOverview] = useState<DashboardOverview | null>(null);
+    const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+    const [checkIns, setCheckIns] = useState<CheckInRecord[]>([]);
+    const [incidentReports, setIncidentReports] = useState<IncidentReport[]>([]);
+    const [capacityCenters, setCapacityCenters] = useState<CapacityCenter[]>([]);
+    const [disasterEvents, setDisasterEvents] = useState<DisasterEvent[]>([]);
+    const [loadingData, setLoadingData] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
+
+    const [incidentFormState, setIncidentFormState] = useState({
+      disasterId: "",
+      location: "",
+      type: "",
+      severity: "",
+      description: "",
+    });
+    const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
+    const [incidentSubmitError, setIncidentSubmitError] = useState<string | null>(null);
+
+    const [stockAdjustmentState, setStockAdjustmentState] = useState({
+      quantity: 0,
+      reason: "Distribution Update",
+      notes: "",
+    });
+    const [isSubmittingStockAdjustment, setIsSubmittingStockAdjustment] = useState(false);
+    const [stockAdjustmentError, setStockAdjustmentError] = useState<string | null>(null);
+
+    const [manualCheckInState, setManualCheckInState] = useState({
+      citizenName: "",
+      zone: "",
+      groupSize: "",
+    });
+    const [readinessStatusMessage, setReadinessStatusMessage] = useState<string | null>(null);
+    const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
+    const [checkInError, setCheckInError] = useState<string | null>(null);
+
+    const [receiveGoodsState, setReceiveGoodsState] = useState({
+      arrivalTerminal: "",
+      waybillNumber: "",
+      condition: "Intact",
+      itemId: "",
+      quantity: "",
+    });
+    const [isSubmittingReceiveGoods, setIsSubmittingReceiveGoods] = useState(false);
+    const [receiveGoodsError, setReceiveGoodsError] = useState<string | null>(null);
+
+    const [newBatchState, setNewBatchState] = useState({
+      name: "",
+      itemId: "",
+      quantity: "",
+    });
+    const [isSubmittingNewBatch, setIsSubmittingNewBatch] = useState(false);
+    const [newBatchError, setNewBatchError] = useState<string | null>(null);
+    const [newBatchSuccess, setNewBatchSuccess] = useState<string | null>(null);
+
+    const [isClosingOperations, setIsClosingOperations] = useState(false);
+    const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+    const [isRefreshingInventory, setIsRefreshingInventory] = useState(false);
+
+    const [recoveryTab, setRecoveryTab] = useState<"assess" | "structure" | "plans" | "audit">("assess");
+    const [damageAssessment, setDamageAssessment] = useState({
+      infraStatus: "Partially Restored",
+      estimatedCost: "450000",
+      reliefNeeded: "200",
+      durationDays: "14",
+      shelterRating: "4",
+      successNotes: "Swift coordination of primary evacuation center within 30 minutes of peak water levels. No casualties recorded inside the hub.",
+      bottlenecks: "Water drainage backflow at low-lying entry point. Power grid disconnected for 18 hours without immediate secondary generator activation.",
+      isSubmitted: false,
+    });
+    const [structureDamageForm, setStructureDamageForm] = useState({
+      ownerName: "",
+      address: "",
+      severity: "Major Damage",
+      needsAid: true,
+    });
+    const [historySearchQuery, setHistorySearchQuery] = useState("");
+    const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+
+    const pathname = usePathname();
 
   useEffect(() => {
     if (pathname === "/site-manager" || pathname === "/site-manager/") {
@@ -807,14 +848,121 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
     ),
   );
 
+  const structureDamageRecords = incidentReports
+    .map(toStructureDamageRecord)
+    .filter((record): record is StructureDamageRecord => record !== null);
+
+  const totalCapacity = overview?.capacity.totalCapacity ?? capacityCenters.reduce((sum, center) => sum + center.capacity, 0);
+  const totalOccupancy = overview?.capacity.totalOccupancy ?? capacityCenters.reduce((sum, center) => sum + center.currentOccupancy, 0);
+  const shelterCloseoutProgress = totalCapacity > 0
+    ? clampProgress(((totalCapacity - totalOccupancy) / totalCapacity) * 100)
+    : 0;
+  const resolvedIncidents = incidentReports.filter((report) => !["pending", "open", "new"].includes(report.status.toLowerCase())).length;
+  const incidentResolutionProgress = incidentReports.length > 0
+    ? clampProgress((resolvedIncidents / incidentReports.length) * 100)
+    : 0;
+  const inventoryReadyItems = inventoryItems.filter((item) => getInventoryTone(item.status) !== "error").length;
+  const inventoryReconciliationProgress = inventoryItems.length > 0
+    ? clampProgress((inventoryReadyItems / inventoryItems.length) * 100)
+    : 0;
+  const archivedDisasterEvents = disasterEvents.filter((event) => event.status.toLowerCase() !== "active" || Boolean(event.dateEnded));
+  const documentationProgress = disasterEvents.length > 0
+    ? clampProgress((archivedDisasterEvents.length / disasterEvents.length) * 100)
+    : 0;
+
+  const recoveryPlans: RecoveryPlanCard[] = [
+    {
+      id: "recovery-shelter-closeout",
+      name: "Shelter Decongestion & Resettlement Handover",
+      progress: shelterCloseoutProgress,
+      lead: "Shelter Operations",
+      status: progressStatus(shelterCloseoutProgress),
+    },
+    {
+      id: "recovery-incident-validation",
+      name: "Incident Validation & Damage Resolution",
+      progress: incidentResolutionProgress,
+      lead: "Incident Desk",
+      status: progressStatus(incidentResolutionProgress),
+    },
+    {
+      id: "recovery-inventory-closeout",
+      name: "Inventory Reconciliation & Aid Closeout",
+      progress: inventoryReconciliationProgress,
+      lead: "Logistics Unit",
+      status: progressStatus(inventoryReconciliationProgress),
+    },
+    {
+      id: "recovery-documentation",
+      name: "Disaster Documentation & Archive Readiness",
+      progress: documentationProgress,
+      lead: "Admin Coordination",
+      status: progressStatus(documentationProgress),
+    },
+  ];
+
+  const operationalAuditEntries: AuditEntry[] = [
+    ...incidentReports.map((report) => ({
+      id: `incident-${report.id}`,
+      title: report.title,
+      timestamp: formatTimestamp(report.createdAt),
+      source: "Incident Report",
+      status: report.status,
+      note: `${report.severity} severity at ${report.location}`,
+      sortAt: new Date(report.createdAt).getTime() || 0,
+    })),
+    ...checkIns.map((entry) => ({
+      id: `checkin-${entry.id}`,
+      title: entry.fullName || entry.evacueeNumber,
+      timestamp: formatTimestamp(entry.checkInTime),
+      source: "Check-in",
+      status: entry.status,
+      note: `${entry.zone || "Unknown zone"} • ${entry.location || "Unknown location"}`,
+      sortAt: new Date(entry.checkInTime ?? "").getTime() || 0,
+    })),
+  ]
+    .sort((left, right) => right.sortAt - left.sortAt)
+    .slice(0, 10);
+
+  const historicalDisasterSource = archivedDisasterEvents.length > 0 ? archivedDisasterEvents : disasterEvents;
+  const historicalDisasterReports: HistoricalDisasterRecord[] = historicalDisasterSource
+    .slice()
+    .sort((left, right) => new Date(right.dateStarted).getTime() - new Date(left.dateStarted).getTime())
+    .map((event) => ({
+      id: event.id,
+      name: event.name,
+      date: formatMonthYear(event.dateEnded || event.dateStarted),
+      severity: event.severityLevel,
+      province: event.province,
+      affectedAreas: event.affectedAreas.length,
+      status: event.status,
+      lessonsLearned: event.notes?.trim() || "No post-event notes have been recorded for this disaster event yet.",
+      fullText: `${event.name} (${event.type}) affected ${event.affectedAreas.join(", ") || event.province}. Status: ${event.status}. Started ${formatTimestamp(event.dateStarted)}${event.dateEnded ? ` and ended ${formatTimestamp(event.dateEnded)}` : " and remains active."}`,
+    }));
+
+  const selectedHistoricalReport = historicalDisasterReports.find((report) => report.id === selectedReportId) ?? null;
+
+  useEffect(() => {
+    if (historicalDisasterReports.length === 0) {
+      if (selectedReportId !== null) {
+        setSelectedReportId(null);
+      }
+      return;
+    }
+
+    if (!selectedReportId || !historicalDisasterReports.some((report) => report.id === selectedReportId)) {
+      setSelectedReportId(historicalDisasterReports[0].id);
+    }
+  }, [historicalDisasterReports, selectedReportId]);
+
   const essentialTasks = phase === 'after' ? [
     {
       t: "Final Damage Report",
-      s: damageAssessment.isSubmitted ? "Complete" : "Pending Submission",
+      s: structureDamageRecords.length > 0 ? "Damage Intake Logged" : "Awaiting Intake",
     },
     {
       t: "Shelter Performance Evaluation",
-      s: damageAssessment.isSubmitted ? "Evaluated" : "In Progress",
+      s: capacityCenters.length > 0 ? "Live Capacity Synced" : "In Progress",
     },
     {
       t: "Registered Structure Damage",
@@ -1434,21 +1582,47 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                         </label>
 
                         <button 
-                          onClick={() => {
+                          onClick={async () => {
+                            if (!session?.accessToken) {
+                              alert('⚠️ Session expired. Please log in again.');
+                              return;
+                            }
                             if (!structureDamageForm.ownerName.trim() || !structureDamageForm.address.trim()) {
                               alert('⚠️ Owner name and address are required to log structural assessments.');
                               return;
                             }
-                            const newRecord = {
-                              id: `SDA-${Math.floor(100 + Math.random() * 900)}`,
-                              ownerName: structureDamageForm.ownerName.trim(),
-                              address: structureDamageForm.address.trim(),
-                              severity: structureDamageForm.severity,
-                              needsAid: structureDamageForm.needsAid,
-                              status: "Processed"
-                            };
-                            setStructureDamageRecords(prev => [newRecord, ...prev]);
-                            setStructureDamageForm({ ownerName: "", address: "", severity: "Major Damage", needsAid: true });
+
+                            const disasterId =
+                              disasterEvents.find((event) => event.status?.toLowerCase() === 'active')?.id ??
+                              incidentDisasterOptions[0]?.id;
+
+                            if (!disasterId) {
+                              alert('⚠️ Create or activate a disaster event first before registering structure damage.');
+                              return;
+                            }
+
+                            try {
+                              const { createIncidentReport } = await import("../../lib/api");
+
+                              await createIncidentReport(session.accessToken, {
+                                disasterId,
+                                reportedBy: session.user.email || "System",
+                                title: `Damage Assessment: ${structureDamageForm.ownerName.trim()}`,
+                                content: [
+                                  `Assessment type: Structural damage intake`,
+                                  `Immediate financial assistance: ${structureDamageForm.needsAid ? 'yes' : 'no'}`,
+                                ].join("\n"),
+                                severity: structureDamageForm.severity,
+                                location: structureDamageForm.address.trim(),
+                              });
+
+                              const freshReports = await getIncidentReports(session.accessToken);
+                              setIncidentReports(freshReports);
+                              setStructureDamageForm({ ownerName: "", address: "", severity: "Major Damage", needsAid: true });
+                            } catch (error) {
+                              const message = error instanceof Error ? error.message : 'Failed to register structure damage';
+                              alert(`⚠️ ${message}`);
+                            }
                           }}
                           className="w-full text-white font-black uppercase tracking-wider text-xs py-3.5 rounded-2xl shadow-md hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
                           style={{ background: phaseConfig.primaryColor }}
@@ -1540,32 +1714,11 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                               <span className="font-bold text-[#444743] dark:text-[#a0a39f]">Completion Progress</span>
                               <span className="font-black text-sm" style={{ color: phaseConfig.primaryColor }}>{plan.progress}%</span>
                             </div>
-                            {/* Visual Progress Bar */}
                             <div className="w-full bg-[#f4f4ef] dark:bg-[#232622] h-2.5 rounded-full overflow-hidden border border-[#dadad5] dark:border-[#3b3b3b]">
                               <div className="h-full rounded-full transition-all duration-500" style={{ width: `${plan.progress}%`, background: phaseConfig.primaryColor }}></div>
                             </div>
-
-                            {/* Control Adjustments */}
-                            <div className="flex justify-end gap-2 pt-1">
-                              <button 
-                                onClick={() => {
-                                  const updatedProgress = Math.max(0, plan.progress - 10);
-                                  setRecoveryPlans(prev => prev.map(p => p.id === plan.id ? { ...p, progress: updatedProgress } : p));
-                                }}
-                                className="px-2.5 py-1.5 rounded-lg border border-[#dadad5] dark:border-[#3b3b3b] hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 text-[10px] font-black uppercase tracking-wider active:scale-95 transition-all text-[#1a1c19] dark:text-[#e2e3dd]"
-                              >
-                                - 10%
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  const updatedProgress = Math.min(100, plan.progress + 10);
-                                  setRecoveryPlans(prev => prev.map(p => p.id === plan.id ? { ...p, progress: updatedProgress } : p));
-                                }}
-                                className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider text-white shadow-sm active:scale-95 transition-all hover:opacity-90"
-                                style={{ background: phaseConfig.primaryColor }}
-                              >
-                                + 10%
-                              </button>
+                            <div className="rounded-xl bg-[#f4f4ef] dark:bg-[#232622] px-3 py-2 text-[10px] font-bold text-[#444743] dark:text-[#a0a39f]">
+                              Derived from live shelter, incident, inventory, and disaster-event records.
                             </div>
                           </div>
                         </div>
@@ -1583,18 +1736,18 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                           <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>history</span>
                           System Auditing & Historical Incident Logs
                         </h4>
-                        <p className="text-xs text-[#707a6c] mt-1">Review staging performance metrics, past calamity logs, and record custom post-disaster audit summaries.</p>
+                        <p className="text-xs text-[#707a6c] mt-1">Review live operational activity and historical disaster events already stored in the backend.</p>
                       </div>
                       
                       <button
                         onClick={() => {
                           const csvContent = "data:text/csv;charset=utf-8," 
-                            + "Task ID,Task Name,Timestamp,Duration,Target Duration,Efficiency Score,Status,Feedback\n"
-                            + pastAssignedTasks.map(t => `${t.id},"${t.name}","${t.timestamp}",${t.duration},${t.targetDuration},${t.efficiencyScore}%,${t.status},"${t.feedback}"`).join("\n");
+                            + "Entry ID,Title,Timestamp,Source,Status,Note\n"
+                            + operationalAuditEntries.map(entry => `${entry.id},"${entry.title}","${entry.timestamp}",${entry.source},${entry.status},"${entry.note}"`).join("\n");
                           const encodedUri = encodeURI(csvContent);
                           const link = document.createElement("a");
                           link.setAttribute("href", encodedUri);
-                          link.setAttribute("download", "Damayan_Auditing_Performance_Metrics.csv");
+                          link.setAttribute("download", "Damayan_Auditing_Activity_Log.csv");
                           document.body.appendChild(link);
                           link.click();
                           document.body.removeChild(link);
@@ -1607,16 +1760,16 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                      {/* Left: Interactive Audit Note & Lessons Form */}
+                      {/* Left: Selected Historical Event */}
                       <div className="lg:col-span-4 bg-white dark:bg-[#1a1c19] p-6 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-5 text-left">
                         <div className="pb-3 border-b border-[#dadad5]/50 flex justify-between items-center">
-                          <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">Ground Audit Logger</h5>
-                          <span className="bg-amber-100 text-amber-800 text-[8px] font-black uppercase px-2 py-0.5 rounded border border-amber-200/50">SECURE SHELL</span>
+                          <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">Historical Event Snapshot</h5>
+                          <span className="bg-green-50 text-green-700 text-[8px] font-black uppercase px-2 py-0.5 rounded border border-green-200/50">BACKEND SYNCED</span>
                         </div>
 
                         <div className="space-y-4">
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Target Calamity Context</label>
+                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Historical Disaster Event</label>
                             <CustomSelect 
                               value={selectedReportId || ""}
                               onChange={(val: any) => setSelectedReportId(val || null)}
@@ -1625,44 +1778,30 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                             />
                           </div>
 
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Auditor / Lead Inspector</label>
-                            <input 
-                              type="text" 
-                              disabled
-                              value={`${displayName} (Local Command)`}
-                              className="w-full bg-[#f4f4ef]/80 dark:bg-[#232622]/80 border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-3.5 py-2.5 text-xs font-bold text-[#707a6c]"
-                            />
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Custom Audit & Evaluation Notes</label>
-                            <textarea 
-                              rows={4}
-                              value={selectedReportId ? (userAuditNotes[selectedReportId] || "") : ""}
-                              disabled={!selectedReportId}
-                              onChange={(e) => {
-                                if (selectedReportId) {
-                                  setUserAuditNotes(prev => ({ ...prev, [selectedReportId]: e.target.value }));
-                                }
-                              }}
-                              placeholder={selectedReportId ? "Write lessons learned, staging efficiency improvements, or custom note entries..." : "🔒 Please select a calamity context to unlock grounding logger."}
-                              className="w-full bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none resize-none disabled:opacity-50 text-[#1a1c19] dark:text-white"
-                            />
-                          </div>
-
-                          <button 
-                            disabled={!selectedReportId}
-                            onClick={() => {
-                              if (!selectedReportId) return;
-                              alert(`📝 Ground Audit note for ${historicalDisasterReports.find(r => r.id === selectedReportId)?.name} saved to local staging memory!`);
-                            }}
-                            className="w-full text-white font-black uppercase tracking-wider text-xs py-3.5 rounded-2xl shadow-md hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                            style={{ background: phaseConfig.primaryColor }}
-                          >
-                            <span className="material-symbols-outlined text-sm">lock_open</span>
-                            Commit Notes to Registry
-                          </button>
+                          {selectedHistoricalReport ? (
+                            <div className="space-y-3 rounded-2xl bg-[#f4f4ef] dark:bg-[#232622] p-4 text-xs font-bold text-[#444743] dark:text-[#a0a39f]">
+                              <div>
+                                <p className="text-[9px] uppercase tracking-wider text-[#707a6c]">Severity</p>
+                                <p className="mt-1 text-sm text-[#1a1c19] dark:text-white">{selectedHistoricalReport.severity}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] uppercase tracking-wider text-[#707a6c]">Province</p>
+                                <p className="mt-1 text-sm text-[#1a1c19] dark:text-white">{selectedHistoricalReport.province}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] uppercase tracking-wider text-[#707a6c]">Affected Areas</p>
+                                <p className="mt-1 text-sm text-[#1a1c19] dark:text-white">{selectedHistoricalReport.affectedAreas}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] uppercase tracking-wider text-[#707a6c]">Lifecycle Status</p>
+                                <p className="mt-1 text-sm text-[#1a1c19] dark:text-white">{selectedHistoricalReport.status}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl bg-[#f4f4ef] dark:bg-[#232622] p-4 text-xs font-bold text-[#707a6c]">
+                              No historical disaster records are available from the backend yet.
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1671,38 +1810,38 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                         {/* Search and Tabs */}
                         <div className="bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4">
                           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">1. Ground Task Performance Logs</h5>
-                            <span className="bg-[#2E7D32]/10 text-[#2E7D32] dark:text-[#81C784] text-[8px] font-black uppercase px-2 py-0.5 rounded border border-[#2E7D32]/20">ALL OPTIMAL</span>
+                            <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">1. Operational Activity Feed</h5>
+                            <span className="bg-[#2E7D32]/10 text-[#2E7D32] dark:text-[#81C784] text-[8px] font-black uppercase px-2 py-0.5 rounded border border-[#2E7D32]/20">{operationalAuditEntries.length} LIVE RECORDS</span>
                           </div>
 
                           <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs min-w-[500px]">
                               <thead>
                                 <tr className="border-b border-[#dadad5]/50 text-[#707a6c] font-black text-[9px] uppercase tracking-wider">
-                                  <th className="pb-2">Task</th>
-                                  <th className="pb-2">Done Time</th>
-                                  <th className="pb-2 text-center">Duration</th>
-                                  <th className="pb-2 text-center">Target</th>
-                                  <th className="pb-2 text-center">Score</th>
+                                  <th className="pb-2">Activity</th>
+                                  <th className="pb-2">Logged Time</th>
+                                  <th className="pb-2 text-center">Source</th>
+                                  <th className="pb-2 text-center">Status</th>
                                   <th className="pb-2 text-right">Rating</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-[#dadad5]/30">
-                                {pastAssignedTasks.map(tsk => (
-                                  <tr key={tsk.id} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors font-bold">
+                                {operationalAuditEntries.map((entry) => (
+                                  <tr key={entry.id} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors font-bold">
                                     <td className="py-3">
-                                      <p className="text-[#1a1c19] dark:text-white">{tsk.name}</p>
-                                      <p className="text-[9px] text-[#707a6c] font-mono mt-0.5">{tsk.feedback}</p>
+                                      <p className="text-[#1a1c19] dark:text-white">{entry.title}</p>
+                                      <p className="text-[9px] text-[#707a6c] font-mono mt-0.5">{entry.note}</p>
                                     </td>
-                                    <td className="py-3 font-medium text-[#707a6c] whitespace-nowrap">{tsk.timestamp}</td>
-                                    <td className="py-3 text-center">{tsk.duration}</td>
-                                    <td className="py-3 text-center">{tsk.targetDuration}</td>
-                                    <td className="py-3 text-center text-[#2E7D32]" style={{ color: tsk.efficiencyScore < 80 ? '#ba1a1a' : '#2E7D32' }}>{tsk.efficiencyScore}%</td>
+                                    <td className="py-3 font-medium text-[#707a6c] whitespace-nowrap">{entry.timestamp}</td>
+                                    <td className="py-3 text-center">{entry.source}</td>
+                                    <td className="py-3 text-center">{entry.status}</td>
                                     <td className="py-3 text-right">
                                       <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase ${
-                                        tsk.status === 'Optimal' ? 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300' : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                                        entry.status.toLowerCase() === 'resolved' || entry.status.toLowerCase() === 'checked_in' || entry.status.toLowerCase() === 'processed'
+                                          ? 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300'
+                                          : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
                                       }`}>
-                                        {tsk.status}
+                                        {entry.status}
                                       </span>
                                     </td>
                                   </tr>
@@ -1749,12 +1888,12 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 mt-3 text-[10px] text-[#444743] dark:text-[#a0a39f] font-bold border-t border-[#dadad5]/50 pt-2.5">
                                       <div>
-                                        <p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Evacuees</p>
-                                        <p className="font-black text-[#1a1c19] dark:text-white">{rpt.evacuees.toLocaleString()} pax</p>
+                                        <p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Severity</p>
+                                        <p className="font-black text-[#1a1c19] dark:text-white">{rpt.severity}</p>
                                       </div>
                                       <div>
-                                        <p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Aid Shared</p>
-                                        <p className="font-black text-[#1a1c19] dark:text-white">{rpt.aidDistributed}</p>
+                                        <p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Affected Areas</p>
+                                        <p className="font-black text-[#1a1c19] dark:text-white">{rpt.affectedAreas}</p>
                                       </div>
                                     </div>
                                   </div>
@@ -1762,19 +1901,19 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                               })}
                           </div>
 
-                          {selectedReportId && (
+                          {selectedHistoricalReport && (
                             <div className="bg-[#f4f4ef]/50 dark:bg-[#232622]/50 border border-green-600/20 p-4 rounded-xl space-y-3 mt-4 text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
                               <div className="flex justify-between items-center pb-2 border-b border-[#dadad5]/50">
-                                <span className="font-black text-[10px] uppercase text-green-700 tracking-wider">Lessons Learned File: {historicalDisasterReports.find(r => r.id === selectedReportId)?.name}</span>
+                                <span className="font-black text-[10px] uppercase text-green-700 tracking-wider">Lessons Learned File: {selectedHistoricalReport.name}</span>
                                 <span className="material-symbols-outlined text-sm text-green-700">inventory</span>
                               </div>
                               <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px]">Lessons Learned & Recommendations</p>
                               <p className="text-[#1a1c19] dark:text-[#e2e3dd] italic leading-relaxed">
-                                "{historicalDisasterReports.find(r => r.id === selectedReportId)?.lessonsLearned}"
+                                "{selectedHistoricalReport.lessonsLearned}"
                               </p>
                               <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px] pt-1">Full Incident Report Log</p>
                               <p className="text-[#444743] dark:text-[#a0a39f] leading-relaxed">
-                                {historicalDisasterReports.find(r => r.id === selectedReportId)?.fullText}
+                                {selectedHistoricalReport.fullText}
                               </p>
                             </div>
                           )}
@@ -2290,6 +2429,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 <div className="flex-grow rounded-2xl overflow-hidden">
                   <SiteManagerRegionalMap 
                     centers={capacityCenters} 
+                    token={session?.accessToken ?? ""}
                     height={600} 
                     phase={phase} 
                     incidentReports={incidentReports}

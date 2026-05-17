@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CapacityCenter } from "../../lib/types";
+import { geocodeAddress } from "../../lib/api";
 
 interface SiteManagerRegionalMapProps {
   centers: CapacityCenter[];
+  token: string;
   height?: number | string;
   phase?: 'before' | 'during' | 'after';
   assignedCenterId?: string;
@@ -14,24 +16,9 @@ interface SiteManagerRegionalMapProps {
 
 const PH_CENTER: [number, number] = [12.8797, 121.774];
 
-const MOCK_CRITICAL_RESOURCES = [
-  { id: 1, type: "Generator", coords: [12.8797, 121.774] as [number, number], status: "Operational", power: "15kW" },
-  { id: 2, type: "Rescue Boat", coords: [12.8997, 121.784] as [number, number], status: "Standby", power: "N/A" },
-  { id: 3, type: "Water Pump", coords: [12.8697, 121.764] as [number, number], status: "Active", power: "5HP" },
-  { id: 4, type: "First Aid Station", coords: [12.8897, 121.794] as [number, number], status: "Operational", power: "N/A" },
-  { id: 5, type: "Comms Tower", coords: [12.8597, 121.754] as [number, number], status: "Online", power: "VHF/UHF" },
-];
-
-const RESOURCE_ICONS: Record<string, string> = {
-  "Generator": "bolt",
-  "Rescue Boat": "sailing",
-  "Water Pump": "water_drop",
-  "First Aid Station": "medical_services",
-  "Comms Tower": "cell_tower",
-};
-
 export default function SiteManagerRegionalMap({
   centers,
+  token,
   height = 550,
   phase = 'before',
   assignedCenterId,
@@ -42,14 +29,12 @@ export default function SiteManagerRegionalMap({
   const mapInstanceRef = useRef<any>(null);
   const leafletRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
-  const resourceMarkersRef = useRef<any[]>([]);
   const incidentMarkersRef = useRef<any[]>([]);
   const damageMarkersRef = useRef<any[]>([]);
   const geocodeCacheRef = useRef<Record<string, [number, number]>>({});
 
   // HUD state
   const [showShelters, setShowShelters] = useState(true);
-  const [showResources, setShowResources] = useState(true);
   const [showLegend, setShowLegend] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<"all" | "critical" | "moderate" | "safe">("all");
@@ -125,10 +110,11 @@ export default function SiteManagerRegionalMap({
       mapInstanceRef.current = map;
       leafletRef.current = L;
       drawMarkers();
-      drawResourceMarkers();
       drawIncidentMarkers();
       drawDamageMarkers();
       void geocodeMissingCenters();
+      void geocodeIncidentLocations();
+      void geocodeDamageLocations();
     });
 
     return () => {
@@ -145,15 +131,18 @@ export default function SiteManagerRegionalMap({
     drawIncidentMarkers();
     drawDamageMarkers();
     void geocodeMissingCenters();
+    void geocodeIncidentLocations();
+    void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centers, assignedCenterId, showShelters, selectedFilter, searchQuery, phase]);
 
   useEffect(() => {
-    drawResourceMarkers();
     drawIncidentMarkers();
     drawDamageMarkers();
+    void geocodeIncidentLocations();
+    void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, showResources, incidentReports, structureDamageRecords]);
+  }, [phase, incidentReports, structureDamageRecords]);
 
   function markerColor(center: CapacityCenter): string {
     if (center.id === assignedCenterId) return "#2196F3";
@@ -177,11 +166,6 @@ export default function SiteManagerRegionalMap({
     return `<div class="${isAssigned ? 'assigned-marker' : ''}" style="position:relative;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,0.4);z-index:${isAssigned ? '999' : 'auto'};"></div>`;
   }
 
-  function resourceMarkerHtml(type: string): string {
-    const icon = RESOURCE_ICONS[type] || "pin_drop";
-    return `<div style="position:relative;width:28px;height:28px;border-radius:10px;background:#1a1c19;color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,0.35)"><span class="material-symbols-outlined" style="font-size:14px">${icon}</span></div>`;
-  }
-
   function incidentMarkerHtml(title: string, severity: string): string {
     const isHigh = severity.toLowerCase() === 'high' || severity.toLowerCase() === 'severe' || severity.toLowerCase() === 'major';
     const color = isHigh ? "#ba1a1a" : "#FFB300";
@@ -193,46 +177,50 @@ export default function SiteManagerRegionalMap({
     return `<div style="position:relative;width:28px;height:28px;border-radius:10px;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,0.35)"><span class="material-symbols-outlined" style="font-size:14px">handyman</span></div>`;
   }
 
-  function drawResourceMarkers() {
-    const map = mapInstanceRef.current;
-    const L = leafletRef.current;
-    if (!map || !L) return;
+  function getLocationQuery(rawLocation: string): string {
+    const location = rawLocation.trim();
+    if (!location) return "";
+    if (/philippines/i.test(location)) return location;
 
-    resourceMarkersRef.current.forEach((m) => map.removeLayer(m));
-    resourceMarkersRef.current = [];
+    const fallbackContext = centers[0]
+      ? `${centers[0].barangay}, ${centers[0].municipality}, Philippines`
+      : "Philippines";
 
-    if (!showResources || phase === 'after') return;
+    return `${location}, ${fallbackContext}`;
+  }
 
-    MOCK_CRITICAL_RESOURCES.forEach((resource) => {
-      const marker = L.marker(resource.coords, {
-        icon: L.divIcon({
-          className: "",
-          html: resourceMarkerHtml(resource.type),
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        }),
-      }).addTo(map);
+  async function geocodeCachedLocation(cacheKey: string, rawLocation: string): Promise<void> {
+    if (geocodeCacheRef.current[cacheKey] || !token) return;
 
-      marker.bindPopup(
-        `<div style="font-family:Public Sans,sans-serif;min-width:200px;padding:4px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <div style="width:32px;height:32px;border-radius:10px;background:#1a1c19;display:flex;align-items:center;justify-content:center">
-              <span class="material-symbols-outlined" style="font-size:16px;color:#fff">${RESOURCE_ICONS[resource.type] || "pin_drop"}</span>
-            </div>
-            <div>
-              <div style="font-weight:900;font-size:12px;color:#1a1c19">${resource.type}</div>
-              <div style="font-size:9px;color:#707a6c;text-transform:uppercase;font-weight:800;letter-spacing:0.1em">Critical Resource</div>
-            </div>
-          </div>
-          <div style="background:#f4f4ef;padding:8px 10px;border-radius:10px;display:flex;justify-content:space-between">
-            <div><div style="font-size:8px;color:#707a6c;font-weight:800;text-transform:uppercase">Status</div><div style="font-size:11px;font-weight:900;color:#2E7D32">${resource.status}</div></div>
-            <div><div style="font-size:8px;color:#707a6c;font-weight:800;text-transform:uppercase">Spec</div><div style="font-size:11px;font-weight:900;color:#1a1c19">${resource.power}</div></div>
-          </div>
-        </div>`,
-      );
+    const query = getLocationQuery(rawLocation);
+    if (!query) return;
 
-      resourceMarkersRef.current.push(marker);
-    });
+    try {
+      const result = await geocodeAddress(token, query);
+      geocodeCacheRef.current[cacheKey] = [result.latitude, result.longitude];
+    } catch {
+      // Ignore geocoding failures
+    }
+  }
+
+  async function geocodeIncidentLocations() {
+    if (phase !== 'during' || !incidentReports.length) return;
+
+    for (const incident of incidentReports) {
+      await geocodeCachedLocation(`incident:${incident.id}`, incident.location ?? "");
+    }
+
+    drawIncidentMarkers();
+  }
+
+  async function geocodeDamageLocations() {
+    if (phase !== 'after' || !structureDamageRecords.length) return;
+
+    for (const record of structureDamageRecords) {
+      await geocodeCachedLocation(`damage:${record.id}`, record.address ?? "");
+    }
+
+    drawDamageMarkers();
   }
 
   function drawIncidentMarkers() {
@@ -245,16 +233,9 @@ export default function SiteManagerRegionalMap({
 
     if (phase !== 'during' || !incidentReports || incidentReports.length === 0) return;
 
-    incidentReports.forEach((incident, i) => {
-      const firstCenter = centers[i % centers.length];
-      const baseCoords = firstCenter && geocodeCacheRef.current[firstCenter.id] 
-        ? geocodeCacheRef.current[firstCenter.id] 
-        : PH_CENTER;
-      
-      const coords: [number, number] = [
-        baseCoords[0] + 0.008 * (i + 1) * (i % 2 === 0 ? 1 : -1),
-        baseCoords[1] + 0.008 * (i + 1) * (i % 3 === 0 ? 1 : -1)
-      ];
+    incidentReports.forEach((incident) => {
+      const coords = geocodeCacheRef.current[`incident:${incident.id}`];
+      if (!coords) return;
 
       const marker = L.marker(coords, {
         icon: L.divIcon({
@@ -298,16 +279,9 @@ export default function SiteManagerRegionalMap({
 
     if (phase !== 'after' || !structureDamageRecords || structureDamageRecords.length === 0) return;
 
-    structureDamageRecords.forEach((record, i) => {
-      const firstCenter = centers[i % centers.length];
-      const baseCoords = firstCenter && geocodeCacheRef.current[firstCenter.id] 
-        ? geocodeCacheRef.current[firstCenter.id] 
-        : PH_CENTER;
-      
-      const coords: [number, number] = [
-        baseCoords[0] + 0.009 * (i + 1.5) * (i % 2 === 0 ? -1 : 1),
-        baseCoords[1] + 0.009 * (i + 1.5) * (i % 3 === 0 ? -1 : 1)
-      ];
+    structureDamageRecords.forEach((record) => {
+      const coords = geocodeCacheRef.current[`damage:${record.id}`];
+      if (!coords) return;
 
       const marker = L.marker(coords, {
         icon: L.divIcon({
@@ -403,14 +377,16 @@ export default function SiteManagerRegionalMap({
           </div>`;
 
       if (phase === 'before') {
-        const readinessScore = Math.round((center.availableSlots * 17 + center.capacity * 3) % 40 + 60);
-        utilColor = readinessScore >= 80 ? "#2E7D32" : readinessScore >= 70 ? "#FFB300" : "#ba1a1a";
-        utilLabel = "Supply Readiness Status";
-        utilValue = readinessScore >= 80 ? "Ready (Optimal)" : readinessScore >= 70 ? "Stocking Supplies" : "Needs Reinforcement";
-        progressWidth = readinessScore;
+        const readinessPercent = center.capacity > 0
+          ? Math.round((center.availableSlots / center.capacity) * 100)
+          : 0;
+        utilColor = readinessPercent >= 60 ? "#2E7D32" : readinessPercent >= 30 ? "#FFB300" : "#ba1a1a";
+        utilLabel = "Available Capacity";
+        utilValue = `${center.availableSlots.toLocaleString()} slots`;
+        progressWidth = readinessPercent;
         detailsRow = `<div style="display:flex;justify-content:space-between;font-size:10px;color:#444743;font-weight:700">
-            <span>Staged Food Packs: <b style="color:#2E7D32">350 packs</b></span>
-            <span>Volunteers Ready: <b style="color:#1a1c19">12 members</b></span>
+            <span>Occupancy: <b style="color:#1a1c19">${center.currentOccupancy.toLocaleString()}</b></span>
+            <span>Status: <b style="color:${utilColor}">${center.status.toUpperCase()}</b></span>
           </div>`;
       } else if (phase === 'after') {
         const isDeactivated = center.currentOccupancy === 0;
@@ -458,13 +434,10 @@ export default function SiteManagerRegionalMap({
     if (missing.length === 0) return;
 
     for (const center of missing) {
-      const query = `${center.barangay}, ${center.municipality}, Philippines`;
+      const address = `${center.barangay}, ${center.municipality}, Philippines`;
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=${encodeURIComponent(query)}`);
-        const json = (await res.json()) as Array<{ lat: string; lon: string }>;
-        if (Array.isArray(json) && json.length > 0) {
-          geocodeCacheRef.current[center.id] = [parseFloat(json[0].lat), parseFloat(json[0].lon)];
-        }
+        const result = await geocodeAddress(token, address);
+        geocodeCacheRef.current[center.id] = [result.latitude, result.longitude];
       } catch {
         // Ignore geocoding failures
       }
@@ -541,15 +514,6 @@ export default function SiteManagerRegionalMap({
           <span className="material-symbols-outlined text-lg">home</span>
         </button>
         <button
-          onClick={() => setShowResources(!showResources)}
-          className={`w-10 h-10 backdrop-blur-xl rounded-xl border shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all ${
-            showResources ? "bg-[#1a1c19] text-white border-[#3b3b3b]" : "bg-white/90 dark:bg-[#1a1c19]/90 border-white/30 text-[#707a6c]"
-          }`}
-          title="Toggle Resources"
-        >
-          <span className="material-symbols-outlined text-lg">package_2</span>
-        </button>
-        <button
           onClick={() => setShowLegend(!showLegend)}
           className={`w-10 h-10 backdrop-blur-xl rounded-xl border shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all ${
             showLegend ? "bg-blue-500 text-white border-blue-600" : "bg-white/90 dark:bg-[#1a1c19]/90 border-white/30 text-[#707a6c]"
@@ -557,13 +521,6 @@ export default function SiteManagerRegionalMap({
           title="Toggle Legend"
         >
           <span className="material-symbols-outlined text-lg">info</span>
-        </button>
-        <button
-          onClick={() => alert("GPS Location pinned! Critical resource baseline updated.")}
-          className="w-10 h-10 bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-xl rounded-xl border border-white/30 shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all text-orange-500"
-          title="Pin GPS Resource"
-        >
-          <span className="material-symbols-outlined text-lg">add_location</span>
         </button>
       </div>
 
@@ -602,17 +559,6 @@ export default function SiteManagerRegionalMap({
                 </div>
               ))
             )}
-            <div className="pt-2 mt-2 border-t border-[#dadad5]/50">
-              <p className="text-[8px] font-black uppercase tracking-widest text-[#707a6c] mb-1.5">Resources</p>
-              {Object.entries(RESOURCE_ICONS).slice(0, 4).map(([name, icon]) => (
-                <div key={name} className="flex items-center gap-2.5 mb-1.5">
-                  <div className="w-5 h-5 rounded-md bg-[#1a1c19] flex items-center justify-center">
-                    <span className="material-symbols-outlined text-white" style={{ fontSize: "10px" }}>{icon}</span>
-                  </div>
-                  <span className="text-[10px] font-bold text-[#444743] dark:text-[#a0a39f]">{name}</span>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       )}
