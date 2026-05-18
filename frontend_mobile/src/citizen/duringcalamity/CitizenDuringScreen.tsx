@@ -9,11 +9,13 @@ import {
   Text,
   View,
   TouchableOpacity,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { theme, fonts } from "../../theme";
 import { styles } from "./CitizenDuringScreen.styles";
+import { submitIncidentReport } from "../../api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type DuringStep =
@@ -93,15 +95,46 @@ function ProgressBar({ step }: { step: number }) {
 export function CitizenDuringScreen({ 
   onBack,
   initialStep = "rescue_decision",
+  session,
+  authUser,
 }: { 
   onBack: () => void;
   initialStep?: string;
+  session: any;
+  authUser: any;
 }) {
   const [step, setStep] = useState<DuringStep>("rescue_decision");
   const [rescueNeeded, setRescueNeeded] = useState<boolean | null>(null);
   const [internetAvailable, setInternetAvailable] = useState<boolean | null>(null);
   const [isIndividual, setIsIndividual] = useState<boolean | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleUploadAndSend = async () => {
+    if (!session?.accessToken) {
+      Alert.alert("Authentication Error", "You must be logged in to submit a report.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      
+      const payload = {
+        title: "Citizen SOS Report",
+        content: "Citizen needs immediate rescue. Location details: Brgy. 102, District 4 - Zone Red. Affected: 4 persons.",
+        severity: "high",
+        location: "Brgy. 102, District 4 - Zone Red",
+      };
+
+      await submitIncidentReport(session.accessToken, payload);
+      go("delivery_confirmation");
+    } catch (err: any) {
+      console.error("Failed to submit incident report:", err);
+      Alert.alert("Submission Failed", err?.message || "Something went wrong while uploading your report.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if (initialStep === "map") setStep("safe_zone_map");
@@ -365,10 +398,17 @@ export function CitizenDuringScreen({
 
             <Pressable
               style={[styles.ctaButton, { backgroundColor: theme.info }]}
-              onPress={() => go("delivery_confirmation")}
+              onPress={handleUploadAndSend}
+              disabled={isSubmitting}
             >
-              <Ionicons name="cloud-upload" size={24} color="#fff" />
-              <Text style={styles.ctaButtonText}>Upload & Send Report</Text>
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload" size={24} color="#fff" />
+                  <Text style={styles.ctaButtonText}>Upload & Send Report</Text>
+                </>
+              )}
             </Pressable>
           </View>
         )}

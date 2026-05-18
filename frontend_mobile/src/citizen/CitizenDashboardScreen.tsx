@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { loadSession } from "../session";
+import { getProfile, getCitizenProfile, ApiError } from "../api";
 import { View, StyleSheet, ScrollView, SafeAreaView, Dimensions, Pressable, Text, Modal, Platform, Image } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +24,56 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  
+  const [session, setSession] = useState<any>(null);
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [citizenProfile, setCitizenProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function loadUserData() {
+    try {
+      setLoading(true);
+      const activeSession = await loadSession();
+      if (!activeSession) {
+        onSignOut();
+        return;
+      }
+
+      setSession(activeSession);
+      setAuthUser(activeSession.user);
+
+      // Fetch latest details from `/auth/me`
+      try {
+        const latestProfile = await getProfile(activeSession.accessToken);
+        if (latestProfile?.user) {
+          setAuthUser(latestProfile.user);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch fresh user profile:", err);
+      }
+
+      // Fetch citizen profile details
+      try {
+        const profile = await getCitizenProfile(activeSession.accessToken);
+        setCitizenProfile(profile);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          console.log("Citizen registration profile not found. User is unregistered.");
+          setCitizenProfile(null);
+        } else {
+          console.error("Failed to fetch citizen profile:", err);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading citizen session:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUserData();
+  }, []);
 
   const theme = isDarkMode ? darkTheme : lightTheme;
 
@@ -97,12 +149,12 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
             {/* Profile on the Right */}
             <Pressable onPress={() => setIsProfileOpen(true)} style={styles.avatarContainer}>
               <View style={styles.profileTextContainer}>
-                <Text style={styles.headerProfileName}>Elena Villacruz</Text>
-                <Text style={styles.headerProfileSub}>BRGY. 102, DIST 4</Text>
+                <Text style={styles.headerProfileName}>{citizenProfile?.fullName || (authUser ? `${authUser.firstName} ${authUser.lastName}` : "Elena Villacruz")}</Text>
+                <Text style={styles.headerProfileSub}>{citizenProfile?.address || authUser?.barangay || "BRGY. 102, DIST 4"}</Text>
               </View>
               <View style={styles.avatar}>
                  <Image 
-                   source={{ uri: "file:///C:/Users/Administrator/.gemini/antigravity/brain/431eeb09-324f-4f13-a725-90119334481f/citizen_profile_avatar_1777474769780.png" }} 
+                   source={{ uri: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&auto=format&fit=crop" }} 
                    style={styles.avatarImage} 
                  />
               </View>
@@ -129,11 +181,18 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                   <CitizenIndividualRegistrationScreen 
                     onBack={() => setTargetStep("dashboard")} 
                     onContinue={() => setTargetStep("dashboard")}
+                    session={session}
+                    authUser={authUser}
+                    onRefreshProfile={loadUserData}
                   />
                 ) : targetStep === "household_registration" ? (
                   <CitizenHouseholdRegistrationScreen 
                     onBack={() => setTargetStep("dashboard")} 
                     onContinue={() => setTargetStep("dashboard")}
+                    session={session}
+                    authUser={authUser}
+                    citizenProfile={citizenProfile}
+                    onRefreshProfile={loadUserData}
                   />
                 ) : (
                   <CitizenBeforeScreen 
@@ -142,6 +201,8 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                     onRegisterIndividual={() => setTargetStep("individual_registration")}
                     onRegisterHousehold={() => setTargetStep("household_registration")}
                     initialStep={targetStep === "registration" ? "registration" : "dashboard"}
+                    citizenProfile={citizenProfile}
+                    authUser={authUser}
                   />
                 )}
               </View>
@@ -150,6 +211,8 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
               <CitizenDuringScreen 
                 onBack={() => setPhase("before")} 
                 initialStep={targetStep === "map" ? "map" : "decision"}
+                session={session}
+                authUser={authUser}
               />
             )}
             {phase === "after" && (
@@ -208,8 +271,8 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
         <Pressable style={styles.modalOverlay} onPress={() => setIsProfileOpen(false)}>
           <View style={styles.profileDropdown}>
             <View style={styles.profileHeader}>
-              <Text style={styles.profileName}>Elena Villacruz</Text>
-              <Text style={styles.profileSub}>Brgy. 102, Dist 4</Text>
+              <Text style={styles.profileName}>{citizenProfile?.fullName || (authUser ? `${authUser.firstName} ${authUser.lastName}` : "Elena Villacruz")}</Text>
+              <Text style={styles.profileSub}>{citizenProfile?.address || authUser?.barangay || "Brgy. 102, Dist 4"}</Text>
             </View>
             <View style={styles.profileActions}>
               <Pressable style={styles.profileActionItem} onPress={() => setIsDarkMode(!isDarkMode)}>

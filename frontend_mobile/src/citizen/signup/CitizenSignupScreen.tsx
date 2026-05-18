@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Text, View, Pressable, ScrollView, TouchableOpacity } from "react-native";
+import { Text, View, Pressable, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { Button, Input, Pill, Screen, SectionCard } from "../../components/UI";
 import { theme, fonts } from "../../theme";
 import { citizenStyles } from "../shared";
+import { signup, login, getProfile, ApiError } from "../../api";
+import { saveSession } from "../../session";
 
 export function CitizenSignupScreen({
   onBack,
@@ -16,6 +18,13 @@ export function CitizenSignupScreen({
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const uploadBoxRef = useRef<View>(null);
+
+  // Form State
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const validateAndSetFile = (file: { name: string; type?: string }) => {
     const fileName = file.name.toLowerCase();
@@ -70,6 +79,61 @@ export function CitizenSignupScreen({
     };
   }, []);
 
+  const handleRegister = async () => {
+    if (!fullName.trim() || !username.trim() || !phone.trim() || !password.trim()) {
+      alert("Please fill in all fields.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const nameParts = fullName.trim().split(" ");
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "Citizen";
+      const email = username.includes("@") ? username.trim().toLowerCase() : `${username.trim().toLowerCase()}@damayan.org`;
+
+      // 1. Signup the user via gateway
+      await signup({
+        firstName,
+        lastName,
+        email,
+        phone,
+        password,
+        role: "citizen",
+      });
+
+      // 2. Perform automatic login to fetch access token
+      const result = await login({
+        email,
+        password,
+        requiredRole: "citizen",
+      });
+
+      const accessToken = result.access_token?.trim();
+      if (!accessToken) {
+        throw new Error("No access token returned after auto-login.");
+      }
+
+      // 3. Fetch profile and store session
+      const profile = await getProfile(accessToken);
+      await saveSession({
+        accessToken,
+        expiresIn: result.expiresIn,
+        user: profile.user,
+      });
+
+      // 4. Redirect
+      onSubmit();
+    } catch (err: any) {
+      console.error("Signup registration failed:", err);
+      const msg = err instanceof ApiError ? err.message : "Unable to complete registration. Check your network or details.";
+      alert("Registration Failed: " + msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Screen style={{ backgroundColor: theme.bg }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
@@ -91,17 +155,41 @@ export function CitizenSignupScreen({
           <View style={{ gap: 20 }}>
             <View style={{ gap: 10 }}>
               <Text style={{ color: theme.textLight, fontSize: 11, ...fonts.bold, letterSpacing: 1.5, textTransform: "uppercase", paddingHorizontal: 4 }}>Full Legal Name</Text>
-              <Input placeholder="e.g. Samuel Aristha" />
+              <Input 
+                placeholder="e.g. Samuel Aristha" 
+                value={fullName}
+                onChangeText={setFullName}
+              />
             </View>
 
             <View style={{ gap: 10 }}>
               <Text style={{ color: theme.textLight, fontSize: 11, ...fonts.bold, letterSpacing: 1.5, textTransform: "uppercase", paddingHorizontal: 4 }}>Create Username</Text>
-              <Input placeholder="citizen.unique.id" />
+              <Input 
+                placeholder="citizen.unique.id" 
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={{ gap: 10 }}>
+              <Text style={{ color: theme.textLight, fontSize: 11, ...fonts.bold, letterSpacing: 1.5, textTransform: "uppercase", paddingHorizontal: 4 }}>Phone Number</Text>
+              <Input 
+                placeholder="e.g. 09171234567" 
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+              />
             </View>
 
             <View style={{ gap: 10 }}>
               <Text style={{ color: theme.textLight, fontSize: 11, ...fonts.bold, letterSpacing: 1.5, textTransform: "uppercase", paddingHorizontal: 4 }}>Secure Password</Text>
-              <Input placeholder="••••••••••••" secureTextEntry />
+              <Input 
+                placeholder="••••••••••••" 
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry 
+              />
             </View>
             
             <View style={{ gap: 10 }}>
@@ -144,7 +232,8 @@ export function CitizenSignupScreen({
           </View>
           
           <TouchableOpacity 
-            onPress={onSubmit} 
+            onPress={handleRegister} 
+            disabled={loading}
             style={{ 
               height: 68, 
               backgroundColor: "#004D40", 
@@ -158,11 +247,18 @@ export function CitizenSignupScreen({
               shadowRadius: 20, 
               shadowOffset: { width: 0, height: 10 },
               elevation: 8,
-              marginTop: 12
+              marginTop: 12,
+              opacity: loading ? 0.6 : 1
             }}
           >
-            <Text style={{ color: "#fff", fontSize: 18, ...fonts.black, letterSpacing: 1 }}>SUBMIT REGISTRATION</Text>
-            <Ionicons name="arrow-forward" size={22} color="#fff" />
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Text style={{ color: "#fff", fontSize: 18, ...fonts.black, letterSpacing: 1 }}>SUBMIT REGISTRATION</Text>
+                <Ionicons name="arrow-forward" size={22} color="#fff" />
+              </>
+            )}
           </TouchableOpacity>
 
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 8 }}>

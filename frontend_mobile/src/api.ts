@@ -131,6 +131,18 @@ export async function login(payload: {
   });
 }
 
+export async function forgotPassword(payload: {
+  contact?: string;
+  method?: "EMAIL" | "SMS";
+  email?: string;
+  phone?: string;
+}) {
+  return request<any>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function signup(payload: {
   firstName: string;
   lastName: string;
@@ -332,6 +344,113 @@ export async function broadcastAdminWarning(
   payload: AdminWarningBroadcastPayload,
 ) {
   return request<AdminWarningBroadcastResult>("/admin/warnings/broadcast", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function getCitizenProfile(token: string) {
+  return request<any>("/citizen/profile", {
+    method: "GET",
+  }, token);
+}
+
+export async function registerCitizen(token: string, payload: {
+  fullName: string;
+  birthDate: string;
+  gender: string;
+  bloodType: string;
+  medicalConditions: string;
+  registrationType: "Individual" | "Household";
+  qrCodeId: string;
+}) {
+  return request<any>("/citizen/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function addFamilyMember(token: string, payload: {
+  qrCodeId: string;
+  headFullName: string;
+  familyMemberName: string;
+  relationship: string;
+  age: number;
+  accessibilityNeeds: string;
+  familyMemberCount: number;
+}) {
+  return request<any>("/citizen/family", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function addAnimal(token: string, payload: {
+  name: string;
+  species: string;
+  needsCage: boolean;
+  qrCodeId?: string;
+}) {
+  return request<any>("/citizen/animal", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function clearFamilyMembers(token: string, qrCodeId: string) {
+  return request<any>(`/citizen/family/${qrCodeId}`, {
+    method: "DELETE",
+  }, token);
+}
+
+export async function clearAnimals(token: string) {
+  return request<any>("/citizen/animal", {
+    method: "DELETE",
+  }, token);
+}
+
+export async function getFamilyMembers(token: string) {
+  return request<any[]>("/citizen/family", {
+    method: "GET",
+  }, token);
+}
+
+export async function deleteFamilyMember(token: string, id: string) {
+  return request<any>(`/citizen/family/member/${id}`, {
+    method: "DELETE",
+  }, token);
+}
+
+export async function updateFamilyMember(token: string, id: string, payload: {
+  qrCodeId?: string;
+  headFullName?: string;
+  familyMemberName?: string;
+  relationship?: string;
+  age?: number;
+  accessibilityNeeds?: string;
+  familyMemberCount?: number;
+}) {
+  return request<any>(`/citizen/family/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function getAnimals(token: string) {
+  return request<any[]>("/citizen/animals", {
+    method: "GET",
+  }, token);
+}
+
+export async function submitIncidentReport(token: string, payload: {
+  title: string;
+  content: string;
+  severity: string;
+  location: string;
+  attachmentKeys?: string[];
+  disasterId?: string;
+}) {
+  return request<any>("/citizen/incident-report", {
     method: "POST",
     body: JSON.stringify(payload),
   }, token);

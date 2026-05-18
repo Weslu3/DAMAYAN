@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Inject,
   UseGuards,
@@ -52,6 +53,16 @@ export class CitizenController {
   @Delete('family/:qrCodeId')
   async deleteFamilyMembers(@Param('qrCodeId') qrCodeId: string) {
     return this.citizenProxyService.deleteFamilyMembersByQr(qrCodeId);
+  }
+
+  @Put('family/:id')
+  async updateFamily(@Param('id') id: string, @Body() body: any) {
+    return this.citizenProxyService.updateFamily(id, body);
+  }
+
+  @Delete('family/member/:id')
+  async deleteFamilyMember(@Param('id') id: string) {
+    return this.citizenProxyService.deleteFamily(id);
   }
 
   @Delete('animal')

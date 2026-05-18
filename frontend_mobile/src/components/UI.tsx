@@ -86,11 +86,13 @@ export function Input({
   placeholder,
   secureTextEntry,
   onChangeText,
+  ...props
 }: {
   label?: string;
   placeholder: string;
   secureTextEntry?: boolean;
   onChangeText?: (text: string) => void;
+  [key: string]: any;
 }) {
   return (
     <View style={styles.inputWrap}>
@@ -101,6 +103,7 @@ export function Input({
         secureTextEntry={secureTextEntry}
         onChangeText={onChangeText}
         style={styles.input}
+        {...props}
       />
     </View>
   );

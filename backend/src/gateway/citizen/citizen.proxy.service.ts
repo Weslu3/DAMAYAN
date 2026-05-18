@@ -74,6 +74,22 @@ export class CitizenProxyService {
     );
   }
 
+  updateFamily(id: string, updateFamilyDto: any) {
+    return firstValueFrom(
+      this.operationsClient
+        .send(REGISTRATION_PATTERNS.UPDATE_FAMILY, { id, updateFamilyDto })
+        .pipe(timeout(10000)),
+    );
+  }
+
+  deleteFamily(id: string) {
+    return firstValueFrom(
+      this.operationsClient
+        .send(REGISTRATION_PATTERNS.DELETE_FAMILY, { id })
+        .pipe(timeout(10000)),
+    );
+  }
+
   deleteAnimalsByUser(userId: string) {
     return firstValueFrom(
       this.operationsClient

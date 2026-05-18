@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Image, Pressable, Switch, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Button, Screen } from "../../../components/UI";
 import { theme, fonts } from "../../../theme";
 import { styles } from "../styles/CitizenIndividualRegistrationScreen.styles";
+import { registerCitizen } from "../../../api";
 
 const avatarUri =
   "https://lh3.googleusercontent.com/aida-public/AB6AXuDmjENrAB5IQ3c2Xo9CHxLTG1Zx_wgP7ExXJmB7Kmj71CYaOiI0t7iQF9ibo6i1cY9WmMIHjRJCv_OhCLyiUH5Eml5d2lTOImfkIKJHeLVUIWIuVb1csgOiXIcvCezQF77Cfu-HJg4eUnCjMQMvjZhbUia0NTelqhZTDjEUY992V_wxjgsl2rHbXTQPkDG1lQEyRLoDyAJNLCd2J0550CN_KivV_VtOiFchDlvQLlJ9PgN6a7lsmlgO--ZHDGsz_hJfyQ7qJyk9GGoV";
@@ -14,11 +15,43 @@ const qrUri =
 export function CitizenIndividualRegistrationScreen({
   onBack,
   onContinue,
+  session,
+  authUser,
+  onRefreshProfile,
 }: {
   onBack: () => void;
   onContinue: () => void;
+  session?: any;
+  authUser?: any;
+  onRefreshProfile?: () => void;
 }) {
   const [alertsEnabled, setAlertsEnabled] = useState(true);
+
+  useEffect(() => {
+    async function performRegistration() {
+      if (!session || !authUser) return;
+      try {
+        console.log("Automatically registering citizen individual ID on backend...");
+        const randomCode = "IND-" + Math.floor(1000 + Math.random() * 9000);
+        await registerCitizen(session.accessToken, {
+          fullName: authUser.name || (authUser.firstName + " " + authUser.lastName),
+          birthDate: authUser.birthDate || "1990-01-01",
+          gender: authUser.gender || "Female",
+          bloodType: authUser.bloodType || "O+",
+          medicalConditions: authUser.medicalConditions || "None",
+          registrationType: "Individual",
+          qrCodeId: randomCode,
+        });
+        if (onRefreshProfile) {
+          onRefreshProfile();
+        }
+      } catch (err) {
+        console.error("Backend citizen individual registration failed/already exists:", err);
+      }
+    }
+
+    performRegistration();
+  }, [session, authUser]);
 
   return (
     <Screen>
@@ -65,14 +98,14 @@ export function CitizenIndividualRegistrationScreen({
                 <Image source={{ uri: qrUri }} style={styles.qrImage} />
               </View>
               <View style={styles.idCodeBadge}>
-                <Text style={styles.idCodeText}>284-991-001</Text>
+                <Text style={styles.idCodeText}>{authUser?.id?.substring(0, 8).toUpperCase() || "284-991"}</Text>
               </View>
             </View>
 
             <View style={styles.detailsSection}>
               <View style={styles.detailBlock}>
                 <Text style={styles.detailLabel}>Full Name</Text>
-                <Text style={styles.detailValue}>Elena S. Villacruz</Text>
+                <Text style={styles.detailValue}>{authUser?.name || (authUser ? `${authUser.firstName} ${authUser.lastName}` : "Elena Villacruz")}</Text>
               </View>
 
               <View style={styles.detailGrid}>
@@ -86,7 +119,7 @@ export function CitizenIndividualRegistrationScreen({
 
                 <View style={styles.detailMiniBlock}>
                   <Text style={styles.detailLabel}>Expiry</Text>
-                  <Text style={styles.detailSmallValue}>12 / 2025</Text>
+                  <Text style={styles.detailSmallValue}>12 / 2026</Text>
                 </View>
               </View>
 
@@ -96,7 +129,7 @@ export function CitizenIndividualRegistrationScreen({
                 </View>
                 <View>
                   <Text style={styles.detailLabel}>Registered Region</Text>
-                  <Text style={styles.regionText}>Bicol Region, District 2</Text>
+                  <Text style={styles.regionText}>{authUser?.barangay || "Bicol Region, District 2"}</Text>
                 </View>
               </View>
             </View>
