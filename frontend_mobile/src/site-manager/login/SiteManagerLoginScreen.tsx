@@ -45,11 +45,13 @@ export function SiteManagerLoginScreen({
       setLoading(true);
       setError(null);
 
+      console.log("[Login] Step 1: Calling login API...");
       const result = await login({
-        email: username,
-        password,
+        email: username.trim(),
+        password: password.trim(),
         requiredRole: AppRole.LINE_MANAGER,
       });
+      console.log("[Login] Step 2: Login success, role =", result.user.role);
 
       if (result.user.role !== AppRole.LINE_MANAGER) {
         Alert.alert("Access Denied", "This account does not have site manager access.");
@@ -62,16 +64,21 @@ export function SiteManagerLoginScreen({
         return;
       }
 
+      console.log("[Login] Step 3: Fetching profile...");
       const profile = await getProfile(accessToken);
+      console.log("[Login] Step 4: Profile fetched:", profile.user?.email);
 
+      console.log("[Login] Step 5: Saving session...");
       await saveSession({
         accessToken,
         expiresIn: result.expiresIn,
         user: profile.user,
       });
+      console.log("[Login] Step 6: Session saved. Navigating...");
 
       onSubmit();
     } catch (caughtError) {
+      console.error("[Login] ERROR:", caughtError);
       const message =
         caughtError instanceof ApiError
           ? caughtError.message

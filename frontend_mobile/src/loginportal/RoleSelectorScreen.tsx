@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, Text, View, ScrollView, TouchableOpacity } from "react-native";
+import { Pressable, Text, View, ScrollView, TouchableOpacity, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../components/UI";
 import { roleColors, theme, fonts } from "../theme";
@@ -12,7 +12,7 @@ const roles: {
   sub: string; 
   desc: string; 
   color: string;
-  icon: any;
+  image: string;
 }[] = [
   { 
     id: "citizen", 
@@ -20,7 +20,7 @@ const roles: {
     sub: "PUBLIC PORTAL",
     desc: "Register for relief, receive critical alerts, access your Digital ID, and track recovery aid status.",
     color: roleColors.citizen,
-    icon: "person",
+    image: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80",
   },
   { 
     id: "site_manager", 
@@ -28,7 +28,7 @@ const roles: {
     sub: "OPERATIONS PORTAL",
     desc: "Manage shelter intake, track resource inventory, and oversee local distribution logs.",
     color: roleColors.site_manager,
-    icon: "business",
+    image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=150&q=80",
   },
   { 
     id: "dispatcher", 
@@ -36,7 +36,7 @@ const roles: {
     sub: "COMMAND PORTAL",
     desc: "Coordinate emergency rescue teams, prioritize incident tickets, and manage field assets.",
     color: roleColors.dispatcher,
-    icon: "radio",
+    image: "https://images.unsplash.com/photo-1516321497487-e288fb19713f?auto=format&fit=crop&w=150&q=80",
   },
   { 
     id: "admin", 
@@ -44,7 +44,7 @@ const roles: {
     sub: "SYSTEM PORTAL",
     desc: "System-wide governance, user verification, platform health monitoring, and analytics reporting.",
     color: roleColors.admin,
-    icon: "shield-half",
+    image: "https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?auto=format&fit=crop&w=150&q=80",
   },
 ];
 
@@ -71,8 +71,8 @@ function RoleCard({ role, onNavigate }: { role: typeof roles[0], onNavigate: (ro
     >
       {isHovered && <View style={[styles.statusDot, { backgroundColor: role.color }]} />}
       
-      <View style={[styles.roleIconWrap, { backgroundColor: isHovered ? role.color + "15" : theme.surfaceAlt }]}>
-        <Ionicons name={role.icon} size={28} color={isHovered ? role.color : theme.textLight} />
+      <View style={[styles.roleIconWrap, { backgroundColor: isHovered ? role.color + "15" : theme.surfaceAlt, overflow: 'hidden' }]}>
+        <Image source={{ uri: role.image }} style={{ width: '100%', height: '100%' }} />
       </View>
       
       <View style={styles.roleCopy}>
@@ -82,7 +82,7 @@ function RoleCard({ role, onNavigate }: { role: typeof roles[0], onNavigate: (ro
       </View>
       
       <View style={[styles.roleActionIcon, isHovered && { backgroundColor: role.color + "15" }]}>
-        <Ionicons name="chevron-forward" size={20} color={isHovered ? role.color : theme.textLight} />
+        <Text style={{ fontSize: 18, color: isHovered ? role.color : theme.textLight }}>→</Text>
       </View>
     </Pressable>
   );
@@ -130,7 +130,7 @@ export function RoleSelectorScreen({ onNavigate }: { onNavigate: (route: AppRout
           </View>
         </View>
 
-        <View style={{ paddingHorizontal: 32, paddingBottom: 60 }}>
+        <View style={{ paddingHorizontal: 24, paddingBottom: 60 }}>
           <View style={{ marginBottom: 24 }}>
             <Text style={styles.selectorHeadText}>IDENTIFY YOUR PORTAL TO CONTINUE</Text>
           </View>

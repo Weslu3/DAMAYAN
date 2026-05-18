@@ -9,15 +9,17 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
     "@tailwindcss/container-queries": "latest",
     "@tailwindcss/forms": "latest",
-    "@supabase/supabase-js": "^2.49.0",
+    "@yudiel/react-qr-scanner": "^2.6.0",
     "autoprefixer": "latest",
     "leaflet": "^1.9.4",
     "next": "latest",
     "postcss": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "react-qr-code": "^2.0.21",
     "tailwindcss": "^3.4.1"
   },
   "devDependencies": {
