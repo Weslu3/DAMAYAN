@@ -1,9 +1,9 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateCheckInDto {
   @IsNotEmpty()
   @IsString()
-  evacueeNumber: string; // ID number or QR code data
+  evacueeNumber: string;
 
   @IsOptional()
   @IsString()
@@ -20,6 +20,10 @@ export class CreateCheckInDto {
   @IsOptional()
   @IsString()
   location?: string;
+
+  @IsOptional()
+  @IsString()
+  centerId?: string;
 
   @IsOptional()
   @IsInt()

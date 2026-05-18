@@ -147,42 +147,101 @@ export class CheckInService {
   }
 
   async createManual(createCheckInDto: CreateCheckInDto): Promise<CheckIn> {
-    const { evacueeNumber, familySize } = createCheckInDto;
+    const { evacueeNumber, familySize, centerId } = createCheckInDto;
     const supabase = this.supabaseService.getClient() as any;
 
-    const { data: existing, error: existingError } = await this.findEvacueeRecord(
-      evacueeNumber,
-      supabase,
-    );
+    let authUserId: string | null = null;
+    let citizenFullName: string | null = null;
+    let existingEvacuee: EvacueeRow | null = null;
 
-    if (existingError) throw new BadRequestException(existingError.message);
-    if (!existing)
-      throw new NotFoundException(`Evacuee ${evacueeNumber} not found`);
-    if (
-      (existing.status as EvacueeDbStatus) === 'checked_in' &&
-      existing.check_in_date
-    ) {
-      throw new BadRequestException(
-        `Evacuee ${evacueeNumber} already checked in`,
-      );
+    const citizenMatch = await supabase
+      .from('register_citizens')
+      .select('user_id, full_name')
+      .eq('qr_code_id', evacueeNumber)
+      .maybeSingle();
+
+    if (citizenMatch.data) {
+      authUserId = citizenMatch.data.user_id;
+      citizenFullName = citizenMatch.data.full_name ?? null;
+      const { data } = await supabase
+        .from('evacuees')
+        .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
+        .eq('auth_user_id', authUserId)
+        .maybeSingle();
+      existingEvacuee = data;
+    } else {
+      const { data } = await supabase
+        .from('evacuees')
+        .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
+        .eq('family_head', evacueeNumber)
+        .maybeSingle();
+      existingEvacuee = data;
     }
 
-    const { data, error } = await supabase
-      .from('evacuees')
-      .update({
+    if (existingEvacuee && (existingEvacuee.status as EvacueeDbStatus) === 'checked_in' && existingEvacuee.check_in_date) {
+      // Already checked in — just update family size if provided, then return
+      if (typeof familySize === 'number' && Number.isFinite(familySize)) {
+        const { data: updated, error: updateErr } = await supabase
+          .from('evacuees')
+          .update({ family_size: familySize })
+          .eq('id', existingEvacuee.id)
+          .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
+          .single();
+        if (!updateErr && updated) return this.findOne((updated as EvacueeRow).id) as any;
+      }
+      return this.findOne(existingEvacuee.id) as any;
+    }
+
+    // Resolve an active disaster_id to satisfy the NOT NULL constraint on evacuees.disaster_id
+    const activeDisasterId = await this.resolveActiveDisasterId(supabase);
+
+    if (existingEvacuee) {
+      const updatePayload: Record<string, unknown> = {
         check_in_date: new Date().toISOString(),
         check_out_date: null,
         status: 'checked_in',
+        ...(centerId ? { center_id: centerId } : {}),
         ...(typeof familySize === 'number' && Number.isFinite(familySize)
           ? { family_size: familySize }
           : {}),
-      })
-      .eq('id', (existing as EvacueeRow).id)
-      .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
-      .single();
-
-    if (error) throw new BadRequestException(error.message);
-    return this.findOne((data as EvacueeRow).id);
+      };
+      // Patch disaster_id if it's missing on the existing row
+      if (!existingEvacuee.disaster_id && activeDisasterId) {
+        updatePayload.disaster_id = activeDisasterId;
+      }
+      const { data, error } = await supabase
+        .from('evacuees')
+        .update(updatePayload)
+        .eq('id', existingEvacuee.id)
+        .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
+        .single();
+      if (error) throw new BadRequestException(error.message);
+      return this.findOne((data as EvacueeRow).id) as any;
+    } else {
+      if (!activeDisasterId) {
+        throw new BadRequestException(
+          'No active disaster found. Please create a disaster event before checking in evacuees.',
+        );
+      }
+      const { data, error } = await supabase
+        .from('evacuees')
+        .insert({
+          auth_user_id: authUserId,
+          // Use the citizen's registered full name; fall back to evacueeNumber (manual entry)
+          family_head: citizenFullName ?? evacueeNumber,
+          disaster_id: activeDisasterId,
+          check_in_date: new Date().toISOString(),
+          status: 'checked_in',
+          ...(centerId ? { center_id: centerId } : {}),
+          ...(typeof familySize === 'number' && Number.isFinite(familySize)
+            ? { family_size: familySize }
+            : {}),
+        })
+        .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
+        .single();
+      if (error) throw new BadRequestException(error.message);
+      return this.findOne((data as EvacueeRow).id) as any;
+    }
   }
 
   async checkOut(id: string): Promise<CheckIn> {
@@ -289,15 +348,47 @@ export class CheckInService {
     );
   }
 
-  private async findEvacueeRecord(identifier: string, supabase: any) {
-    const directMatch = await supabase
-      .from('evacuees')
-      .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
-      .eq('id', identifier)
+  /**
+   * Returns the id of the most recent active (or any) disaster_event.
+   * Used to satisfy the NOT NULL constraint on evacuees.disaster_id when
+   * a new evacuee row is being inserted during check-in.
+   */
+  private async resolveActiveDisasterId(supabase: any): Promise<string | null> {
+    // Prefer an active/ongoing disaster
+    const { data: active } = await supabase
+      .from('disaster_events')
+      .select('id')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    if (directMatch.data || directMatch.error) {
-      return directMatch;
+    if (active?.id) return active.id as string;
+
+    // Fall back to the most recent disaster regardless of status
+    const { data: latest } = await supabase
+      .from('disaster_events')
+      .select('id')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return (latest?.id as string) ?? null;
+  }
+
+  private async findEvacueeRecord(identifier: string, supabase: any) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+    
+    if (isUuid) {
+      const directMatch = await supabase
+        .from('evacuees')
+        .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
+        .eq('id', identifier)
+        .maybeSingle();
+
+      if (directMatch.data) {
+        return directMatch;
+      }
     }
 
     const citizenMatch = await supabase

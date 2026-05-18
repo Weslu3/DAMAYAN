@@ -18,6 +18,7 @@ import { ForgotPasswordDto } from '../../auth/dto/forgot-password.dto.js';
 import { ResetPasswordDto } from '../../auth/dto/reset-password.dto.js';
 import { UpdateProfileDto } from '../../auth/dto/update-profile.dto.js';
 import { CreateGovernmentIdUploadDto } from '../../uploads/dto/create-government-id-upload.dto.js';
+import { UploadsService } from '../../uploads/uploads.service.js';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard.js';
 import { AppRole } from '../../../libs/contracts/src/roles.js';
 
@@ -35,6 +36,7 @@ export class AuthGatewayController {
 
   constructor(
     @Inject(AuthProxyService) private readonly authProxyService: AuthProxyService,
+    @Inject(UploadsService) private readonly uploadsService: UploadsService,
   ) {}
 
   @Post('signup')
@@ -71,6 +73,16 @@ export class AuthGatewayController {
     return this.authProxyService.createGovernmentIdUploadUrl(
       createGovernmentIdUploadDto,
     );
+  }
+
+  @Post('uploads/view-url')
+  @UseGuards(JwtAuthGuard)
+  getFileViewUrl(@Body() body: { bucket: string; objectPath: string; expiresIn?: number }) {
+    return this.uploadsService.createObjectViewUrl({
+      bucket: body.bucket,
+      objectPath: body.objectPath,
+      expiresIn: body.expiresIn ?? 3600,
+    });
   }
 
   @Post('forgot-password')

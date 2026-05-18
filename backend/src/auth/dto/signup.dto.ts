@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsEnum, IsNotEmpty, MinLength, IsPhoneNumber, IsOptional } from 'class-validator';
+import { IsEmail, IsEnum, IsNotEmpty, MinLength, IsPhoneNumber, IsOptional, IsString } from 'class-validator';
 import { AppRole } from '../../../libs/contracts/src/roles.js';
 
 export class SignupDto {
@@ -45,18 +45,6 @@ export class SignupDto {
   governmentIdFileName?: string;
 
   @IsOptional()
-  @IsNotEmpty()
-  address?: string;
-
-  @IsOptional()
-  @IsNotEmpty()
-  barangay?: string;
-
-  @IsOptional()
-  @IsNotEmpty()
-  municipality?: string;
-
-  @IsOptional()
-  @IsNotEmpty()
-  province?: string;
+  @IsString()
+  gender?: string;
 }

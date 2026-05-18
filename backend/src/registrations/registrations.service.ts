@@ -58,18 +58,46 @@ export class RegistrationsService {
       throw new NotFoundException(error.message);
     }
 
-    const citizens = ((data ?? []) as CitizenRow[]).map((row) => this.toCitizen(row));
-    if (!search) {
-      return citizens;
+    let citizens = ((data ?? []) as CitizenRow[]).map((row) => this.toCitizen(row));
+    if (search) {
+      const searchText = search.toLowerCase();
+      citizens = citizens.filter(
+        (citizen) =>
+          citizen.fullName?.toLowerCase().includes(searchText) ||
+          citizen.qrCodeId?.toLowerCase().includes(searchText) ||
+          citizen.registrationType?.toLowerCase().includes(searchText),
+      );
     }
 
-    const searchText = search.toLowerCase();
-    return citizens.filter(
-      (citizen) =>
-        citizen.fullName?.toLowerCase().includes(searchText) ||
-        citizen.qrCodeId?.toLowerCase().includes(searchText) ||
-        citizen.registrationType?.toLowerCase().includes(searchText),
-    );
+    if (citizens.length > 0) {
+      const userIds = citizens.map(c => c.userId);
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('auth_user_id, phone, profile_photo_key, first_name, last_name')
+        .in('auth_user_id', userIds);
+
+      if (profiles) {
+        const profileMap = new Map(profiles.map((p: any) => [p.auth_user_id, p]));
+        citizens = citizens.map(c => {
+          const p = profileMap.get(c.userId);
+          // Use user_profiles name as fallback when register_citizens.full_name is empty
+          const profileFullName = p ? `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() : '';
+          const resolvedFullName = c.fullName || profileFullName || undefined;
+          const resolvedFirstName = c.firstName !== 'Unknown' ? c.firstName : (p?.first_name ?? c.firstName);
+          const resolvedLastName = c.lastName !== 'User' ? c.lastName : (p?.last_name ?? c.lastName);
+          return {
+            ...c,
+            fullName: resolvedFullName,
+            firstName: resolvedFirstName,
+            lastName: resolvedLastName,
+            phone: p?.phone,
+            profilePhotoKey: p?.profile_photo_key,
+          };
+        });
+      }
+    }
+
+    return citizens;
   }
 
   async findCitizen(id: string) {

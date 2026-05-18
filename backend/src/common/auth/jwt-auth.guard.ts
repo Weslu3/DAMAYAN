@@ -43,8 +43,8 @@ export class JwtAuthGuard implements CanActivate {
     const token = authHeader.slice('Bearer '.length);
 
     try {
-      const jwtSecret = this.configService.get<string>('JWT_SECRET') ?? process.env.JWT_SECRET;
-
+      const jwtSecret = this.configService.get<string>('JWT_SECRET') || process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
+      
       if (!jwtSecret) {
         throw new UnauthorizedException('Missing JWT secret configuration');
       }

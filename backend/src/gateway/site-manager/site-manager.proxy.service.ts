@@ -15,8 +15,7 @@ import {
   RELIEF_OPERATION_PATTERNS,
   UPLOAD_PATTERNS,
 } from '../../../libs/contracts/src/message-patterns.js';
-import { AUTH_SERVICE, OPERATIONS_SERVICE } from '../gateway.tokens.js';
-import { AUTH_PATTERNS } from '../../../libs/contracts/src/message-patterns.js';
+import { OPERATIONS_SERVICE } from '../gateway.tokens.js';
 import { CreateItemDto } from '../../inventory/dto/create-item.dto.js';
 import { UpdateItemDto } from '../../inventory/dto/update-item.dto.js';
 import { AdjustQuantityDto } from '../../inventory/dto/adjust-quantity.dto.js';
@@ -46,7 +45,6 @@ import { CreateObjectViewUrlDto } from '../../uploads/dto/create-object-view-url
 export class SiteManagerProxyService {
   constructor(
     @Inject(OPERATIONS_SERVICE) private readonly operationsClient: ClientProxy,
-    @Inject(AUTH_SERVICE) private readonly authClient: ClientProxy,
   ) {}
 
   getDashboard(scope: 'admin' | 'site-manager' = 'site-manager') {
@@ -430,7 +428,10 @@ export class SiteManagerProxyService {
   createManualCheckIn(createCheckInDto: CreateCheckInDto) {
     return firstValueFrom(
       this.operationsClient.send(CHECK_IN_PATTERNS.CREATE_MANUAL, createCheckInDto),
-    );
+    ).catch((err: any) => {
+      const msg = typeof err === 'string' ? err : (err?.message ?? err?.error ?? 'Check-in failed');
+      throw new BadRequestException(msg);
+    });
   }
 
   scanQr(scanQrDto: ScanQrDto) {
@@ -576,17 +577,5 @@ export class SiteManagerProxyService {
       checkInStats,
       incidentStats,
     };
-  }
-
-  updateDutyStatus(authUserId: string, isOnDuty: boolean) {
-    return firstValueFrom(
-      this.authClient.send(AUTH_PATTERNS.UPDATE_DUTY_STATUS, { authUserId, isOnDuty }),
-    );
-  }
-
-  updateZone(authUserId: string, zone: { barangay?: string; municipality?: string; province?: string }) {
-    return firstValueFrom(
-      this.authClient.send(AUTH_PATTERNS.UPDATE_ZONE, { authUserId, zone }),
-    );
   }
 }

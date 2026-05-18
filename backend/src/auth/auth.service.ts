@@ -22,7 +22,6 @@ import { SupabaseService } from '../supabase/supabase.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { AppRole } from '../../libs/contracts/src/roles.js';
 import { CreateGovernmentIdUploadDto } from '../uploads/dto/create-government-id-upload.dto.js';
-import { createClient } from '@supabase/supabase-js';
 
 interface UserProfileRow {
   id: string;
@@ -70,22 +69,21 @@ export class AuthService {
 
     const supabase = this.supabaseService.getClient() as any;
     const formattedPhone = this.formatPhoneForStorage(signupDto.phone);
-
-    // Create the auth user using Supabase Admin API (bypassing RLS trigger issue since execution is by service_role)
-    const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: signupDto.email,
       password: signupDto.password,
-      email_confirm: true, // Automatically confirm email to avoid verification friction
-      user_metadata: {
-        first_name: signupDto.firstName,
-        last_name: signupDto.lastName,
-        role: requestedRole,
-        government_id_file_name: signupDto.governmentIdFileName ?? null,
+      options: {
+        data: {
+          first_name: signupDto.firstName,
+          last_name: signupDto.lastName,
+          role: requestedRole,
+          government_id_file_name: signupDto.governmentIdFileName ?? null,
+        },
       },
     });
 
     if (signUpError) {
-      if (signUpError.message.toLowerCase().includes('already registered') || signUpError.message.toLowerCase().includes('already exists')) {
+      if (signUpError.message.toLowerCase().includes('already registered')) {
         throw new ConflictException('User with this email already exists');
       }
       throw new BadRequestException(signUpError.message);
@@ -96,22 +94,25 @@ export class AuthService {
       throw new BadRequestException('Unable to create auth user');
     }
 
-    // Execute database upsert with service_role client (bypassing RLS and supporting auto-triggers cleanly)
+    console.log('--- SUPABASE SIGNUP RESPONSE USER ---');
+    console.dir(authUser, { depth: null });
+    console.log('---------------------------------------');
+
+    // Supabase returns an empty identities array if the user already exists (to prevent email enumeration)
+    if (authUser.identities && authUser.identities.length === 0) {
+      throw new ConflictException('User with this email already exists');
+    }
+
     const { error: profileError } = await supabase
       .from('user_profiles')
-      .upsert({
+      .insert({
         auth_user_id: authUser.id,
         first_name: signupDto.firstName,
         last_name: signupDto.lastName,
         phone: formattedPhone,
-        address: signupDto.address ?? null,
-        barangay: signupDto.barangay ?? null,
-        municipality: signupDto.municipality ?? null,
-        province: signupDto.province ?? null,
         profile_photo_key: signupDto.governmentIdKey ?? null,
         role: requestedRole,
-      }, {
-        onConflict: 'auth_user_id'
+        gender: signupDto.gender ?? null,
       });
 
     if (profileError) {
@@ -187,23 +188,9 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     this.logger.log(`AuthService.login Payload: ${JSON.stringify(loginDto)}`);
     const supabase = this.supabaseService.getClient() as any;
-    
-    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
-    const supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY');
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new BadRequestException('Supabase connection parameters are missing in environment.');
-    }
-
-    // Ephemeral client for isolated login to keep admin client untouched
-    const ephemeralClient = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
 
     const { data, error } = await this.withTimeout<any>(
-      ephemeralClient.auth.signInWithPassword({
+      supabase.auth.signInWithPassword({
         email: loginDto.email,
         password: loginDto.password,
       }),
@@ -296,7 +283,7 @@ export class AuthService {
         this.withTimeout<any>(
           supabase
             .from('user_profiles')
-            .select('id, first_name, last_name, phone, role, status, auth_user_id')
+            .select('id, first_name, last_name, phone, role, status, auth_user_id, profile_photo_key, gender')
             .eq('auth_user_id', userId)
             .maybeSingle(),
           'Profile lookup timed out while loading the current user.',
@@ -329,6 +316,8 @@ export class AuthService {
         phone: resolvedProfile?.phone ?? '',
         role: (resolvedProfile?.role as AppRole | undefined) ?? AppRole.CITIZEN,
         accountStatus: (resolvedProfile?.status as string | undefined) ?? 'active',
+        profilePhotoKey: resolvedProfile?.profile_photo_key ?? null,
+        gender: resolvedProfile?.gender ?? null,
       },
     };
   }
@@ -336,7 +325,7 @@ export class AuthService {
   async updateProfile(userId: string, updateProfileDto: UpdateProfileDto) {
     const supabase = this.supabaseService.getClient() as any;
 
-    const profileUpdates: Record<string, string> = {};
+    const profileUpdates: Record<string, any> = {};
     if (updateProfileDto.firstName) {
       profileUpdates.first_name = updateProfileDto.firstName;
     }
@@ -345,6 +334,12 @@ export class AuthService {
     }
     if (updateProfileDto.phone) {
       profileUpdates.phone = this.formatPhoneForStorage(updateProfileDto.phone);
+    }
+    if (updateProfileDto.profilePhotoKey !== undefined) {
+      profileUpdates.profile_photo_key = updateProfileDto.profilePhotoKey;
+    }
+    if (updateProfileDto.gender !== undefined) {
+      profileUpdates.gender = updateProfileDto.gender;
     }
 
     if (Object.keys(profileUpdates).length > 0) {
@@ -368,19 +363,6 @@ export class AuthService {
           email: normalizedEmail,
         }),
         'Auth email update timed out.',
-      );
-
-      if (authUpdateError) {
-        throw new BadRequestException(authUpdateError.message);
-      }
-    }
-
-    if (updateProfileDto.password) {
-      const { error: authUpdateError } = await this.withTimeout<any>(
-        supabase.auth.admin.updateUserById(userId, {
-          password: updateProfileDto.password,
-        }),
-        'Auth password update timed out.',
       );
 
       if (authUpdateError) {
@@ -733,192 +715,5 @@ export class AuthService {
         `Unable to initialize Government ID bucket: ${error.message}`,
       );
     }
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Admin: User Management
-  // ──────────────────────────────────────────────────────────────────────────
-
-  async findAllUsers(filters?: { role?: string; status?: string; search?: string }) {
-    const supabase = this.supabaseService.getClient() as any;
-
-    let query = supabase
-      .from('user_profiles')
-      .select('id, auth_user_id, first_name, last_name, phone, role, status, created_at, updated_at')
-      .order('created_at', { ascending: false });
-
-    if (filters?.role) {
-      query = query.eq('role', filters.role);
-    }
-    if (filters?.status) {
-      query = query.eq('status', filters.status);
-    }
-    if (filters?.search) {
-      query = query.or(
-        `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`,
-      );
-    }
-
-    const { data: profiles, error } = await this.withTimeout<any>(
-      query,
-      'User list query timed out.',
-    );
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    const { data: authListData, error: authListError } = await this.withTimeout<any>(
-      supabase.auth.admin.listUsers({ perPage: 1000 }),
-      'Auth user list timed out.',
-    );
-
-    if (authListError) {
-      throw new BadRequestException(authListError.message);
-    }
-
-    const emailMap = new Map<string, string>(
-      (authListData?.users ?? []).map((u: { id: string; email?: string }) => [u.id, u.email ?? '']),
-    );
-
-    return {
-      users: (profiles as UserProfileRow[]).map((p) => ({
-        id: p.id,
-        authUserId: p.auth_user_id ?? '',
-        firstName: p.first_name ?? '',
-        lastName: p.last_name ?? '',
-        name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim(),
-        email: emailMap.get(p.auth_user_id ?? '') ?? '',
-        phone: p.phone ?? '',
-        role: p.role as AppRole,
-        accountStatus: p.status ?? 'active',
-      })),
-    };
-  }
-
-  async findUserById(profileId: string) {
-    const supabase = this.supabaseService.getClient() as any;
-
-    const { data: profile, error } = await this.withTimeout<any>(
-      supabase
-        .from('user_profiles')
-        .select('id, auth_user_id, first_name, last_name, phone, role, status, created_at, updated_at')
-        .eq('id', profileId)
-        .maybeSingle(),
-      'User lookup timed out.',
-    );
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-    if (!profile) {
-      throw new BadRequestException('User not found');
-    }
-
-    const p = profile as UserProfileRow;
-    const { data: authData, error: authError } = await this.withTimeout<any>(
-      supabase.auth.admin.getUserById(p.auth_user_id ?? ''),
-      'Auth user lookup timed out.',
-    );
-
-    if (authError) {
-      throw new BadRequestException(authError.message);
-    }
-
-    return {
-      user: {
-        id: p.id,
-        authUserId: p.auth_user_id ?? '',
-        firstName: p.first_name ?? '',
-        lastName: p.last_name ?? '',
-        name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim(),
-        email: authData?.user?.email ?? '',
-        phone: p.phone ?? '',
-        role: p.role as AppRole,
-        accountStatus: p.status ?? 'active',
-      },
-    };
-  }
-
-  async updateUserStatus(profileId: string, newStatus: 'active' | 'inactive') {
-    const supabase = this.supabaseService.getClient() as any;
-
-    const { error } = await this.withTimeout<any>(
-      supabase
-        .from('user_profiles')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', profileId),
-      'User status update timed out.',
-    );
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    return { message: `User status updated to '${newStatus}'.` };
-  }
-
-  async updateUserRole(profileId: string, role: AppRole) {
-    const supabase = this.supabaseService.getClient() as any;
-
-    const { error } = await this.withTimeout<any>(
-      supabase
-        .from('user_profiles')
-        .update({ role, updated_at: new Date().toISOString() })
-        .eq('id', profileId),
-      'User role update timed out.',
-    );
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    return { message: `User role updated to '${role}'.` };
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Site Manager: On-duty / Zone
-  // ──────────────────────────────────────────────────────────────────────────
-
-  async updateDutyStatus(authUserId: string, isOnDuty: boolean) {
-    const supabase = this.supabaseService.getClient() as any;
-
-    const { error } = await this.withTimeout<any>(
-      supabase
-        .from('user_profiles')
-        .update({ is_on_duty: isOnDuty, updated_at: new Date().toISOString() })
-        .eq('auth_user_id', authUserId),
-      'Duty status update timed out.',
-    );
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    return { message: `On-duty status set to ${isOnDuty}.`, isOnDuty };
-  }
-
-  async updateZone(authUserId: string, zone: { barangay?: string; municipality?: string; province?: string }) {
-    const supabase = this.supabaseService.getClient() as any;
-
-    const updates: Record<string, string | undefined> = {};
-    if (zone.barangay !== undefined) updates.barangay = zone.barangay;
-    if (zone.municipality !== undefined) updates.municipality = zone.municipality;
-    if (zone.province !== undefined) updates.province = zone.province;
-    updates.updated_at = new Date().toISOString();
-
-    const { error } = await this.withTimeout<any>(
-      supabase
-        .from('user_profiles')
-        .update(updates)
-        .eq('auth_user_id', authUserId),
-      'Zone update timed out.',
-    );
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    return { message: 'Zone updated successfully.', zone };
   }
 }

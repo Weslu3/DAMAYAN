@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsOptional, IsPhoneNumber } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsPhoneNumber, IsString } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -24,13 +24,25 @@ export class UpdateProfileDto {
   email?: string;
 
   @IsOptional()
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
-  @IsNotEmpty()
+  @Transform(({ value }) => {
+    let digits = String(value ?? '').replace(/\D/g, '');
+
+    if (digits.startsWith('63')) {
+      digits = digits.slice(2);
+    } else if (digits.startsWith('0')) {
+      digits = digits.slice(1);
+    }
+
+    return `+63${digits.slice(0, 10)}`;
+  })
+  @IsPhoneNumber('PH')
   phone?: string;
 
   @IsOptional()
-  @IsNotEmpty()
-  password?: string;
+  @IsString()
+  profilePhotoKey?: string;
+
+  @IsOptional()
+  @IsString()
+  gender?: string;
 }
