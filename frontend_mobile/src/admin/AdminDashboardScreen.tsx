@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Text, TextInput, View } from "react-native";
 import { MobileHeader, NavPills } from "../components/MobileShell";
 import { Button, Pill, Screen, SectionCard } from "../components/UI";
+import { NotificationBell } from "../components/NotificationBell";
+import { useNotifications } from "../hooks/useNotifications";
 import {
   type AdminDisasterEventsPayload,
   broadcastAdminWarning,
@@ -38,6 +40,7 @@ export function AdminDashboardScreen({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<Awaited<ReturnType<typeof getDashboard>> | null>(null);
   const [approvals, setApprovals] = useState<AdminApprovalRecord[]>([]);
   const [systemHealth, setSystemHealth] = useState<AdminSystemHealthRecord[]>([]);
@@ -107,6 +110,7 @@ export function AdminDashboardScreen({ onBack }: { onBack: () => void }) {
 
       const accessToken = session.accessToken.trim();
       setToken(accessToken);
+      setUserId(session.user.authUserId ?? session.user.id ?? null);
 
       const [dashboardData, approvalData, healthData] = await Promise.all([
         getDashboard("admin", accessToken),
@@ -307,9 +311,23 @@ export function AdminDashboardScreen({ onBack }: { onBack: () => void }) {
     };
   });
 
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications(userId, token);
+
   return (
     <Screen>
-      <MobileHeader title="DAMAYAN Admin Console" subtitle="Admin dashboard" onBack={onBack} />
+      <MobileHeader
+        title="DAMAYAN Admin Console"
+        subtitle="Admin dashboard"
+        onBack={onBack}
+        rightSlot={
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadCount}
+            onMarkRead={markRead}
+            onMarkAllRead={markAllRead}
+          />
+        }
+      />
       {liveAlerts.length > 0 ? (
         <SectionCard style={styles.liveAlertCard}>
           <View style={styles.liveAlertHeader}>

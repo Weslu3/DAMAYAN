@@ -33,6 +33,36 @@ export function getSupabaseClient(): SupabaseClient | null {
   return client;
 }
 
+export interface NotificationRecord {
+  id: string;
+  user_id: string;
+  title: string;
+  body: string;
+  type: string;
+  data: Record<string, unknown> | null;
+  read: boolean;
+  created_at: string;
+}
+
+export function subscribeToUserNotifications(
+  userId: string,
+  onNew: (notification: NotificationRecord) => void,
+): (() => void) | null {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+
+  const channel: RealtimeChannel = supabase
+    .channel(`user-notifications:${userId}`)
+    .on("broadcast", { event: "new_notification" }, (payload) =>
+      onNew(payload.payload as NotificationRecord),
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}
+
 export function subscribeToLiveAlerts(onInsert: (alert: LiveAlertRecord) => void): (() => void) | null {
   const supabase = getSupabaseClient();
   if (!supabase) {

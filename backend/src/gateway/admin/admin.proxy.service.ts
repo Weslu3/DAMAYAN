@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { SiteManagerProxyService } from '../site-manager/site-manager.proxy.service.js';
 import { SupabaseService } from '../../supabase/supabase.service.js';
 import { NotificationsService } from '../../notifications/notifications.service.js';
+import { InAppNotificationsService } from '../../in-app-notifications/in-app-notifications.service.js';
 import { CreateItemDto } from '../../inventory/dto/create-item.dto.js';
 import { UpdateItemDto } from '../../inventory/dto/update-item.dto.js';
 import { AdjustQuantityDto } from '../../inventory/dto/adjust-quantity.dto.js';
@@ -36,6 +37,7 @@ export class AdminProxyService {
     @Inject(SiteManagerProxyService) private readonly siteManagerProxyService: SiteManagerProxyService,
     @Inject(SupabaseService) private readonly supabaseService: SupabaseService,
     @Inject(NotificationsService) private readonly notificationsService: NotificationsService,
+    @Inject(InAppNotificationsService) private readonly inAppNotificationsService: InAppNotificationsService,
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {}
 
@@ -120,6 +122,13 @@ export class AdminProxyService {
       throw new BadRequestException(error.message);
     }
 
+    void this.inAppNotificationsService.send(
+      data.auth_user_id,
+      'Account Approved',
+      `Your ${data.role.replace('_', ' ')} account has been approved. You can now log in.`,
+      'approval_approved',
+    );
+
     return {
       id: data.id,
       authUserId: data.auth_user_id,
@@ -172,6 +181,14 @@ export class AdminProxyService {
     if (error) {
       throw new BadRequestException(error.message);
     }
+
+    void this.inAppNotificationsService.send(
+      data.auth_user_id,
+      'Account Not Approved',
+      `Your account application was not approved. Reason: ${reason}`,
+      'approval_rejected',
+      { rejectReason: reason },
+    );
 
     return {
       id: data.id,
@@ -297,6 +314,18 @@ export class AdminProxyService {
     }
 
     await this.createLiveAlert(payload, subject, body);
+
+    // Send in-app notification to every registered user
+    const allUserIds = profiles
+      .map((p) => p.auth_user_id)
+      .filter((uid): uid is string => Boolean(uid));
+    void this.inAppNotificationsService.sendToMany(
+      allUserIds,
+      subject,
+      message,
+      'alert',
+      { type: payload.type, severity: payload.severity, areas: payload.areas },
+    );
 
     return {
       type: payload.type,

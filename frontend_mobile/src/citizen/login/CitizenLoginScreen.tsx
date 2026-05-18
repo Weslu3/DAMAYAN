@@ -6,11 +6,16 @@ import {
   TextInput,
   View,
   TouchableOpacity,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../../components/UI";
 import { roleColors, theme, fonts } from "../../theme";
 import { styles } from "./CitizenLoginScreen.styles";
+import { login, getProfile, ApiError } from "../../api";
+import { saveSession } from "../../session";
+import { AppRole } from "../../types";
 
 export function CitizenLoginScreen({
   onBack,
@@ -27,6 +32,53 @@ export function CitizenLoginScreen({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (!username.trim() || !password.trim()) {
+      Alert.alert("Missing credentials", "Please enter both email and password.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const result = await login({
+        email: username.trim(),
+        password: password.trim(),
+        requiredRole: AppRole.CITIZEN,
+      });
+
+      if (result.user.role !== AppRole.CITIZEN) {
+        Alert.alert("Access Denied", "This account does not have citizen access.");
+        return;
+      }
+
+      const accessToken = result.access_token?.trim();
+      if (!accessToken) {
+        Alert.alert("Error", "Login succeeded but no access token was returned.");
+        return;
+      }
+
+      const profile = await getProfile(accessToken);
+
+      await saveSession({
+        accessToken,
+        expiresIn: result.expiresIn,
+        user: profile.user,
+      });
+
+      onSubmit();
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof ApiError
+          ? caughtError.message
+          : "Unable to sign in. Please try again.";
+      Alert.alert("Login Failed", message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <Screen style={{ backgroundColor: theme.bg }}>
@@ -126,11 +178,18 @@ export function CitizenLoginScreen({
 
             <View style={styles.actionStack}>
               <TouchableOpacity 
-                onPress={onSubmit} 
-                style={[styles.primaryAction, { backgroundColor: accent }]}
+                onPress={handleLogin}
+                disabled={loading}
+                style={[styles.primaryAction, { backgroundColor: accent, opacity: loading ? 0.6 : 1 }]}
               >
-                <Text style={styles.primaryActionText}>ACCESS MY PORTAL</Text>
-                <Ionicons name="arrow-forward" size={20} color="#fff" />
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Text style={styles.primaryActionText}>ACCESS MY PORTAL</Text>
+                    <Ionicons name="arrow-forward" size={20} color="#fff" />
+                  </>
+                )}
               </TouchableOpacity>
 
               {onSecondary && secondaryLabel ? (

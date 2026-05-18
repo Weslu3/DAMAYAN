@@ -6,10 +6,12 @@ export function MobileHeader({
   title,
   subtitle,
   onBack,
+  rightSlot,
 }: {
   title: string;
   subtitle?: string;
   onBack?: () => void;
+  rightSlot?: React.ReactNode;
 }) {
   return (
     <View style={styles.header}>
@@ -24,8 +26,11 @@ export function MobileHeader({
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
       </View>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>D</Text>
+      <View style={styles.headerRight}>
+        {rightSlot ?? null}
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>D</Text>
+        </View>
       </View>
     </View>
   );
@@ -109,6 +114,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: 1,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   avatar: {
     width: 44,

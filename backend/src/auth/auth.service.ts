@@ -264,6 +264,7 @@ export class AuthService {
       expiresIn: loginDto.rememberMe ? '30d' : '7d',
       user: {
         id: profile?.id ?? userId,
+        authUserId: userId,
         firstName: profile?.first_name ?? '',
         lastName: profile?.last_name ?? '',
         name: `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim(),

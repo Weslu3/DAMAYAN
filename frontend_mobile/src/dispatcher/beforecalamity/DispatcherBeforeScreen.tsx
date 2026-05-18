@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { MobileHeader, NavPills } from "../../components/MobileShell";
 import { Button, Pill, Screen, SectionCard } from "../../components/UI";
+import { NotificationBell } from "../../components/NotificationBell";
+import { useNotifications } from "../../hooks/useNotifications";
+import { loadSession } from "../../session";
 import { dispatcherStyles } from "../shared";
 
 export function DispatcherBeforeScreen({
@@ -12,10 +15,35 @@ export function DispatcherBeforeScreen({
   onOpenDuring: () => void;
 }) {
   const [active, setActive] = useState("Incidents");
+  const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadSession().then((s) => {
+      if (s) {
+        setToken(s.accessToken);
+        setUserId(s.user.authUserId ?? s.user.id);
+      }
+    });
+  }, []);
+
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications(userId, token);
 
   return (
     <Screen>
-      <MobileHeader title="Damayan Portal" subtitle="Dispatcher" onBack={onBack} />
+      <MobileHeader
+        title="Damayan Portal"
+        subtitle="Dispatcher"
+        onBack={onBack}
+        rightSlot={
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadCount}
+            onMarkRead={markRead}
+            onMarkAllRead={markAllRead}
+          />
+        }
+      />
       <NavPills
         items={["Dashboard", "Incidents", "Resources", "Sites"]}
         active={active}

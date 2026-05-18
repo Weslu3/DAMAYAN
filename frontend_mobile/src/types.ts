@@ -7,7 +7,7 @@ export enum AppRole {
 
 export interface AuthUser {
   id: string;
-  authUserId?: string;
+  authUserId: string;
   firstName: string;
   lastName: string;
   name: string;

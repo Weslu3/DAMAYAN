@@ -9,6 +9,7 @@ import {
   View,
   ViewStyle,
   Platform,
+  StatusBar,
 } from "react-native";
 import { theme, fonts } from "../theme";
 
@@ -23,17 +24,15 @@ export function Screen({
 }) {
   const content = <View style={styles.screenInner}>{children}</View>;
 
-  if (!scroll) {
-    return <View style={[styles.screen, style]}>{content}</View>;
-  }
-
   return (
-    <ScrollView
-      style={[styles.screen, style]}
-      contentContainerStyle={styles.scrollContent}
-    >
-      {content}
-    </ScrollView>
+    <View style={[styles.screen, style, { paddingTop: Platform.OS !== 'web' ? (StatusBar.currentHeight || 45) : 0 }]}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {content}
+      </ScrollView>
+    </View>
   );
 }
 

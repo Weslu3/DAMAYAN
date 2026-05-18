@@ -1,8 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, SafeAreaView, Dimensions, Pressable, Text, Modal, Platform, Image } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { lightTheme, darkTheme, fonts } from "../theme";
+import { NotificationBell } from "../components/NotificationBell";
+import { useNotifications } from "../hooks/useNotifications";
+import { loadSession } from "../session";
 import { CitizenBeforeScreen } from "./beforecalamity/screens/CitizenBeforeScreen";
 import { CitizenDuringScreen } from "./duringcalamity/CitizenDuringScreen";
 import CitizenAfterScreen from "./aftercalamity/CitizenAfterScreen";
@@ -22,6 +25,19 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadSession().then((s) => {
+      if (s) {
+        setToken(s.accessToken);
+        setUserId(s.user.authUserId ?? s.user.id);
+      }
+    });
+  }, []);
+
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications(userId, token);
 
   const theme = isDarkMode ? darkTheme : lightTheme;
 
@@ -73,6 +89,14 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
       {!isEditingProfile && (
         <SafeAreaView style={styles.headerSafe}>
           <View style={styles.headerInner}>
+            {/* Notification Bell */}
+            <NotificationBell
+              notifications={notifications}
+              unreadCount={unreadCount}
+              onMarkRead={markRead}
+              onMarkAllRead={markAllRead}
+            />
+
             {/* Logo / Brand Centered */}
             <View style={styles.headerCenter}>
               <Text style={styles.brandText}>DAMAYAN</Text>
