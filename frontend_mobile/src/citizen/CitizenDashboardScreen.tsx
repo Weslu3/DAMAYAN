@@ -12,6 +12,7 @@ import CitizenAfterScreen from "./aftercalamity/CitizenAfterScreen";
 import { CitizenIndividualRegistrationScreen } from "./beforecalamity/screens/CitizenIndividualRegistrationScreen";
 import { CitizenHouseholdRegistrationScreen } from "./beforecalamity/screens/CitizenHouseholdRegistrationScreen";
 import { CitizenProfileEditScreen } from "./CitizenProfileEditScreen";
+import { useSystemPhase } from "../context/SystemPhaseContext";
 
 export type Phase = "before" | "during" | "after";
 export type NavDestination = "Overview" | "Family & ID" | "Safety Map" | "Relief Status";
@@ -21,7 +22,8 @@ interface CitizenDashboardScreenProps {
 }
 
 export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardScreenProps) {
-  const [phase, setPhase] = useState<Phase>("before");
+  // Phase is driven by the global system state set by admin, with offline caching
+  const { citizenPhase: phase } = useSystemPhase();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -53,21 +55,18 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
   const handleNavigate = (dest: NavDestination) => {
     setActiveNav(dest);
     setIsDrawerOpen(false);
-    
+
     switch (dest) {
       case "Overview":
         setTargetStep("dashboard");
         break;
       case "Family & ID":
-        setPhase("before");
         setTargetStep("registration");
         break;
       case "Safety Map":
-        setPhase("during");
         setTargetStep("map");
         break;
       case "Relief Status":
-        setPhase("after");
         setTargetStep("relief_claim");
         break;
     }
@@ -160,9 +159,9 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                     onContinue={() => setTargetStep("dashboard")}
                   />
                 ) : (
-                  <CitizenBeforeScreen 
-                    onBack={onSignOut} 
-                    onOpenResponse={() => setPhase("during")} 
+                  <CitizenBeforeScreen
+                    onBack={onSignOut}
+                    onOpenResponse={() => setTargetStep("dashboard")}
                     onRegisterIndividual={() => setTargetStep("individual_registration")}
                     onRegisterHousehold={() => setTargetStep("household_registration")}
                     initialStep={targetStep === "registration" ? "registration" : "dashboard"}
@@ -171,15 +170,14 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
               </View>
             )}
             {phase === "during" && (
-              <CitizenDuringScreen 
-                onBack={() => setPhase("before")} 
+              <CitizenDuringScreen
+                onBack={() => setTargetStep("dashboard")}
                 initialStep={targetStep === "map" ? "map" : "decision"}
               />
             )}
             {phase === "after" && (
-              <CitizenAfterScreen 
+              <CitizenAfterScreen
                 onBack={() => {
-                  setPhase("before");
                   setActiveNav("Overview");
                   setTargetStep("dashboard");
                 }}
@@ -205,10 +203,10 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                   key={item.id}
                   onPress={() => {
                     setActiveNav(item.id as NavDestination);
-                    if (item.id === "Family & ID") { setPhase("before"); setTargetStep("registration"); }
-                    else if (item.id === "Safety Map") { setPhase("during"); setTargetStep("map"); }
-                    else if (item.id === "Relief Status") { setPhase("after"); setTargetStep("relief_claim"); }
-                    else { setPhase("before"); setTargetStep("dashboard"); }
+                    if (item.id === "Family & ID") { setTargetStep("registration"); }
+                    else if (item.id === "Safety Map") { setTargetStep("map"); }
+                    else if (item.id === "Relief Status") { setTargetStep("relief_claim"); }
+                    else { setTargetStep("dashboard"); }
                   }}
                   style={styles.navTab}
                 >
@@ -245,7 +243,6 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
               
               <Pressable style={styles.profileActionItem} onPress={() => {
                 setIsProfileOpen(false);
-                setPhase("before");
                 setActiveNav("Overview");
                 setTargetStep("dashboard");
               }}>

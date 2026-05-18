@@ -8,6 +8,7 @@ import { SiteManagerDuringScreen } from "./duringcalamity/SiteManagerDuringScree
 import { SiteManagerAfterScreen } from "./aftercalamity/SiteManagerAfterScreen";
 import { SiteManagerInventoryScreen } from "./inventory/SiteManagerInventoryScreen";
 import { SiteManagerMapScreen } from "./map/SiteManagerMapScreen";
+import { useSystemPhase } from "../context/SystemPhaseContext";
 
 export type OperationalStage = "STAGING" | "RESPONSE" | "RECOVERY";
 export type NavDestination = "Overview" | "Operations" | "Resources" | "Reporting";
@@ -17,7 +18,8 @@ interface SiteManagerDashboardScreenProps {
 }
 
 export default function SiteManagerDashboardScreen({ onSignOut }: SiteManagerDashboardScreenProps) {
-  const [stage, setStage] = useState<OperationalStage>("STAGING");
+  // Stage is driven by the global system phase set by admin, with offline caching
+  const { operationalStage: stage } = useSystemPhase();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [activeNav, setActiveNav] = useState<NavDestination>("Overview");
@@ -71,25 +73,25 @@ export default function SiteManagerDashboardScreen({ onSignOut }: SiteManagerDas
         ) : (
           <>
             {stage === "STAGING" && (
-               <SiteManagerBeforeScreen 
-                 onBack={onSignOut} 
-                 onOpenResponse={() => setStage("RESPONSE")} 
+               <SiteManagerBeforeScreen
+                 onBack={onSignOut}
+                 onOpenResponse={() => {}}
                  isDarkMode={isDarkMode}
                />
             )}
             {stage === "RESPONSE" && (
-               <SiteManagerDuringScreen 
-                 onBack={() => setStage("STAGING")} 
+               <SiteManagerDuringScreen
+                 onBack={() => {}}
                  isDarkMode={isDarkMode}
-                 onEnterRecovery={() => setStage("RECOVERY")}
+                 onEnterRecovery={() => {}}
                />
             )}
             {stage === "RECOVERY" && (
-               <SiteManagerAfterScreen 
-                 onBack={() => setStage("STAGING")} 
-                 onBackToResponse={() => setStage("RESPONSE")}
+               <SiteManagerAfterScreen
+                 onBack={() => {}}
+                 onBackToResponse={() => {}}
                  isDarkMode={isDarkMode}
-                 onFinalize={() => setStage("STAGING")}
+                 onFinalize={() => {}}
                />
             )}
           </>

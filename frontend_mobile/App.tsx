@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
+import { SystemPhaseProvider } from "./src/context/SystemPhaseContext";
 import * as Font from "expo-font";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -48,6 +49,20 @@ export default function App() {
     return <View style={{ flex: 1, backgroundColor: "#f8f9f8" }} />;
   }
 
+  return (
+    <SystemPhaseProvider>
+      <AppContent route={route} setRoute={setRoute} />
+    </SystemPhaseProvider>
+  );
+}
+
+function AppContent({
+  route,
+  setRoute,
+}: {
+  route: AppRoute;
+  setRoute: React.Dispatch<React.SetStateAction<AppRoute>>;
+}) {
   switch (route) {
     case "admin-login":
       return (

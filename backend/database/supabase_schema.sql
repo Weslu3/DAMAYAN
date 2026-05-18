@@ -209,6 +209,27 @@ CREATE TABLE public.relief_operations (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT relief_operations_pkey PRIMARY KEY (id)
 );
+-- Singleton row (id=1) that holds the current disaster phase.
+-- Enable Realtime on this table in the Supabase dashboard.
+CREATE TABLE public.system_settings (
+  id integer NOT NULL,
+  current_phase text NOT NULL DEFAULT 'BEFORE' CHECK (current_phase = ANY (ARRAY['BEFORE'::text, 'DURING'::text, 'AFTER'::text])),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT system_settings_pkey PRIMARY KEY (id)
+);
+-- Seed the single settings row on first run
+INSERT INTO public.system_settings (id, current_phase) VALUES (1, 'BEFORE') ON CONFLICT DO NOTHING;
+
+-- Immutable audit log of every phase shift for post-disaster review
+CREATE TABLE public.phase_history_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  previous_phase text NOT NULL,
+  new_phase text NOT NULL,
+  changed_by text NOT NULL,
+  changed_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT phase_history_logs_pkey PRIMARY KEY (id)
+);
+
 CREATE TABLE public.user_profiles (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   auth_user_id uuid NOT NULL UNIQUE,
