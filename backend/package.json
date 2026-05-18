@@ -1,0 +1,41 @@
+{
+  "name": "damayan-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start:gateway": "tsx src/main.ts",
+    "start:auth-service": "tsx apps/auth-service/src/main.ts",
+    "start:operations-service": "tsx apps/operations-service/src/main.ts",
+    "ports:free": "kill-port 3001 4001 4002",
+    "stop:all": "npm run ports:free",
+    "start:all:once": "npm run ports:free && concurrently -n gateway,auth,operations -c cyan,magenta,green \"npm run start:gateway\" \"npm run start:auth-service\" \"npm run start:operations-service\"",
+    "start:all:stable": "npm run ports:free && concurrently --restart-tries 9999 --restart-after 3000 -n gateway,auth,operations -c cyan,magenta,green \"npm run start:gateway\" \"npm run start:auth-service\" \"npm run start:operations-service\"",
+    "start:all": "npm run start:all:stable"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/jwt": "^11.0.1",
+    "@nestjs/microservices": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.104.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "reflect-metadata": "^0.2.2",
+    "resend": "^4.1.2",
+    "rxjs": "^7.8.2",
+    "twilio": "^5.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "concurrently": "^9.2.1",
+    "kill-port": "^2.0.1",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.3"
+  }
+}
