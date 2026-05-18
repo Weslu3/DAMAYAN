@@ -9,11 +9,13 @@ import CustomSelect from "./CustomSelect";
 import { clearSession, hasRole, loadSession } from "../../lib/session";
 import {
   getDashboard,
+  getLatestAfterActionAssessment,
   getCapacity,
   getDisasterEvents,
   getIncidentReports,
   getInventory,
   getRecentCheckIns,
+  upsertAfterActionAssessment,
 } from "../../lib/api";
 import { AppRole, AuthSession, CapacityCenter, CheckInRecord, DashboardOverview, DisasterEvent, IncidentReport, InventoryItem } from "../../lib/types";
 
@@ -232,6 +234,8 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       bottlenecks: "Water drainage backflow at low-lying entry point. Power grid disconnected for 18 hours without immediate secondary generator activation.",
       isSubmitted: false,
     });
+    const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
+    const [assessmentError, setAssessmentError] = useState<string | null>(null);
     const [structureDamageForm, setStructureDamageForm] = useState({
       ownerName: "",
       address: "",
@@ -310,6 +314,31 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
               ? (payload as { disasterEvents: DisasterEvent[] }).disasterEvents
               : [];
           setDisasterEvents(eventList);
+
+          const selectedDisasterId =
+            eventList.find((event) => event.status?.toLowerCase() === "active")?.id ??
+            eventList[0]?.id;
+
+          return getLatestAfterActionAssessment(stored.accessToken, selectedDisasterId)
+            .then((assessment) => {
+              if (!assessment) {
+                return;
+              }
+
+              setDamageAssessment({
+                infraStatus: assessment.infraStatus,
+                estimatedCost: String(assessment.estimatedCost),
+                reliefNeeded: String(assessment.reliefNeeded),
+                durationDays: String(assessment.durationDays),
+                shelterRating: String(assessment.shelterRating),
+                successNotes: assessment.successNotes,
+                bottlenecks: assessment.bottlenecks,
+                isSubmitted: true,
+              });
+            })
+            .catch(() => {
+              // Keep local defaults when no assessment exists yet.
+            });
         })
         .catch(() => setDisasterEvents([]));
 
@@ -622,6 +651,62 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       console.error("Refresh inventory error:", error);
     } finally {
       setIsRefreshingInventory(false);
+    }
+  };
+
+  const handleSubmitAssessment = async () => {
+    if (!session?.accessToken || !session.user) {
+      setAssessmentError("Session expired. Please login again.");
+      return;
+    }
+
+    const disasterId =
+      disasterEvents.find((event) => event.status?.toLowerCase() === "active")?.id ??
+      disasterEvents[0]?.id;
+
+    if (!disasterId) {
+      setAssessmentError("Create or activate a disaster event before submitting assessment.");
+      return;
+    }
+
+    const estimatedCost = Number(damageAssessment.estimatedCost);
+    const reliefNeeded = Number(damageAssessment.reliefNeeded);
+    const durationDays = Number(damageAssessment.durationDays);
+    const shelterRating = Number(damageAssessment.shelterRating);
+
+    if ([estimatedCost, reliefNeeded, durationDays, shelterRating].some((value) => !Number.isFinite(value))) {
+      setAssessmentError("Please provide valid numeric values before submitting.");
+      return;
+    }
+
+    if (!damageAssessment.successNotes.trim() || !damageAssessment.bottlenecks.trim()) {
+      setAssessmentError("Please provide both successes and bottlenecks before submitting.");
+      return;
+    }
+
+    setIsSubmittingAssessment(true);
+    setAssessmentError(null);
+
+    try {
+      await upsertAfterActionAssessment(session.accessToken, {
+        disasterId,
+        infraStatus: damageAssessment.infraStatus,
+        estimatedCost,
+        reliefNeeded,
+        durationDays,
+        shelterRating,
+        successNotes: damageAssessment.successNotes,
+        bottlenecks: damageAssessment.bottlenecks,
+        submittedBy: session.user.email || "System",
+      });
+
+      setDamageAssessment((prev) => ({ ...prev, isSubmitted: true }));
+      alert("Assessment report submitted and synchronized successfully.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to submit assessment";
+      setAssessmentError(message);
+    } finally {
+      setIsSubmittingAssessment(false);
     }
   };
 
@@ -1442,16 +1527,17 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           </div>
 
                           <button 
-                            onClick={() => {
-                              setDamageAssessment(prev => ({ ...prev, isSubmitted: true }));
-                              alert("🎉 Success! Central assessment report compiled and dispatched successfully.");
-                            }}
+                            onClick={handleSubmitAssessment}
+                            disabled={isSubmittingAssessment}
                             className="w-full text-white font-black uppercase tracking-wider text-xs py-3.5 rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 hover:brightness-110"
                             style={{ background: phaseConfig.primaryColor }}
                           >
                             <span className="material-symbols-outlined text-sm">assignment_turned_in</span>
-                            Generate & Submit Final Reports
+                            {isSubmittingAssessment ? "Submitting..." : "Generate & Submit Final Reports"}
                           </button>
+                          {assessmentError && (
+                            <p className="text-[11px] font-bold text-red-700">{assessmentError}</p>
+                          )}
                         </div>
                       )}
                     </div>

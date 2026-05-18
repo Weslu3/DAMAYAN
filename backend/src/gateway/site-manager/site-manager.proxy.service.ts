@@ -17,6 +17,7 @@ import {
 } from '../../../libs/contracts/src/message-patterns.js';
 import { OPERATIONS_SERVICE } from '../gateway.tokens.js';
 import { CreateItemDto } from '../../inventory/dto/create-item.dto.js';
+import { UpsertAfterActionAssessmentDto } from './dto/upsert-after-action-assessment.dto.js';
 import { UpdateItemDto } from '../../inventory/dto/update-item.dto.js';
 import { AdjustQuantityDto } from '../../inventory/dto/adjust-quantity.dto.js';
 import { CreateCheckInDto } from '../../check-in/dto/create-check-in.dto.js';
@@ -41,6 +42,33 @@ import { CreateDisasterCoverUploadDto } from '../../uploads/dto/create-disaster-
 import { CreateIncidentAttachmentUploadDto } from '../../uploads/dto/create-incident-attachment-upload.dto.js';
 import { CreateObjectViewUrlDto } from '../../uploads/dto/create-object-view-url.dto.js';
 
+const AFTER_ACTION_ASSESSMENT_TITLE = 'After-Action Assessment';
+const AFTER_ACTION_ASSESSMENT_LOCATION = 'Site Manager Post-Disaster Evaluation';
+
+interface IncidentReportRecord {
+  id: string;
+  disasterId: string;
+  reportedBy: string;
+  title: string;
+  content: string;
+  severity: string;
+  location: string;
+  status: string;
+  createdAt: string;
+}
+
+interface AfterActionAssessmentContent {
+  infraStatus: string;
+  estimatedCost: number;
+  reliefNeeded: number;
+  durationDays: number;
+  shelterRating: number;
+  successNotes: string;
+  bottlenecks: string;
+  submittedBy?: string;
+  submittedAt?: string;
+}
+
 @Injectable()
 export class SiteManagerProxyService {
   constructor(
@@ -53,6 +81,82 @@ export class SiteManagerProxyService {
         scope,
       }),
     );
+  }
+
+  getLatestAfterActionAssessment(disasterId?: string) {
+    return this.findIncidentReports(undefined, disasterId).then((reports) => {
+      const parsed = (reports as IncidentReportRecord[])
+        .filter((report) => report.title === AFTER_ACTION_ASSESSMENT_TITLE)
+        .map((report) => {
+          try {
+            const content = JSON.parse(report.content) as AfterActionAssessmentContent;
+            return {
+              id: report.id,
+              disasterId: report.disasterId,
+              infraStatus: content.infraStatus,
+              estimatedCost: Number(content.estimatedCost ?? 0),
+              reliefNeeded: Number(content.reliefNeeded ?? 0),
+              durationDays: Number(content.durationDays ?? 0),
+              shelterRating: Number(content.shelterRating ?? 1),
+              successNotes: content.successNotes ?? '',
+              bottlenecks: content.bottlenecks ?? '',
+              submittedBy: content.submittedBy ?? report.reportedBy,
+              submittedAt: content.submittedAt ?? report.createdAt,
+              updatedAt: report.createdAt,
+            };
+          } catch {
+            return null;
+          }
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+      return parsed[0] ?? null;
+    });
+  }
+
+  upsertAfterActionAssessment(payload: UpsertAfterActionAssessmentDto) {
+    const content: AfterActionAssessmentContent = {
+      infraStatus: payload.infraStatus,
+      estimatedCost: payload.estimatedCost,
+      reliefNeeded: payload.reliefNeeded,
+      durationDays: payload.durationDays,
+      shelterRating: payload.shelterRating,
+      successNotes: payload.successNotes,
+      bottlenecks: payload.bottlenecks,
+      submittedBy: payload.submittedBy,
+      submittedAt: new Date().toISOString(),
+    };
+
+    return this.findIncidentReports(undefined, payload.disasterId).then(async (reports) => {
+      const existing = (reports as IncidentReportRecord[]).find(
+        (report) => report.title === AFTER_ACTION_ASSESSMENT_TITLE,
+      );
+
+      if (existing) {
+        return firstValueFrom(
+          this.operationsClient.send(INCIDENT_REPORT_PATTERNS.UPDATE, {
+            id: existing.id,
+            updateIncidentReportDto: {
+              content: JSON.stringify(content),
+              status: 'reviewed',
+            },
+          }),
+        ).then(() => this.getLatestAfterActionAssessment(payload.disasterId));
+      }
+
+      return firstValueFrom(
+        this.operationsClient.send(INCIDENT_REPORT_PATTERNS.CREATE, {
+          disasterId: payload.disasterId,
+          reportedBy: payload.submittedBy ?? 'System',
+          title: AFTER_ACTION_ASSESSMENT_TITLE,
+          content: JSON.stringify(content),
+          severity: 'moderate',
+          location: AFTER_ACTION_ASSESSMENT_LOCATION,
+          status: 'reviewed',
+        }),
+      ).then(() => this.getLatestAfterActionAssessment(payload.disasterId));
+    });
   }
 
   findInventory(search?: string) {

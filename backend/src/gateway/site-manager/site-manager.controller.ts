@@ -16,6 +16,7 @@ import { RolesGuard } from '../../common/auth/roles.guard.js';
 import { Roles } from '../../common/auth/roles.decorator.js';
 import { AppRole } from '../../../libs/contracts/src/roles.js';
 import { SiteManagerProxyService } from './site-manager.proxy.service.js';
+import { UpsertAfterActionAssessmentDto } from './dto/upsert-after-action-assessment.dto.js';
 import { CreateItemDto } from '../../inventory/dto/create-item.dto.js';
 import { UpdateItemDto } from '../../inventory/dto/update-item.dto.js';
 import { AdjustQuantityDto } from '../../inventory/dto/adjust-quantity.dto.js';
@@ -45,6 +46,16 @@ export class SiteManagerController {
   @Get('dashboard')
   getDashboard() {
     return this.siteManagerProxyService.getDashboard();
+  }
+
+  @Get('after-action-assessment/latest')
+  getLatestAfterActionAssessment(@Query('disasterId') disasterId?: string) {
+    return this.siteManagerProxyService.getLatestAfterActionAssessment(disasterId);
+  }
+
+  @Put('after-action-assessment')
+  upsertAfterActionAssessment(@Body() payload: UpsertAfterActionAssessmentDto) {
+    return this.siteManagerProxyService.upsertAfterActionAssessment(payload);
   }
 
   @Get('inventory')

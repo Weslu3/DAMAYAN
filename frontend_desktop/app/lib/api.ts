@@ -302,6 +302,21 @@ export interface GeoAddressResult {
   provider: string;
 }
 
+export interface AfterActionAssessment {
+  id: string;
+  disasterId: string;
+  infraStatus: string;
+  estimatedCost: number;
+  reliefNeeded: number;
+  durationDays: number;
+  shelterRating: number;
+  successNotes: string;
+  bottlenecks: string;
+  submittedBy?: string | null;
+  submittedAt?: string;
+  updatedAt?: string;
+}
+
 export async function geocodeAddress(token: string, address: string): Promise<GeoAddressResult> {
   return request<GeoAddressResult>(
     `/site-manager/geo/geocode?address=${encodeURIComponent(address)}`,
@@ -351,6 +366,37 @@ export async function getRecentCheckIns(token: string, limit = 8) {
 
 export async function getIncidentReports(token: string) {
   return request<IncidentReport[]>("/site-manager/incident-reports", {}, token);
+}
+
+export async function getLatestAfterActionAssessment(token: string, disasterId?: string) {
+  const suffix = disasterId
+    ? `?disasterId=${encodeURIComponent(disasterId)}`
+    : "";
+  return request<AfterActionAssessment | null>(
+    `/site-manager/after-action-assessment/latest${suffix}`,
+    {},
+    token,
+  );
+}
+
+export async function upsertAfterActionAssessment(
+  token: string,
+  payload: {
+    disasterId: string;
+    infraStatus: string;
+    estimatedCost: number;
+    reliefNeeded: number;
+    durationDays: number;
+    shelterRating: number;
+    successNotes: string;
+    bottlenecks: string;
+    submittedBy?: string;
+  },
+) {
+  return request<AfterActionAssessment>("/site-manager/after-action-assessment", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  }, token);
 }
 
 export async function getDispatcherIncidents(token: string) {
