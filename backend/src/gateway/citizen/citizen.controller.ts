@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Body,
   Inject,
@@ -97,6 +98,16 @@ export class CitizenController {
   async deleteFamilyMembers(@Param('qrCodeId') qrCodeId: string) {
     console.log('Clearing family members for QR:', qrCodeId);
     return this.registrationsService.deleteFamilyMembersByQr(qrCodeId);
+  }
+
+  @Put('family/:id')
+  async updateFamily(@Param('id') id: string, @Body() body: any) {
+    return this.citizenProxyService.updateFamily(id, body);
+  }
+
+  @Delete('family/member/:id')
+  async deleteFamilyMember(@Param('id') id: string) {
+    return this.citizenProxyService.deleteFamily(id);
   }
 
   @Delete('animal')

@@ -226,59 +226,59 @@ export function SiteManagerDuringScreen({
     }
   };
 
-   const handleSubmitIncident = async () => {
-      if (!session?.accessToken || !session.user) {
-         Alert.alert("Session expired", "Please sign in again.");
-         return;
-      }
+  const handleSubmitIncident = async () => {
+    if (!session?.accessToken || !session.user) {
+      Alert.alert("Session expired", "Please sign in again.");
+      return;
+    }
 
-      if (!incidentDescription.trim()) {
-         Alert.alert("Missing details", "Please add incident details before submitting.");
-         return;
-      }
+    if (!incidentDescription.trim()) {
+      Alert.alert("Missing details", "Please add incident details before submitting.");
+      return;
+    }
 
-      try {
-         await createIncidentReport(session.accessToken, {
-            disasterId: "current-disaster",
-            reportedBy: session.user.email || "System",
-            title: incidentType,
-            content: incidentDescription,
-            severity,
-            location: "Central Site",
-         });
+    try {
+      await createIncidentReport(session.accessToken, {
+        disasterId: "current-disaster",
+        reportedBy: session.user.email || "System",
+        title: incidentType,
+        content: incidentDescription,
+        severity,
+        location: "Central Site",
+      });
 
-         setIncidentDescription("");
-         Alert.alert("Success", "Incident report submitted.");
-      } catch (error) {
-         const message = error instanceof Error ? error.message : "Failed to submit incident";
-         Alert.alert("Submit failed", message);
-      }
-   };
+      setIncidentDescription("");
+      Alert.alert("Success", "Incident report submitted.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to submit incident";
+      Alert.alert("Submit failed", message);
+    }
+  };
 
-   const handleRefreshInventory = async () => {
-      if (!session?.accessToken) {
-         Alert.alert("Session expired", "Please sign in again.");
-         return;
-      }
+  const handleRefreshInventory = async () => {
+    if (!session?.accessToken) {
+      Alert.alert("Session expired", "Please sign in again.");
+      return;
+    }
 
-      try {
-         const inventory = await getInventory("site-manager", session.accessToken);
-         Alert.alert("Inventory updated", `${inventory.length} items synced.`);
-      } catch (error) {
-         const message = error instanceof Error ? error.message : "Failed to update inventory";
-         Alert.alert("Update failed", message);
-      }
-   };
+    try {
+      const inventory = await getInventory("site-manager", session.accessToken);
+      Alert.alert("Inventory updated", `${inventory.length} items synced.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update inventory";
+      Alert.alert("Update failed", message);
+    }
+  };
 
   return (
-    <ScrollView 
+    <ScrollView
       style={localStyles.container}
       contentContainerStyle={localStyles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
       <View style={localStyles.headerRow}>
         <TouchableOpacity onPress={onBack} style={localStyles.backBtn}>
-           <Ionicons name="arrow-back" size={24} color={currentTheme.text} />
+          <Ionicons name="arrow-back" size={24} color={currentTheme.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <View style={localStyles.statusBadge}>
@@ -305,273 +305,273 @@ export function SiteManagerDuringScreen({
               <Text style={localStyles.sectionSub}>This view follows the daily process: evacuee arrival, identity capture, and relief distribution.</Text>
             </View>
             <View style={localStyles.priorityBadge}>
-               <Ionicons name="shield-checkmark" size={14} color={currentTheme.warning} />
-               <Text style={localStyles.priorityText}>Priority Status</Text>
+              <Ionicons name="shield-checkmark" size={14} color={currentTheme.warning} />
+              <Text style={localStyles.priorityText}>Priority Status</Text>
             </View>
           </View>
 
           <View style={localStyles.checklistGrid}>
             <View style={localStyles.readinessCheckCard}>
-               <View style={localStyles.checkIconWrap}>
-                  <Ionicons name="qr-code" size={32} color={currentTheme.warning} />
-               </View>
-               <Text style={localStyles.checkTitle}>Identity Verification</Text>
-               <Text style={localStyles.checkDesc}>Active intake: select your center and scan QR codes.</Text>
-               
-               {/* Evacuation Center Selector */}
-               <View style={{ width: "100%", marginTop: 8 }}>
-                 <Text style={{ fontSize: 10, ...fonts.black, color: theme.textLight, letterSpacing: 1, marginBottom: 6 }}>EVACUATION CENTER</Text>
-                 <TouchableOpacity 
-                   style={{ height: 50, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: theme.line, justifyContent: "center", paddingHorizontal: 16 }}
-                   onPress={() => setIsCenterPickerOpen(true)}
-                 >
-                   <Text style={{ fontSize: 13, ...fonts.bold, color: selectedCenterId ? theme.text : theme.textLight }}>
-                     {selectedCenterId ? centers.find(c => c.id === selectedCenterId)?.name || "Unknown Center" : "Select Evacuation Center"}
-                   </Text>
-                 </TouchableOpacity>
-               </View>
+              <View style={localStyles.checkIconWrap}>
+                <Ionicons name="qr-code" size={32} color={currentTheme.warning} />
+              </View>
+              <Text style={localStyles.checkTitle}>Identity Verification</Text>
+              <Text style={localStyles.checkDesc}>Active intake: select your center and scan QR codes.</Text>
 
-               <View style={localStyles.scannerTabs}>
-                  <TouchableOpacity 
-                              onPress={() => {
-                                 setActiveTab("scan");
-                              }}
-                    style={activeTab === "scan" ? localStyles.scannerTabActive : localStyles.scannerTab}
+              {/* Evacuation Center Selector */}
+              <View style={{ width: "100%", marginTop: 8 }}>
+                <Text style={{ fontSize: 10, ...fonts.black, color: theme.textLight, letterSpacing: 1, marginBottom: 6 }}>EVACUATION CENTER</Text>
+                <TouchableOpacity
+                  style={{ height: 50, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: theme.line, justifyContent: "center", paddingHorizontal: 16 }}
+                  onPress={() => setIsCenterPickerOpen(true)}
+                >
+                  <Text style={{ fontSize: 13, ...fonts.bold, color: selectedCenterId ? theme.text : theme.textLight }}>
+                    {selectedCenterId ? centers.find(c => c.id === selectedCenterId)?.name || "Unknown Center" : "Select Evacuation Center"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={localStyles.scannerTabs}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setActiveTab("scan");
+                  }}
+                  style={activeTab === "scan" ? localStyles.scannerTabActive : localStyles.scannerTab}
+                >
+                  <Text style={activeTab === "scan" ? localStyles.scannerTabTextActive : localStyles.scannerTabText}>Scan QR</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setActiveTab("manual");
+                    setIsCameraOpen(false);
+                  }}
+                  style={activeTab === "manual" ? localStyles.scannerTabActive : localStyles.scannerTab}
+                >
+                  <Text style={activeTab === "manual" ? localStyles.scannerTabTextActive : localStyles.scannerTabText}>Manual ID</Text>
+                </TouchableOpacity>
+              </View>
+
+              {activeTab === "scan" ? (
+                <>
+                  {/* Error message */}
+                  {scanError && (
+                    <View style={{ backgroundColor: "#FFEBEE", padding: 12, borderRadius: 12, marginBottom: 12, width: "100%" }}>
+                      <Text style={{ color: "#D32F2F", ...fonts.medium, textAlign: "center" }}>{scanError}</Text>
+                      <TouchableOpacity onPress={() => { setScanError(null); scanLockRef.current = false; }} style={{ marginTop: 8 }}>
+                        <Text style={{ color: "#D32F2F", ...fonts.bold, textAlign: "center" }}>Try Again</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Processing state */}
+                  {isProcessing && (
+                    <View style={{ backgroundColor: "#E3F2FD", padding: 12, borderRadius: 12, marginBottom: 12, width: "100%", alignItems: "center" }}>
+                      <Text style={{ color: "#1565C0", ...fonts.bold }}>Looking up citizen...</Text>
+                    </View>
+                  )}
+
+                  {/* Check-In scanner button */}
+                  <TouchableOpacity
+                    style={[localStyles.scanActionButton, { width: "100%", backgroundColor: "#FFB300", flexDirection: "row", justifyContent: "center", gap: 8 }]}
+                    onPress={() => openCamera("check-in")}
                   >
-                    <Text style={activeTab === "scan" ? localStyles.scannerTabTextActive : localStyles.scannerTabText}>Scan QR</Text>
+                    <Ionicons name="qr-code-outline" size={18} color="#fff" />
+                    <Text style={localStyles.scanActionButtonText}>SCAN QR TO CHECK-IN</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
-                   onPress={() => {
-                                 setActiveTab("manual");
-                                 setIsCameraOpen(false);
-                              }}
-                    style={activeTab === "manual" ? localStyles.scannerTabActive : localStyles.scannerTab}
+
+                  {/* Check-Out scanner button */}
+                  <TouchableOpacity
+                    style={[localStyles.scanActionButton, { width: "100%", marginTop: 10, backgroundColor: "#1A1C1A", flexDirection: "row", justifyContent: "center", gap: 8 }]}
+                    onPress={() => openCamera("check-out")}
                   >
-                    <Text style={activeTab === "manual" ? localStyles.scannerTabTextActive : localStyles.scannerTabText}>Manual ID</Text>
+                    <Ionicons name="exit-outline" size={18} color="#fff" />
+                    <Text style={localStyles.scanActionButtonText}>SCAN QR TO CHECK-OUT</Text>
                   </TouchableOpacity>
-               </View>
-
-               {activeTab === "scan" ? (
-                 <>
-                   {/* Error message */}
-                   {scanError && (
-                     <View style={{ backgroundColor: "#FFEBEE", padding: 12, borderRadius: 12, marginBottom: 12, width: "100%" }}>
-                       <Text style={{ color: "#D32F2F", ...fonts.medium, textAlign: "center" }}>{scanError}</Text>
-                       <TouchableOpacity onPress={() => { setScanError(null); scanLockRef.current = false; }} style={{ marginTop: 8 }}>
-                         <Text style={{ color: "#D32F2F", ...fonts.bold, textAlign: "center" }}>Try Again</Text>
-                       </TouchableOpacity>
-                     </View>
-                   )}
-
-                   {/* Processing state */}
-                   {isProcessing && (
-                     <View style={{ backgroundColor: "#E3F2FD", padding: 12, borderRadius: 12, marginBottom: 12, width: "100%", alignItems: "center" }}>
-                       <Text style={{ color: "#1565C0", ...fonts.bold }}>Looking up citizen...</Text>
-                     </View>
-                   )}
-
-                   {/* Check-In scanner button */}
-                   <TouchableOpacity
-                     style={[localStyles.scanActionButton, { width: "100%", backgroundColor: "#FFB300", flexDirection: "row", justifyContent: "center", gap: 8 }]}
-                     onPress={() => openCamera("check-in")}
-                   >
-                     <Ionicons name="qr-code-outline" size={18} color="#fff" />
-                     <Text style={localStyles.scanActionButtonText}>SCAN QR TO CHECK-IN</Text>
-                   </TouchableOpacity>
-
-                   {/* Check-Out scanner button */}
-                   <TouchableOpacity
-                     style={[localStyles.scanActionButton, { width: "100%", marginTop: 10, backgroundColor: "#1A1C1A", flexDirection: "row", justifyContent: "center", gap: 8 }]}
-                     onPress={() => openCamera("check-out")}
-                   >
-                     <Ionicons name="exit-outline" size={18} color="#fff" />
-                     <Text style={localStyles.scanActionButtonText}>SCAN QR TO CHECK-OUT</Text>
-                   </TouchableOpacity>
-                 </>
-               ) : (
-                 <View style={localStyles.manualForm}>
-                    <View style={localStyles.inputWrapper}>
+                </>
+              ) : (
+                <View style={localStyles.manualForm}>
+                  <View style={localStyles.inputWrapper}>
+                    <TextInput
+                      value={manualId}
+                      onChangeText={setManualId}
+                      placeholder="Citizen Name or ID..."
+                      placeholderTextColor={currentTheme.textLight}
+                      style={localStyles.manualInput}
+                    />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={[localStyles.inputWrapper, { flex: 1 }]}>
                       <TextInput
-                        value={manualId}
-                        onChangeText={setManualId}
-                        placeholder="Citizen Name or ID..."
+                        value={manualZone}
+                        onChangeText={setManualZone}
+                        placeholder="Zone"
                         placeholderTextColor={currentTheme.textLight}
                         style={localStyles.manualInput}
                       />
                     </View>
-                    <View style={{ flexDirection: 'row', gap: 12 }}>
-                       <View style={[localStyles.inputWrapper, { flex: 1 }]}>
-                          <TextInput
-                            value={manualZone}
-                            onChangeText={setManualZone}
-                            placeholder="Zone"
-                            placeholderTextColor={currentTheme.textLight}
-                            style={localStyles.manualInput}
-                          />
-                       </View>
-                       <View style={[localStyles.inputWrapper, { flex: 1 }]}>
-                          <TextInput
-                            value={manualGroupSize}
-                            onChangeText={setManualGroupSize}
-                            placeholder="Group Size"
-                            placeholderTextColor={currentTheme.textLight}
-                            keyboardType="numeric"
-                            style={localStyles.manualInput}
-                          />
-                       </View>
+                    <View style={[localStyles.inputWrapper, { flex: 1 }]}>
+                      <TextInput
+                        value={manualGroupSize}
+                        onChangeText={setManualGroupSize}
+                        placeholder="Group Size"
+                        placeholderTextColor={currentTheme.textLight}
+                        keyboardType="numeric"
+                        style={localStyles.manualInput}
+                      />
                     </View>
-                 </View>
-               )}
+                  </View>
+                </View>
+              )}
 
-               {activeTab === "manual" && (
-                 <TouchableOpacity style={localStyles.logStatusBtn} onPress={handleManualCheckIn}>
-                    <Text style={localStyles.logStatusText}>Confirm Check-in</Text>
-                 </TouchableOpacity>
-               )}
+              {activeTab === "manual" && (
+                <TouchableOpacity style={localStyles.logStatusBtn} onPress={handleManualCheckIn}>
+                  <Text style={localStyles.logStatusText}>Confirm Check-in</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={localStyles.essentialTasksCard}>
-               <View style={localStyles.tasksHeader}>
-                  <Ionicons name="list" size={20} color={currentTheme.warning} />
-                  <Text style={localStyles.tasksTitle}>Essential Tasks</Text>
-               </View>
-               <View style={localStyles.taskRow}>
-                  <Text style={localStyles.taskLabel}>Inventory Validation</Text>
-                  <View style={[localStyles.taskPill, { backgroundColor: '#E8F5E9' }]}><Text style={[localStyles.taskPillText, { color: '#2E7D32' }]}>READY</Text></View>
-               </View>
-               <View style={localStyles.taskRow}>
-                  <Text style={localStyles.taskLabel}>Comms Stabilization</Text>
-                  <View style={[localStyles.taskPill, { backgroundColor: '#E3F2FD' }]}><Text style={[localStyles.taskPillText, { color: '#1976D2' }]}>ACTIVE</Text></View>
-               </View>
-               <View style={localStyles.taskRow}>
-                  <Text style={localStyles.taskLabel}>Volunteer Briefing</Text>
-                  <View style={[localStyles.taskPill, { backgroundColor: '#F1F8E9' }]}><Text style={[localStyles.taskPillText, { color: '#689F38' }]}>COMPLETE</Text></View>
-               </View>
-               <View style={localStyles.divider} />
-               <Text style={localStyles.protocolLabel}>PROTOCOL NOTE</Text>
-               <Text style={localStyles.protocolText}>"All resource reallocations must be synced to the central hub within 5 minutes of physical movement."</Text>
+              <View style={localStyles.tasksHeader}>
+                <Ionicons name="list" size={20} color={currentTheme.warning} />
+                <Text style={localStyles.tasksTitle}>Essential Tasks</Text>
+              </View>
+              <View style={localStyles.taskRow}>
+                <Text style={localStyles.taskLabel}>Inventory Validation</Text>
+                <View style={[localStyles.taskPill, { backgroundColor: '#E8F5E9' }]}><Text style={[localStyles.taskPillText, { color: '#2E7D32' }]}>READY</Text></View>
+              </View>
+              <View style={localStyles.taskRow}>
+                <Text style={localStyles.taskLabel}>Comms Stabilization</Text>
+                <View style={[localStyles.taskPill, { backgroundColor: '#E3F2FD' }]}><Text style={[localStyles.taskPillText, { color: '#1976D2' }]}>ACTIVE</Text></View>
+              </View>
+              <View style={localStyles.taskRow}>
+                <Text style={localStyles.taskLabel}>Volunteer Briefing</Text>
+                <View style={[localStyles.taskPill, { backgroundColor: '#F1F8E9' }]}><Text style={[localStyles.taskPillText, { color: '#689F38' }]}>COMPLETE</Text></View>
+              </View>
+              <View style={localStyles.divider} />
+              <Text style={localStyles.protocolLabel}>PROTOCOL NOTE</Text>
+              <Text style={localStyles.protocolText}>"All resource reallocations must be synced to the central hub within 5 minutes of physical movement."</Text>
             </View>
           </View>
         </View>
 
         {/* Side Content */}
         <View style={localStyles.sideContent}>
-           <View style={localStyles.liveActivityCard}>
-              <View style={localStyles.liveHeader}>
-                 <Ionicons name="stats-chart" size={18} color={currentTheme.warning} />
-                 <Text style={localStyles.liveTitle}>Live Activity</Text>
+          <View style={localStyles.liveActivityCard}>
+            <View style={localStyles.liveHeader}>
+              <Ionicons name="stats-chart" size={18} color={currentTheme.warning} />
+              <Text style={localStyles.liveTitle}>Live Activity</Text>
+            </View>
+            <View style={localStyles.activityItem}>
+              <View style={localStyles.activityDot} />
+              <View style={{ flex: 1 }}>
+                <Text style={localStyles.activityTime}>08:45 AM</Text>
+                <Text style={localStyles.activityDesc}>Convoy Gamma arrived at Northern Staging.</Text>
               </View>
-              <View style={localStyles.activityItem}>
-                 <View style={localStyles.activityDot} />
-                 <View style={{ flex: 1 }}>
-                    <Text style={localStyles.activityTime}>08:45 AM</Text>
-                    <Text style={localStyles.activityDesc}>Convoy Gamma arrived at Northern Staging.</Text>
-                 </View>
+            </View>
+            <View style={localStyles.activityItem}>
+              <View style={localStyles.activityDot} />
+              <View style={{ flex: 1 }}>
+                <Text style={localStyles.activityTime}>07:12 AM</Text>
+                <Text style={localStyles.activityDesc}>Satellite uplink stabilized at Sector 4.</Text>
               </View>
-              <View style={localStyles.activityItem}>
-                 <View style={localStyles.activityDot} />
-                 <View style={{ flex: 1 }}>
-                    <Text style={localStyles.activityTime}>07:12 AM</Text>
-                    <Text style={localStyles.activityDesc}>Satellite uplink stabilized at Sector 4.</Text>
-                 </View>
+            </View>
+            <View style={localStyles.activityItem}>
+              <View style={[localStyles.activityDot, { backgroundColor: '#7D867B' }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={localStyles.activityTime}>YESTERDAY</Text>
+                <Text style={localStyles.activityDesc}>Evacuation initiated for Cluster B.</Text>
               </View>
-              <View style={localStyles.activityItem}>
-                 <View style={[localStyles.activityDot, { backgroundColor: '#7D867B' }]} />
-                 <View style={{ flex: 1 }}>
-                    <Text style={localStyles.activityTime}>YESTERDAY</Text>
-                    <Text style={localStyles.activityDesc}>Evacuation initiated for Cluster B.</Text>
-                 </View>
-              </View>
-           </View>
+            </View>
+          </View>
 
-           <View style={localStyles.siteMapCard}>
-              <View style={localStyles.siteMapContent}>
-                 <Text style={localStyles.siteMapTitle}>Interactive Site Map</Text>
-                 <Text style={localStyles.siteMapSub}>REAL-TIME ZONE ACTIVITY MONITOR</Text>
-              </View>
-              <Image 
-                source={{ uri: "https://lh3.googleusercontent.com/aida-public/AB6AXuB3K_4K9H0L_9E_9N_K7L9B8v8V-p_H_p7h-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v" }} 
-                style={localStyles.siteMapImage} 
-                resizeMode="cover"
-              />
-           </View>
+          <View style={localStyles.siteMapCard}>
+            <View style={localStyles.siteMapContent}>
+              <Text style={localStyles.siteMapTitle}>Interactive Site Map</Text>
+              <Text style={localStyles.siteMapSub}>REAL-TIME ZONE ACTIVITY MONITOR</Text>
+            </View>
+            <Image
+              source={{ uri: "https://lh3.googleusercontent.com/aida-public/AB6AXuB3K_4K9H0L_9E_9N_K7L9B8v8V-p_H_p7h-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v-v8r-B7v" }}
+              style={localStyles.siteMapImage}
+              resizeMode="cover"
+            />
+          </View>
         </View>
       </View>
 
       {/* Report Site Incident */}
       <View style={localStyles.incidentSection}>
-         <View style={localStyles.sectionHeaderRow}>
-            <View>
-              <Text style={localStyles.sectionTitle}>Report Site Incident</Text>
-              <Text style={localStyles.sectionSub}>Log critical events or medical emergencies immediately.</Text>
-            </View>
-            <View style={localStyles.activeAlertsBadge}>
-               <Text style={localStyles.activeAlertsText}>3 ACTIVE ALERTS</Text>
-            </View>
-         </View>
+        <View style={localStyles.sectionHeaderRow}>
+          <View>
+            <Text style={localStyles.sectionTitle}>Report Site Incident</Text>
+            <Text style={localStyles.sectionSub}>Log critical events or medical emergencies immediately.</Text>
+          </View>
+          <View style={localStyles.activeAlertsBadge}>
+            <Text style={localStyles.activeAlertsText}>3 ACTIVE ALERTS</Text>
+          </View>
+        </View>
 
-         <View style={localStyles.incidentFormRow}>
-            <View style={localStyles.pickerContainer}>
-               <Text style={localStyles.inputLabel}>INCIDENT TYPE</Text>
-               <TouchableOpacity style={localStyles.pickerBox} onPress={() => setIsTypeModalOpen(true)}>
-                  <Text style={localStyles.pickerText}>{incidentType}</Text>
-                  <Text style={localStyles.pickerHint}>Tap to select</Text>
-               </TouchableOpacity>
+        <View style={localStyles.incidentFormRow}>
+          <View style={localStyles.pickerContainer}>
+            <Text style={localStyles.inputLabel}>INCIDENT TYPE</Text>
+            <TouchableOpacity style={localStyles.pickerBox} onPress={() => setIsTypeModalOpen(true)}>
+              <Text style={localStyles.pickerText}>{incidentType}</Text>
+              <Text style={localStyles.pickerHint}>Tap to select</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={localStyles.severityContainer}>
+            <Text style={localStyles.inputLabel}>SEVERITY</Text>
+            <View style={localStyles.severityRow}>
+              {["CRITICAL", "HIGH", "MODERATE"].map((s) => {
+                const isActive = severity === s;
+                const color = s === 'CRITICAL' ? '#D32F2F' : s === 'HIGH' ? '#FFB300' : '#2E7D32';
+                return (
+                  <TouchableOpacity
+                    key={s}
+                    onPress={() => setSeverity(s as any)}
+                    style={[
+                      localStyles.severityBtn,
+                      { backgroundColor: isActive ? color : currentTheme.surfaceAlt, borderColor: isActive ? color : currentTheme.line, borderWidth: 1 },
+                      isActive && { shadowColor: color, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 }
+                    ]}
+                  >
+                    <Text style={[
+                      localStyles.severityBtnText,
+                      { color: isActive ? "#fff" : currentTheme.textLight }
+                    ]}>{s}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+          </View>
+        </View>
 
-            <View style={localStyles.severityContainer}>
-               <Text style={localStyles.inputLabel}>SEVERITY</Text>
-               <View style={localStyles.severityRow}>
-                  {["CRITICAL", "HIGH", "MODERATE"].map((s) => {
-                    const isActive = severity === s;
-                    const color = s === 'CRITICAL' ? '#D32F2F' : s === 'HIGH' ? '#FFB300' : '#2E7D32';
-                    return (
-                      <TouchableOpacity 
-                        key={s} 
-                        onPress={() => setSeverity(s as any)}
-                        style={[
-                          localStyles.severityBtn, 
-                          { backgroundColor: isActive ? color : currentTheme.surfaceAlt, borderColor: isActive ? color : currentTheme.line, borderWidth: 1 },
-                          isActive && { shadowColor: color, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 }
-                        ]}
-                      >
-                         <Text style={[
-                           localStyles.severityBtnText, 
-                           { color: isActive ? "#fff" : currentTheme.textLight }
-                         ]}>{s}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-               </View>
-            </View>
-         </View>
+        <View style={{ marginTop: 24 }}>
+          <Text style={localStyles.inputLabel}>DETAILED DESCRIPTION</Text>
+          <View style={localStyles.textArea}>
+            <TextInput
+              value={incidentDescription}
+              onChangeText={setIncidentDescription}
+              placeholder="Describe the situation..."
+              placeholderTextColor={currentTheme.textLight}
+              multiline
+              style={localStyles.textAreaInput}
+            />
+          </View>
+        </View>
 
-         <View style={{ marginTop: 24 }}>
-            <Text style={localStyles.inputLabel}>DETAILED DESCRIPTION</Text>
-            <View style={localStyles.textArea}>
-              <TextInput
-                value={incidentDescription}
-                onChangeText={setIncidentDescription}
-                placeholder="Describe the situation..."
-                placeholderTextColor={currentTheme.textLight}
-                multiline
-                style={localStyles.textAreaInput}
-              />
-            </View>
-         </View>
+        <TouchableOpacity style={[localStyles.submitBtn, { flexDirection: 'row' }]} onPress={handleSubmitIncident}>
+          <Ionicons name="send" size={16} color="#fff" style={{ marginRight: 10 }} />
+          <Text style={localStyles.submitBtnText}>Submit Incident Report</Text>
+        </TouchableOpacity>
 
-         <TouchableOpacity style={[localStyles.submitBtn, { flexDirection: 'row' }]} onPress={handleSubmitIncident}>
-            <Ionicons name="send" size={16} color="#fff" style={{ marginRight: 10 }} />
-            <Text style={localStyles.submitBtnText}>Submit Incident Report</Text>
-         </TouchableOpacity>
-
-         <TouchableOpacity 
-           style={[localStyles.submitBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: currentTheme.line, marginTop: 12, flexDirection: 'row' }]}
-           onPress={onEnterRecovery}
-         >
-            <Ionicons name="arrow-forward" size={16} color={currentTheme.text} style={{ marginRight: 10 }} />
-            <Text style={[localStyles.submitBtnText, { color: currentTheme.text }]}>Transition to Recovery Mode</Text>
-         </TouchableOpacity>
+        <TouchableOpacity
+          style={[localStyles.submitBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: currentTheme.line, marginTop: 12, flexDirection: 'row' }]}
+          onPress={onEnterRecovery}
+        >
+          <Ionicons name="arrow-forward" size={16} color={currentTheme.text} style={{ marginRight: 10 }} />
+          <Text style={[localStyles.submitBtnText, { color: currentTheme.text }]}>Transition to Recovery Mode</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Supply Checklist */}
@@ -582,86 +582,86 @@ export function SiteManagerDuringScreen({
             <Text style={localStyles.sectionSub}>Real-time inventory levels across regional staging areas.</Text>
           </View>
           <TouchableOpacity style={[localStyles.updateInventoryBtn, { backgroundColor: '#FFB300' }]} onPress={handleRefreshInventory}>
-             <Text style={localStyles.updateInventoryText}>Update Inventory</Text>
+            <Text style={localStyles.updateInventoryText}>Update Inventory</Text>
           </TouchableOpacity>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={localStyles.supplyScroll}>
-           {[
-             { label: "P", name: "Potable Water", status: "SECURE", val: "92% AVAIL", progress: 0.92, color: "#FFB300" },
-             { label: "T", name: "Trauma Kits", status: "CRITICAL", val: "12% LOW", progress: 0.12, color: "#D32F2F" },
-             { label: "M", name: "Mobile Power", status: "SECURE", val: "84% AVAIL", progress: 0.84, color: "#FFB300" },
-           ].map((item, idx) => (
-             <View key={idx} style={localStyles.supplyCard}>
-                <View style={localStyles.supplyCardTop}>
-                   <View style={[localStyles.supplyLabelBox, { backgroundColor: item.color }]}>
-                      <Text style={localStyles.supplyLabelText}>{item.label}</Text>
-                   </View>
-                   <View style={[localStyles.supplyStatusBadge, { backgroundColor: item.status === "SECURE" ? "#E8F5E9" : "#FFEBEE" }]}>
-                      <Text style={[localStyles.supplyStatusText, { color: item.status === "SECURE" ? "#2E7D32" : "#D32F2F" }]}>{item.status}</Text>
-                   </View>
+          {[
+            { label: "P", name: "Potable Water", status: "SECURE", val: "92% AVAIL", progress: 0.92, color: "#FFB300" },
+            { label: "T", name: "Trauma Kits", status: "CRITICAL", val: "12% LOW", progress: 0.12, color: "#D32F2F" },
+            { label: "M", name: "Mobile Power", status: "SECURE", val: "84% AVAIL", progress: 0.84, color: "#FFB300" },
+          ].map((item, idx) => (
+            <View key={idx} style={localStyles.supplyCard}>
+              <View style={localStyles.supplyCardTop}>
+                <View style={[localStyles.supplyLabelBox, { backgroundColor: item.color }]}>
+                  <Text style={localStyles.supplyLabelText}>{item.label}</Text>
                 </View>
-                <Text style={localStyles.supplyCardName}>{item.name}</Text>
-                <Text style={localStyles.supplyCardVal}>{item.val}</Text>
-                <View style={localStyles.supplyProgressTrack}>
-                   <View style={[localStyles.supplyProgressFill, { width: `${item.progress * 100}%`, backgroundColor: item.color }]} />
+                <View style={[localStyles.supplyStatusBadge, { backgroundColor: item.status === "SECURE" ? "#E8F5E9" : "#FFEBEE" }]}>
+                  <Text style={[localStyles.supplyStatusText, { color: item.status === "SECURE" ? "#2E7D32" : "#D32F2F" }]}>{item.status}</Text>
                 </View>
-             </View>
-           ))}
+              </View>
+              <Text style={localStyles.supplyCardName}>{item.name}</Text>
+              <Text style={localStyles.supplyCardVal}>{item.val}</Text>
+              <View style={localStyles.supplyProgressTrack}>
+                <View style={[localStyles.supplyProgressFill, { width: `${item.progress * 100}%`, backgroundColor: item.color }]} />
+              </View>
+            </View>
+          ))}
         </ScrollView>
       </View>
 
-         <Modal visible={isTypeModalOpen} transparent animationType="fade">
-            <Pressable style={localStyles.typePickerOverlay} onPress={() => setIsTypeModalOpen(false)}>
-               <View style={localStyles.typePickerCard}>
-                  <Text style={localStyles.typePickerTitle}>Select Incident Type</Text>
-                   {INCIDENT_TYPE_OPTIONS.map((option) => {
-                     const selected = option === incidentType;
-                     return (
-                        <TouchableOpacity
-                           key={option}
-                           style={[localStyles.typePickerOption, selected && localStyles.typePickerOptionActive]}
-                           onPress={() => {
-                              setIncidentType(option);
-                              setIsTypeModalOpen(false);
-                           }}
-                        >
-                           <Text style={[localStyles.typePickerOptionText, selected && localStyles.typePickerOptionTextActive]}>{option}</Text>
-                        </TouchableOpacity>
-                     );
-                  })}
-               </View>
-            </Pressable>
-         </Modal>
+      <Modal visible={isTypeModalOpen} transparent animationType="fade">
+        <Pressable style={localStyles.typePickerOverlay} onPress={() => setIsTypeModalOpen(false)}>
+          <View style={localStyles.typePickerCard}>
+            <Text style={localStyles.typePickerTitle}>Select Incident Type</Text>
+            {INCIDENT_TYPE_OPTIONS.map((option) => {
+              const selected = option === incidentType;
+              return (
+                <TouchableOpacity
+                  key={option}
+                  style={[localStyles.typePickerOption, selected && localStyles.typePickerOptionActive]}
+                  onPress={() => {
+                    setIncidentType(option);
+                    setIsTypeModalOpen(false);
+                  }}
+                >
+                  <Text style={[localStyles.typePickerOptionText, selected && localStyles.typePickerOptionTextActive]}>{option}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
 
-         {/* ── Evacuation Center Picker Modal ──────────────────────────────── */}
-         <Modal visible={isCenterPickerOpen} transparent animationType="fade">
-            <Pressable style={localStyles.typePickerOverlay} onPress={() => setIsCenterPickerOpen(false)}>
-               <View style={localStyles.typePickerCard}>
-                  <Text style={localStyles.typePickerTitle}>Select Evacuation Center</Text>
-                  <ScrollView style={{ maxHeight: 300 }}>
-                    {centers.map((center) => {
-                       const selected = center.id === selectedCenterId;
-                       return (
-                          <TouchableOpacity
-                             key={center.id}
-                             style={[localStyles.typePickerOption, selected && localStyles.typePickerOptionActive]}
-                             onPress={() => {
-                                setSelectedCenterId(center.id);
-                                setIsCenterPickerOpen(false);
-                             }}
-                          >
-                             <Text style={[localStyles.typePickerOptionText, selected && localStyles.typePickerOptionTextActive]}>{center.name}</Text>
-                          </TouchableOpacity>
-                       );
-                    })}
-                    {centers.length === 0 && (
-                      <Text style={{ textAlign: "center", color: theme.textMuted, marginVertical: 20 }}>No evacuation centers found.</Text>
-                    )}
-                  </ScrollView>
-               </View>
-            </Pressable>
-         </Modal>
+      {/* ── Evacuation Center Picker Modal ──────────────────────────────── */}
+      <Modal visible={isCenterPickerOpen} transparent animationType="fade">
+        <Pressable style={localStyles.typePickerOverlay} onPress={() => setIsCenterPickerOpen(false)}>
+          <View style={localStyles.typePickerCard}>
+            <Text style={localStyles.typePickerTitle}>Select Evacuation Center</Text>
+            <ScrollView style={{ maxHeight: 300 }}>
+              {centers.map((center) => {
+                const selected = center.id === selectedCenterId;
+                return (
+                  <TouchableOpacity
+                    key={center.id}
+                    style={[localStyles.typePickerOption, selected && localStyles.typePickerOptionActive]}
+                    onPress={() => {
+                      setSelectedCenterId(center.id);
+                      setIsCenterPickerOpen(false);
+                    }}
+                  >
+                    <Text style={[localStyles.typePickerOptionText, selected && localStyles.typePickerOptionTextActive]}>{center.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              {centers.length === 0 && (
+                <Text style={{ textAlign: "center", color: theme.textMuted, marginVertical: 20 }}>No evacuation centers found.</Text>
+              )}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* ── Full-Screen QR Camera Modal ─────────────────────────────────── */}
       <Modal visible={isCameraOpen} animationType="slide" statusBarTranslucent>
@@ -882,7 +882,7 @@ const getStyles = (theme: any) => StyleSheet.create({
   checkIconWrap: { width: 64, height: 64, borderRadius: 24, backgroundColor: "rgba(255, 179, 0, 0.05)", alignItems: "center", justifyContent: "center" },
   checkTitle: { fontSize: 18, ...fonts.black, color: theme.text },
   checkDesc: { fontSize: 12, ...fonts.medium, color: theme.textMuted, textAlign: "center", lineHeight: 18 },
-  
+
   scannerTabs: { flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 12, padding: 4, width: "100%", marginTop: 8 },
   scannerTabActive: { flex: 1, backgroundColor: "#fff", paddingVertical: 8, borderRadius: 8, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 5 },
   scannerTab: { flex: 1, paddingVertical: 8, alignItems: "center" },
@@ -890,19 +890,19 @@ const getStyles = (theme: any) => StyleSheet.create({
   scannerTabText: { fontSize: 11, ...fonts.bold, color: theme.textLight },
 
   viewfinder: { width: "100%", height: 120, backgroundColor: "#000", borderRadius: 16, marginTop: 12, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-   cameraView: { width: "100%", height: "100%" },
+  cameraView: { width: "100%", height: "100%" },
   viewfinderFrame: { width: "80%", height: "60%", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", borderStyle: "dashed", borderRadius: 8 },
   scannerBeam: { position: "absolute", top: 0, left: 0, right: 0, height: 2, backgroundColor: "red", shadowColor: "red", shadowOpacity: 1, shadowRadius: 10 },
   viewfinderText: { position: "absolute", bottom: 10, fontSize: 8, ...fonts.black, color: "rgba(255,255,255,0.5)", letterSpacing: 1 },
-   scanActionButton: { marginTop: 10, backgroundColor: "#1A1C1A", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
-   scanActionButtonText: { color: "#fff", fontSize: 11, ...fonts.black, letterSpacing: 0.6, textTransform: "uppercase" },
+  scanActionButton: { marginTop: 10, backgroundColor: "#1A1C1A", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  scanActionButtonText: { color: "#fff", fontSize: 11, ...fonts.black, letterSpacing: 0.6, textTransform: "uppercase" },
 
   logStatusBtn: { backgroundColor: "#FFB300", paddingHorizontal: 20, paddingVertical: 18, borderRadius: 16, width: "100%", alignItems: "center", marginTop: 12, shadowColor: "#FFB300", shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   logStatusText: { color: "#fff", ...fonts.black, fontSize: 14, letterSpacing: 0.5 },
 
   manualForm: { width: "100%", gap: 12, marginTop: 12 },
   inputWrapper: { height: 56, backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: theme.line, justifyContent: "center", paddingHorizontal: 20 },
-   manualInput: { fontSize: 14, color: theme.text, ...fonts.medium },
+  manualInput: { fontSize: 14, color: theme.text, ...fonts.medium },
   manualInputPlaceholder: { fontSize: 14, color: theme.textLight, ...fonts.medium },
 
   essentialTasksCard: { backgroundColor: theme.surfaceAlt, borderRadius: 32, padding: 24, marginTop: 12 },
@@ -939,20 +939,20 @@ const getStyles = (theme: any) => StyleSheet.create({
   pickerContainer: { flex: 1.5, minWidth: 200 },
   pickerBox: { height: 56, backgroundColor: theme.surfaceAlt, borderRadius: 16, justifyContent: "center", paddingHorizontal: 20, borderWidth: 1, borderColor: theme.line },
   pickerText: { fontSize: 14, ...fonts.bold, color: theme.text },
-   pickerHint: { fontSize: 9, ...fonts.black, color: theme.textLight, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.8 },
-   typePickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", padding: 24 },
-   typePickerCard: { backgroundColor: theme.surface, borderRadius: 20, padding: 18, borderWidth: 1, borderColor: theme.line },
-   typePickerTitle: { fontSize: 14, ...fonts.black, color: theme.text, marginBottom: 12 },
-   typePickerOption: { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.line },
-   typePickerOptionActive: { backgroundColor: "#E3F2FD", borderColor: "#90CAF9" },
-   typePickerOptionText: { fontSize: 13, ...fonts.medium, color: theme.text },
-   typePickerOptionTextActive: { ...fonts.black },
+  pickerHint: { fontSize: 9, ...fonts.black, color: theme.textLight, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.8 },
+  typePickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", padding: 24 },
+  typePickerCard: { backgroundColor: theme.surface, borderRadius: 20, padding: 18, borderWidth: 1, borderColor: theme.line },
+  typePickerTitle: { fontSize: 14, ...fonts.black, color: theme.text, marginBottom: 12 },
+  typePickerOption: { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.line },
+  typePickerOptionActive: { backgroundColor: "#E3F2FD", borderColor: "#90CAF9" },
+  typePickerOptionText: { fontSize: 13, ...fonts.medium, color: theme.text },
+  typePickerOptionTextActive: { ...fonts.black },
   severityContainer: { flex: 1, minWidth: 160 },
   severityRow: { flexDirection: "row", gap: 6 },
   severityBtn: { flex: 1, height: 56, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   severityBtnText: { fontSize: 8, ...fonts.black, textAlign: "center" },
   textArea: { height: 120, backgroundColor: theme.surfaceAlt, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: theme.line },
-   textAreaInput: { flex: 1, color: theme.text, fontSize: 14, ...fonts.medium, textAlignVertical: "top" },
+  textAreaInput: { flex: 1, color: theme.text, fontSize: 14, ...fonts.medium, textAlignVertical: "top" },
   placeholderText: { fontSize: 14, color: theme.textLight, ...fonts.medium },
   submitBtn: { height: 64, backgroundColor: "#1A1C1A", borderRadius: 24, alignItems: "center", justifyContent: "center", marginTop: 32 },
   submitBtnText: { color: "#fff", fontSize: 14, ...fonts.black, letterSpacing: 1.5 },

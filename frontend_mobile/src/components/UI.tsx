@@ -88,6 +88,7 @@ export function Input({
   value,
   keyboardType,
   autoCapitalize,
+  ...props
 }: {
   label?: string;
   placeholder: string;
@@ -96,6 +97,7 @@ export function Input({
   value?: string;
   keyboardType?: "default" | "email-address" | "numeric" | "phone-pad";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  [key: string]: any;
 }) {
   return (
     <View style={styles.inputWrap}>
@@ -109,6 +111,7 @@ export function Input({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         style={styles.input}
+        {...props}
       />
     </View>
   );

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { Incident, Unit, unitStatusColor, unitTypeColor, situationColor } from "./data";
+import { Incident, Unit, unitStatusColor, unitTypeColor, situationColor, shortenId, priorityColor } from "./data";
 
 export type MapMode = "monitoring" | "dispatch" | "rescue";
 
@@ -86,6 +86,12 @@ export default function LiveMap({ mode, incidents, units, filterType="All", sele
     return `<div style="position:relative;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 5px rgba(0,0,0,0.3)">${p}</div>`;
   }
 
+  function getJitter(id: string) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    return { lat: ((hash % 100) - 50) * 0.00008, lng: (((hash >> 2) % 100) - 50) * 0.00008 };
+  }
+
   function draw(L:any, map:any) {
     mks.current.forEach(m=>map.removeLayer(m)); mks.current=[];
 
@@ -97,8 +103,12 @@ export default function LiveMap({ mode, incidents, units, filterType="All", sele
         mks.current.push(L.marker([u.lat,u.lng],{icon}).addTo(map).bindTooltip(`<b>${u.name}</b> — ${u.status}<br/>${u.station}`,{direction:"top"}));
       });
       incidents.filter(i=>i.status!=="Resolved"&&i.status!=="Invalid").forEach(i => {
-        const icon = L.divIcon({className:"",html:`<div style="width:8px;height:8px;border-radius:50%;background:#c62828;border:2px solid rgba(255,255,255,0.9)"></div>`,iconSize:[8,8],iconAnchor:[4,4]});
-        mks.current.push(L.marker([i.lat,i.lng],{icon}).addTo(map).bindTooltip(i.id));
+        const isPulse = ["Dispatched", "In Progress"].includes(i.status);
+        const color = priorityColor(i.priority) || "#c62828";
+        const iconHtml = dot(color, 14, isPulse);
+        const icon = L.divIcon({className:"",html:iconHtml,iconSize:[14,14],iconAnchor:[7,7]});
+        const j = getJitter(i.id);
+        mks.current.push(L.marker([i.lat + j.lat, i.lng + j.lng],{icon}).addTo(map).bindTooltip(shortenId(i.id)));
       });
     }
 
@@ -110,7 +120,7 @@ export default function LiveMap({ mode, incidents, units, filterType="All", sele
       }
       const pin = `<svg width="26" height="38" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg"><path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.27 21.73 0 14 0z" fill="#c2440a"/><circle cx="14" cy="14" r="6" fill="white"/></svg>`;
       const pinIcon = L.divIcon({className:"",html:pin,iconSize:[26,38],iconAnchor:[13,38]});
-      mks.current.push(L.marker([selectedIncident.lat,selectedIncident.lng],{icon:pinIcon}).addTo(map).bindTooltip(`<b>${selectedIncident.id}</b><br/>${selectedIncident.address}`,{permanent:true,direction:"top"}).openTooltip());
+      mks.current.push(L.marker([selectedIncident.lat,selectedIncident.lng],{icon:pinIcon}).addTo(map).bindTooltip(`<b>${shortenId(selectedIncident.id)}</b><br/>${selectedIncident.address}`,{permanent:true,direction:"top"}).openTooltip());
 
       const vis = filterType==="All" ? units.filter(u=>u.status==="Available") : units.filter(u=>u.type===filterType&&u.status==="Available");
       vis.forEach(u => {
@@ -140,12 +150,13 @@ export default function LiveMap({ mode, incidents, units, filterType="All", sele
       }
       incidents.filter(i=>["Dispatched","In Progress"].includes(i.status)).forEach(i => {
         const sc = situationColor(i.situationType);
-        const html=`<div style="background:${sc};color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer;font-family:'Public Sans',sans-serif">${i.id}</div>`;
+        const html=`<div style="background:${sc};color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer;font-family:'Public Sans',sans-serif">${shortenId(i.id)}</div>`;
         const icon = L.divIcon({className:"",html,iconSize:[90,22],iconAnchor:[45,11]});
         const names = i.assignedUnits.map(uid=>{ const u=units.find(u=>u.id===uid); return u?`${u.type}-${u.id.split("-")[1]}`:uid; }).join(", ")||"None";
-        const pop = L.popup().setContent(`<div class="dp-map-popup"><div class="dp-map-popup-name">${i.id} — ${i.type}</div><div class="dp-map-popup-row">Loc: ${i.address}</div><div class="dp-map-popup-row">Situation: <span style="color:${sc};font-weight:700">${i.situationType}</span></div><div class="dp-map-popup-row">Units: <b>${names}</b></div><div class="dp-map-popup-row">Active: <b>${i.timeActive} mins</b></div><div class="dp-map-popup-btns"><button onclick="window.__dpBackup('${i.id}')" class="dp-map-popup-btn" style="background:#c77700;color:#fff;border-color:transparent">Backup</button><button onclick="window.__dpEscalate('${i.id}')" class="dp-map-popup-btn" style="background:#c62828;color:#fff;border-color:transparent">High-Level</button></div></div>`);
+        const pop = L.popup().setContent(`<div class="dp-map-popup"><div class="dp-map-popup-name">${shortenId(i.id)} — ${i.type}</div><div class="dp-map-popup-row">Loc: ${i.address}</div><div class="dp-map-popup-row">Situation: <span style="color:${sc};font-weight:700">${i.situationType}</span></div><div class="dp-map-popup-row">Units: <b>${names}</b></div><div class="dp-map-popup-row">Active: <b>${i.timeActive} mins</b></div><div class="dp-map-popup-btns"><button onclick="window.__dpBackup('${i.id}')" class="dp-map-popup-btn" style="background:#c77700;color:#fff;border-color:transparent">Backup</button><button onclick="window.__dpEscalate('${i.id}')" class="dp-map-popup-btn" style="background:#c62828;color:#fff;border-color:transparent">High-Level</button></div></div>`);
 
-        const m = L.marker([i.lat,i.lng],{icon}).addTo(map).bindPopup(pop);
+        const j = getJitter(i.id);
+        const m = L.marker([i.lat + j.lat, i.lng + j.lng],{icon}).addTo(map).bindPopup(pop);
         m.on("click",()=>{ if (onIncidentClick) onIncidentClick(i); });
         mks.current.push(m);
       });

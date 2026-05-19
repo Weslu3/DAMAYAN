@@ -254,23 +254,41 @@ export class RegistrationsService {
       throw new NotFoundException(error.message);
     }
 
+    try {
+      const { count } = await supabase
+        .from('families')
+        .select('*', { count: 'exact', head: true })
+        .eq('qr_code_id', createFamilyDto.qrCodeId);
+
+      const totalCount = (count || 0) + 1;
+
+      await supabase
+        .from('families')
+        .update({ family_member_count: totalCount })
+        .eq('qr_code_id', createFamilyDto.qrCodeId);
+    } catch (countErr) {
+      console.error('Failed to update family_member_count on creation:', countErr);
+    }
+
     return this.toFamily([data as FamilyRow]);
   }
 
   async updateFamily(id: string, updateFamilyDto: UpdateFamilyDto) {
     const supabase = this.supabaseService.getClient() as any;
+    
+    const updateData: any = {};
+    if (updateFamilyDto.qrCodeId !== undefined) updateData.qr_code_id = updateFamilyDto.qrCodeId;
+    if (updateFamilyDto.headUserId !== undefined) updateData.head_user_id = updateFamilyDto.headUserId;
+    if (updateFamilyDto.headFullName !== undefined) updateData.head_full_name = updateFamilyDto.headFullName;
+    if (updateFamilyDto.familyMemberName !== undefined) updateData.family_member_name = updateFamilyDto.familyMemberName;
+    if (updateFamilyDto.relationship !== undefined) updateData.relationship = updateFamilyDto.relationship;
+    if (updateFamilyDto.userId !== undefined) updateData.user_id = updateFamilyDto.userId;
+    if (updateFamilyDto.age !== undefined) updateData.age = updateFamilyDto.age;
+    if (updateFamilyDto.accessibilityNeeds !== undefined) updateData.accessibility_needs = updateFamilyDto.accessibilityNeeds;
+
     const { data, error } = await supabase
       .from('families')
-      .update({
-        qr_code_id: updateFamilyDto.qrCodeId,
-        head_user_id: updateFamilyDto.headUserId,
-        head_full_name: updateFamilyDto.headFullName,
-        family_member_name: updateFamilyDto.familyMemberName,
-        relationship: updateFamilyDto.relationship,
-        user_id: updateFamilyDto.userId,
-        age: updateFamilyDto.age,
-        accessibility_needs: updateFamilyDto.accessibilityNeeds,
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -284,9 +302,39 @@ export class RegistrationsService {
 
   async deleteFamily(id: string): Promise<void> {
     const supabase = this.supabaseService.getClient() as any;
+    
+    // 1. Fetch the family member first to get the qr_code_id
+    const { data: member } = await supabase
+      .from('families')
+      .select('qr_code_id')
+      .eq('id', id)
+      .single();
+
+    const qrCodeId = member?.qr_code_id;
+
+    // 2. Delete the family member row
     const { error } = await supabase.from('families').delete().eq('id', id);
     if (error) {
       throw new NotFoundException(error.message);
+    }
+
+    // 3. If qrCodeId exists, update the family_member_count for all remaining members under it
+    if (qrCodeId) {
+      try {
+        const { count } = await supabase
+          .from('families')
+          .select('*', { count: 'exact', head: true })
+          .eq('qr_code_id', qrCodeId);
+
+        const totalCount = (count || 0) + 1;
+
+        await supabase
+          .from('families')
+          .update({ family_member_count: totalCount })
+          .eq('qr_code_id', qrCodeId);
+      } catch (countErr) {
+        console.error('Failed to update family_member_count on deletion:', countErr);
+      }
     }
   }
 

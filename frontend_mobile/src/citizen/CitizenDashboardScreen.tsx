@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { View, StyleSheet, SafeAreaView, Pressable, Text, Modal, Platform, Image } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, StyleSheet, ScrollView, SafeAreaView, Dimensions, Pressable, Text, Modal, Platform, Image } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { lightTheme, darkTheme, fonts } from "../theme";
 import { NotificationBell } from "../components/NotificationBell";
 import { useNotifications } from "../hooks/useNotifications";
 import { loadSession } from "../session";
-import { getCitizenProfile, getFileViewUrl, type CitizenProfile } from "../api";
+import { getProfile, getCitizenProfile, getFileViewUrl, ApiError, type CitizenProfile } from "../api";
 import { CitizenBeforeScreen } from "./beforecalamity/screens/CitizenBeforeScreen";
 import { CitizenDuringScreen } from "./duringcalamity/CitizenDuringScreen";
 import CitizenAfterScreen from "./aftercalamity/CitizenAfterScreen";
@@ -25,34 +25,75 @@ interface CitizenDashboardScreenProps {
 }
 
 export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardScreenProps) {
-  // Phase is driven by the global system state set by admin, with offline caching
-  const { citizenPhase: phase } = useSystemPhase();
+  // Phase is driven by the global system state, but can be locally overridden via bottom tabs
+  const { citizenPhase: systemPhase } = useSystemPhase();
+  const [phaseOverride, setPhaseOverride] = useState<Phase | null>(null);
+  const phase = phaseOverride || systemPhase;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+
   const [token, setToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [authUser, setAuthUser] = useState<any>(null);
   const [citizenProfile, setCitizenProfile] = useState<CitizenProfile | null>(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadSession().then(async (s) => {
-      if (!s) return;
-      setSession(s);
-      setToken(s.accessToken);
-      setUserId(s.user.authUserId ?? s.user.id);
+  async function loadUserData() {
+    try {
+      setLoading(true);
+      const activeSession = await loadSession();
+      if (!activeSession) {
+        onSignOut();
+        return;
+      }
+
+      setSession(activeSession);
+      setAuthUser(activeSession.user);
+      setToken(activeSession.accessToken);
+      setUserId(activeSession.user.authUserId ?? activeSession.user.id);
+
+      // Fetch latest details from `/auth/me`
       try {
-        const profile = await getCitizenProfile(s.accessToken);
-        setCitizenProfile(profile);
-        if (profile.profilePhotoKey) {
-          try {
-            const url = await getFileViewUrl(s.accessToken, "government-ids", profile.profilePhotoKey);
-            setProfilePhotoUrl(url);
-          } catch { /* photo unavailable */ }
+        const latestProfile = await getProfile(activeSession.accessToken);
+        if (latestProfile?.user) {
+          setAuthUser(latestProfile.user);
         }
-      } catch { /* profile unavailable */ }
-    });
+      } catch (err) {
+        console.warn("Failed to fetch fresh user profile:", err);
+      }
+
+      // Fetch citizen profile details
+      try {
+        const profile = await getCitizenProfile(activeSession.accessToken);
+        setCitizenProfile(profile);
+        if (profile?.profilePhotoKey) {
+          try {
+            const url = await getFileViewUrl(activeSession.accessToken, "government-ids", profile.profilePhotoKey);
+            setProfilePhotoUrl(url);
+          } catch (photoErr) {
+            console.warn("Failed to fetch profile photo url:", photoErr);
+          }
+        }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          console.log("Citizen registration profile not found. User is unregistered.");
+          setCitizenProfile(null);
+        } else {
+          console.error("Failed to fetch citizen profile:", err);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading citizen session:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUserData();
   }, []);
 
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications(userId, token);
@@ -75,15 +116,18 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
     switch (dest) {
       case "Overview":
         setTargetStep("dashboard");
+        setPhaseOverride(null);
         break;
       case "Family & ID":
         setTargetStep("family_group");
         break;
       case "Safety Map":
         setTargetStep("map");
+        setPhaseOverride("during");
         break;
       case "Relief Status":
         setTargetStep("relief_claim");
+        setPhaseOverride("after");
         break;
     }
   };
@@ -182,6 +226,9 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                   <CitizenIndividualRegistrationScreen
                     onBack={() => setTargetStep("dashboard")}
                     onContinue={() => setTargetStep("dashboard")}
+                    session={session}
+                    authUser={authUser}
+                    onRefreshProfile={loadUserData}
                     citizenProfile={citizenProfile}
                     profilePhotoUrl={profilePhotoUrl}
                     initials={initials}
@@ -190,14 +237,20 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                   <CitizenHouseholdRegistrationScreen 
                     onBack={() => setTargetStep("dashboard")} 
                     onContinue={() => setTargetStep("dashboard")}
+                    session={session}
+                    authUser={authUser}
+                    citizenProfile={citizenProfile}
+                    onRefreshProfile={loadUserData}
                   />
                 ) : (
                   <CitizenBeforeScreen
                     onBack={onSignOut}
-                    onOpenResponse={() => setTargetStep("dashboard")}
+                    onOpenResponse={() => { setPhaseOverride("during"); setActiveNav("Safety Map"); setTargetStep("decision"); }}
                     onRegisterIndividual={() => setTargetStep("individual_registration")}
                     onRegisterHousehold={() => setTargetStep("household_registration")}
                     initialStep={targetStep === "registration" ? "registration" : "dashboard"}
+                    citizenProfile={citizenProfile}
+                    authUser={authUser}
                     citizenName={displayName !== 'Citizen' ? displayName : undefined}
                     qrCodeId={citizenProfile?.qrCodeId}
                     registrationType={citizenProfile?.registrationType}
@@ -210,6 +263,8 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
               <CitizenDuringScreen
                 onBack={() => setTargetStep("dashboard")}
                 initialStep={targetStep === "map" ? "map" : "decision"}
+                session={session}
+                authUser={authUser}
                 qrCodeId={citizenProfile?.qrCodeId}
               />
             )}
@@ -218,6 +273,7 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                 onBack={() => {
                   setActiveNav("Overview");
                   setTargetStep("dashboard");
+                  setPhaseOverride(null);
                 }}
               />
             )}
@@ -242,9 +298,9 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                   onPress={() => {
                     setActiveNav(item.id as NavDestination);
                     if (item.id === "Family & ID") { setTargetStep("family_group"); }
-                    else if (item.id === "Safety Map") { setTargetStep("map"); }
-                    else if (item.id === "Relief Status") { setTargetStep("relief_claim"); }
-                    else { setTargetStep("dashboard"); }
+                    else if (item.id === "Safety Map") { setPhaseOverride("during"); setTargetStep("map"); }
+                    else if (item.id === "Relief Status") { setPhaseOverride("after"); setTargetStep("relief_claim"); }
+                    else { setPhaseOverride(null); setTargetStep("dashboard"); }
                   }}
                   style={styles.navTab}
                 >

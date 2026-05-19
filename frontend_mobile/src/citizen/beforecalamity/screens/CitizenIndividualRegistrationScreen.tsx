@@ -1,26 +1,58 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Image, Pressable, Switch, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import { Button, Screen } from "../../../components/UI";
 import { theme, fonts } from "../../../theme";
 import { styles } from "../styles/CitizenIndividualRegistrationScreen.styles";
-import type { CitizenProfile } from "../../../api";
+import { registerCitizen, type CitizenProfile } from "../../../api";
 
 export function CitizenIndividualRegistrationScreen({
   onBack,
   onContinue,
+  session,
+  authUser,
+  onRefreshProfile,
   citizenProfile,
   profilePhotoUrl,
   initials = "C",
 }: {
   onBack: () => void;
   onContinue: () => void;
+  session?: any;
+  authUser?: any;
+  onRefreshProfile?: () => void;
   citizenProfile?: CitizenProfile | null;
   profilePhotoUrl?: string | null;
   initials?: string;
 }) {
   const [alertsEnabled, setAlertsEnabled] = useState(true);
+
+  useEffect(() => {
+    async function performRegistration() {
+      if (!session || !authUser) return;
+      try {
+        console.log("Automatically registering citizen individual ID on backend...");
+        const randomCode = "IND-" + Math.floor(1000 + Math.random() * 9000);
+        await registerCitizen(session.accessToken, {
+          fullName: authUser.name || (authUser.firstName + " " + authUser.lastName),
+          birthDate: authUser.birthDate || "1990-01-01",
+          gender: authUser.gender || "Female",
+          bloodType: authUser.bloodType || "O+",
+          medicalConditions: authUser.medicalConditions || "None",
+          registrationType: "Individual",
+          qrCodeId: randomCode,
+        });
+        if (onRefreshProfile) {
+          onRefreshProfile();
+        }
+      } catch (err) {
+        console.error("Backend citizen individual registration failed/already exists:", err);
+      }
+    }
+
+    performRegistration();
+  }, [session, authUser]);
 
   const fullName =
     citizenProfile?.fullName ||
