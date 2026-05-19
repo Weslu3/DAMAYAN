@@ -68,7 +68,7 @@ export class AuthService {
     }
 
     const supabase = this.supabaseService.getClient() as any;
-    const formattedPhone = this.formatPhoneForStorage(signupDto.phone);
+    const formattedPhone = signupDto.phone ? this.formatPhoneForStorage(signupDto.phone) : '';
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: signupDto.email,
       password: signupDto.password,

@@ -34,8 +34,19 @@ export class CitizenController {
   @Get('profile')
   async getProfile(@Request() req: any) {
     const userId = req.user.sub;
+    const email: string | undefined = req.user.email;
     const citizens = await this.registrationsService.findCitizens();
-    return citizens.find(c => c.userId === userId);
+    const citizen = citizens.find(c => c.userId === userId);
+
+    if (citizen && !citizen.profilePhotoKey && email) {
+      const photoKey = await this.registrationsService.findProfilePhotoFromStorage(email, 'citizen');
+      if (photoKey) {
+        citizen.profilePhotoKey = photoKey;
+        await this.registrationsService.saveProfilePhotoKey(userId, photoKey);
+      }
+    }
+
+    return citizen;
   }
 
   @Patch('medical')

@@ -147,7 +147,8 @@ export class CheckInService {
   }
 
   async createManual(createCheckInDto: CreateCheckInDto): Promise<CheckIn> {
-    const { evacueeNumber, familySize, centerId } = createCheckInDto;
+    const { evacueeNumber, firstName, lastName, familySize, centerId } = createCheckInDto;
+    const dtoFullName = [firstName, lastName].filter(Boolean).join(' ').trim() || null;
     const supabase = this.supabaseService.getClient() as any;
 
     let authUserId: string | null = null;
@@ -197,7 +198,7 @@ export class CheckInService {
 
     if (existingEvacuee) {
       const updatePayload: Record<string, unknown> = {
-        check_in_date: new Date().toISOString(),
+        check_in_date: this.localISOString(),
         check_out_date: null,
         status: 'checked_in',
         ...(centerId ? { center_id: centerId } : {}),
@@ -227,10 +228,9 @@ export class CheckInService {
         .from('evacuees')
         .insert({
           auth_user_id: authUserId,
-          // Use the citizen's registered full name; fall back to evacueeNumber (manual entry)
-          family_head: citizenFullName ?? evacueeNumber,
+          family_head: citizenFullName ?? dtoFullName ?? evacueeNumber,
           disaster_id: activeDisasterId,
-          check_in_date: new Date().toISOString(),
+          check_in_date: this.localISOString(),
           status: 'checked_in',
           ...(centerId ? { center_id: centerId } : {}),
           ...(typeof familySize === 'number' && Number.isFinite(familySize)
@@ -249,7 +249,7 @@ export class CheckInService {
     const { data, error } = await supabase
       .from('evacuees')
       .update({
-        check_out_date: new Date().toISOString(),
+        check_out_date: this.localISOString(),
         status: 'checked_out',
       })
       .eq('id', id)
@@ -438,6 +438,15 @@ export class CheckInService {
           ? 'checked-out'
           : 'checked-in',
     };
+  }
+
+  private localISOString(): string {
+    const d = new Date();
+    const pad = (n: number, size = 2) => String(n).padStart(size, '0');
+    return (
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
+    );
   }
 
   private parseFullName(fullName?: string | null) {

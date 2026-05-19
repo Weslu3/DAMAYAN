@@ -7,6 +7,7 @@ import SiteManagerProfilePage from "./SiteManagerProfilePage";
 import SiteManagerRegionalMap from "./SiteManagerRegionalMap";
 import CustomSelect from "./CustomSelect";
 import { clearSession, hasRole, loadSession } from "../../lib/session";
+import { Scanner } from "@yudiel/react-qr-scanner";
 import {
   getDashboard,
   getLatestAfterActionAssessment,
@@ -16,6 +17,10 @@ import {
   getInventory,
   getRecentCheckIns,
   upsertAfterActionAssessment,
+  getCitizenByQrCode,
+  createManualCheckIn,
+  checkOutById,
+  getCheckInByQrCode,
 } from "../../lib/api";
 import { AppRole, AuthSession, CapacityCenter, CheckInRecord, DashboardOverview, DisasterEvent, IncidentReport, InventoryItem } from "../../lib/types";
 
@@ -199,6 +204,15 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     const [readinessStatusMessage, setReadinessStatusMessage] = useState<string | null>(null);
     const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
     const [checkInError, setCheckInError] = useState<string | null>(null);
+    const [scanType, setScanType] = useState<"check-in" | "check-out">("check-in");
+    const [scannedCitizen, setScannedCitizen] = useState<{ id: string; fullName?: string; firstName?: string; lastName?: string; registrationType?: string; qrCodeId?: string; familySize?: number } | null>(null);
+    const [scanModalOpen, setScanModalOpen] = useState(false);
+    const [checkOutRecord, setCheckOutRecord] = useState<{ id: string; fullName: string; checkInTime?: string } | null>(null);
+    const [checkOutModalOpen, setCheckOutModalOpen] = useState(false);
+    const [isSubmittingCheckOut, setIsSubmittingCheckOut] = useState(false);
+    const [isScanLookingUp, setIsScanLookingUp] = useState(false);
+    const [selectedCenterId, setSelectedCenterId] = useState<string>("");
+    const scanLockRef = useRef(false);
 
     const [receiveGoodsState, setReceiveGoodsState] = useState({
       arrivalTerminal: "",
@@ -466,6 +480,92 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     }
   };
 
+  const handleQrScanned = async (results: { rawValue: string }[]) => {
+    if (scanLockRef.current || isScanLookingUp) return;
+    const raw = results[0]?.rawValue?.trim();
+    if (!raw || !session?.accessToken) return;
+    const qrCodeId = raw.startsWith("QR-") ? raw.replace("QR-", "") : raw;
+    scanLockRef.current = true;
+    setIsScanLookingUp(true);
+    setCheckInError(null);
+    try {
+      if (scanType === "check-in") {
+        const citizen = await getCitizenByQrCode(session.accessToken, qrCodeId);
+        if (!citizen) {
+          setCheckInError(`No registered citizen found for QR: ${qrCodeId}`);
+          scanLockRef.current = false;
+          return;
+        }
+        setScannedCitizen({ ...citizen, qrCodeId });
+        setScanModalOpen(true);
+      } else {
+        const citizen = await getCitizenByQrCode(session.accessToken, qrCodeId);
+        const record = await getCheckInByQrCode(session.accessToken, qrCodeId);
+        if (!record) {
+          setCheckInError(`No active check-in found for QR: ${qrCodeId}`);
+          scanLockRef.current = false;
+          return;
+        }
+        const fullName = citizen
+          ? (citizen.fullName || `${citizen.firstName ?? ""} ${citizen.lastName ?? ""}`.trim())
+          : `${record.firstName} ${record.lastName}`.trim();
+        setCheckOutRecord({ id: record.id, fullName, checkInTime: record.checkInTime });
+        setCheckOutModalOpen(true);
+      }
+    } catch (err) {
+      setCheckInError(err instanceof Error ? err.message : "Failed to look up citizen.");
+      scanLockRef.current = false;
+    } finally {
+      setIsScanLookingUp(false);
+    }
+  };
+
+  const handleConfirmCheckOut = async () => {
+    if (!session?.accessToken || !checkOutRecord) return;
+    setIsSubmittingCheckOut(true);
+    setCheckInError(null);
+    try {
+      await checkOutById(session.accessToken, checkOutRecord.id);
+      const freshCheckIns = await getRecentCheckIns(session.accessToken);
+      setCheckIns(freshCheckIns);
+      setCheckOutModalOpen(false);
+      setCheckOutRecord(null);
+      scanLockRef.current = false;
+    } catch (err) {
+      setCheckInError(err instanceof Error ? err.message : "Check-out failed.");
+    } finally {
+      setIsSubmittingCheckOut(false);
+    }
+  };
+
+  const handleConfirmScannedCheckIn = async () => {
+    if (!session?.accessToken || !scannedCitizen) return;
+    if (!selectedCenterId) {
+      setCheckInError("Please select an evacuation center.");
+      return;
+    }
+    setIsSubmittingCheckIn(true);
+    try {
+      await createManualCheckIn(session.accessToken, {
+        evacueeNumber: scannedCitizen.qrCodeId!,
+        firstName: scannedCitizen.firstName || scannedCitizen.fullName?.split(" ")[0] || "",
+        location: "Site Manager Desktop Check-in",
+        centerId: selectedCenterId,
+        familySize: scannedCitizen.familySize,
+      });
+      const freshCheckIns = await getRecentCheckIns(session.accessToken);
+      setCheckIns(freshCheckIns);
+      setScanModalOpen(false);
+      setScannedCitizen(null);
+      scanLockRef.current = false;
+      setCheckInError(null);
+    } catch (err) {
+      setCheckInError(err instanceof Error ? err.message : "Check-in failed.");
+    } finally {
+      setIsSubmittingCheckIn(false);
+    }
+  };
+
   const handleSubmitManualCheckIn = async () => {
     if (!session?.accessToken) {
       setCheckInError("Session expired. Please login again.");
@@ -481,8 +581,6 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     setCheckInError(null);
 
     try {
-      const { createManualCheckIn } = await import("../../lib/api");
-      
       await createManualCheckIn(session.accessToken, {
         evacueeNumber: manualCheckInState.citizenName,
         firstName: manualCheckInState.citizenName.split(" ")[0] || "",
@@ -2024,21 +2122,42 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                 {phase === 'during' && (
                   <div className="w-full space-y-3 mb-4">
                     <div className="flex gap-2 bg-[#dadad5] p-1 rounded-lg">
-                      <button 
-                        onClick={() => setCheckInMode("scan")}
+                      <button
+                        onClick={() => { setCheckInMode("scan"); setCheckInError(null); scanLockRef.current = false; }}
                         className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${checkInMode === "scan" ? "bg-white shadow-sm" : "text-[#444743]"}`}
                       >Scan QR</button>
-                      <button 
-                        onClick={() => setCheckInMode("manual")}
+                      <button
+                        onClick={() => { setCheckInMode("manual"); setCheckInError(null); scanLockRef.current = false; }}
                         className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${checkInMode === "manual" ? "bg-white shadow-sm" : "text-[#444743]"}`}
                       >Manual ID</button>
                     </div>
+
+                    {checkInMode === "scan" && (
+                      <div className="flex gap-2 bg-[#f0f0eb] p-1 rounded-lg">
+                        <button
+                          onClick={() => { setScanType("check-in"); setCheckInError(null); scanLockRef.current = false; }}
+                          className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-in" ? "bg-[#FFB300] text-white shadow-sm" : "text-[#444743]"}`}
+                        >Check-In</button>
+                        <button
+                          onClick={() => { setScanType("check-out"); setCheckInError(null); scanLockRef.current = false; }}
+                          className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-out" ? "bg-[#2E7D32] text-white shadow-sm" : "text-[#444743]"}`}
+                        >Check-Out</button>
+                      </div>
+                    )}
                     
                     {checkInMode === "scan" ? (
-                      <div className="h-32 bg-black rounded-xl overflow-hidden relative flex items-center justify-center animate-in fade-in zoom-in duration-300">
-                         <div className="absolute inset-4 border-2 border-dashed border-white/30 rounded-lg"></div>
-                         <div className="w-full h-0.5 bg-red-500 absolute top-1/2 animate-bounce"></div>
-                         <span className="text-[10px] text-white/50 uppercase tracking-widest z-10 font-bold">Camera Viewfinder</span>
+                      <div className="rounded-xl overflow-hidden animate-in fade-in zoom-in duration-300">
+                        {isScanLookingUp ? (
+                          <div className="h-40 bg-black flex items-center justify-center">
+                            <span className="text-white text-sm font-bold animate-pulse">Looking up citizen...</span>
+                          </div>
+                        ) : (
+                          <Scanner
+                            onScan={handleQrScanned}
+                            onError={() => setCheckInError("Camera error. Check browser permissions.")}
+                            styles={{ container: { height: 200 } }}
+                          />
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-3 animate-in slide-in-from-top-2 duration-300 w-full overflow-hidden">
@@ -2077,21 +2196,23 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                 {phase === 'before' && readinessStatusMessage && (
                   <p className="text-[#0d631b] text-sm mb-3">{readinessStatusMessage}</p>
                 )}
-                <button 
-                  onClick={() => {
-                    if (phase === 'before') {
-                      setCheckInError(null);
-                      setReadinessStatusMessage('Readiness status logged successfully.');
-                    }
-                    else if (phase === 'during') handleSubmitManualCheckIn();
-                    else setIsReceiveModalOpen(true);
-                  }}
-                  disabled={isSubmittingCheckIn || isClosingOperations}
-                  className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg disabled:opacity-50" 
-                  style={{ background: phaseConfig.primaryColor }}
-                >
-                  {isSubmittingCheckIn || isClosingOperations ? "Processing..." : (phase === 'before' ? 'Log Readiness Status' : phase === 'during' ? 'Confirm Check-in' : 'Verify & Log Aid')}
-                </button>
+                {!(phase === 'during' && checkInMode === 'scan') && (
+                  <button
+                    onClick={() => {
+                      if (phase === 'before') {
+                        setCheckInError(null);
+                        setReadinessStatusMessage('Readiness status logged successfully.');
+                      }
+                      else if (phase === 'during') handleSubmitManualCheckIn();
+                      else setIsReceiveModalOpen(true);
+                    }}
+                    disabled={isSubmittingCheckIn || isClosingOperations}
+                    className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg disabled:opacity-50"
+                    style={{ background: phaseConfig.primaryColor }}
+                  >
+                    {isSubmittingCheckIn || isClosingOperations ? "Processing..." : (phase === 'before' ? 'Log Readiness Status' : phase === 'during' ? 'Confirm Check-in' : 'Verify & Log Aid')}
+                  </button>
+                )}
               </div>
 
               <div className="bg-[#f4f4ef] dark:bg-[#232622] px-6 py-8 rounded-2xl flex flex-col justify-between">
@@ -2705,6 +2826,100 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
               </button>
             </div>
           </aside>
+        </div>
+      )}
+
+      {/* QR Scan Citizen Confirmation Modal */}
+      {scanModalOpen && scannedCitizen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setScanModalOpen(false); scanLockRef.current = false; }} />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 z-10 animate-in zoom-in-95 duration-200">
+            <p className="text-[10px] font-black tracking-widest text-[#FFB300] uppercase mb-4">Check-In Confirmation</p>
+            <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl mb-6">
+              <div className="w-14 h-14 rounded-full bg-[#FFB300] flex items-center justify-center text-white text-xl font-black flex-shrink-0">
+                {(scannedCitizen.fullName || `${scannedCitizen.firstName ?? ""} ${scannedCitizen.lastName ?? ""}`.trim())
+                  .split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase() || "?"}
+              </div>
+              <div>
+                <p className="font-black text-lg leading-tight">
+                  {scannedCitizen.fullName || `${scannedCitizen.firstName ?? ""} ${scannedCitizen.lastName ?? ""}`.trim() || "Unknown"}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">QR: {scannedCitizen.qrCodeId}</p>
+                {scannedCitizen.registrationType && (
+                  <p className="text-[11px] font-bold text-[#FFB300] mt-1">{scannedCitizen.registrationType.toUpperCase()}</p>
+                )}
+                {scannedCitizen.familySize && (
+                  <p className="text-xs text-gray-500">Family size: {scannedCitizen.familySize}</p>
+                )}
+              </div>
+            </div>
+            <div className="mb-5">
+              <p className="text-[10px] font-black tracking-widest text-gray-400 uppercase mb-2">Evacuation Center</p>
+              <select
+                value={selectedCenterId}
+                onChange={(e) => { setSelectedCenterId(e.target.value); setCheckInError(null); }}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#FFB300]"
+              >
+                <option value="">Select a center...</option>
+                {capacityCenters.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            {checkInError && <p className="text-red-600 text-sm mb-4">{checkInError}</p>}
+            <button
+              onClick={handleConfirmScannedCheckIn}
+              disabled={isSubmittingCheckIn}
+              className="w-full py-4 rounded-2xl font-black text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+              style={{ background: "#FFB300" }}
+            >
+              {isSubmittingCheckIn ? "Checking in..." : "Confirm Check-In"}
+            </button>
+            <button
+              onClick={() => { setScanModalOpen(false); setScannedCitizen(null); scanLockRef.current = false; setCheckInError(null); }}
+              className="w-full py-3 mt-2 text-sm font-bold text-gray-500 hover:text-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Check-Out Confirmation Modal */}
+      {checkOutModalOpen && checkOutRecord && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setCheckOutModalOpen(false); scanLockRef.current = false; }} />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 z-10 animate-in zoom-in-95 duration-200">
+            <p className="text-[10px] font-black tracking-widest text-[#2E7D32] uppercase mb-4">Check-Out Confirmation</p>
+            <div className="flex items-center gap-4 p-4 bg-green-50 rounded-2xl mb-6">
+              <div className="w-14 h-14 rounded-full bg-[#4CAF50] flex items-center justify-center text-white text-xl font-black flex-shrink-0">
+                {checkOutRecord.fullName.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase() || "?"}
+              </div>
+              <div>
+                <p className="font-black text-lg leading-tight">{checkOutRecord.fullName}</p>
+                {checkOutRecord.checkInTime && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Checked in: {new Date(checkOutRecord.checkInTime).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </div>
+            {checkInError && <p className="text-red-600 text-sm mb-4">{checkInError}</p>}
+            <button
+              onClick={handleConfirmCheckOut}
+              disabled={isSubmittingCheckOut}
+              className="w-full py-4 rounded-2xl font-black text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+              style={{ background: "#4CAF50" }}
+            >
+              {isSubmittingCheckOut ? "Checking out..." : "Confirm Check-Out"}
+            </button>
+            <button
+              onClick={() => { setCheckOutModalOpen(false); setCheckOutRecord(null); scanLockRef.current = false; setCheckInError(null); }}
+              className="w-full py-3 mt-2 text-sm font-bold text-gray-500 hover:text-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

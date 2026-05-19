@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Pressable, Text, View, Modal, TouchableOpacity, StyleSheet, ScrollView, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import QRCode from "react-native-qrcode-svg";
 import { Screen, Pill, SectionCard } from "../../../components/UI";
 import { theme, fonts, lightTheme, darkTheme } from "../../../theme";
 import {
@@ -15,6 +16,10 @@ export function CitizenBeforeScreen({
   onRegisterHousehold,
   initialStep = "dashboard",
   isDarkMode,
+  citizenName,
+  qrCodeId,
+  registrationType,
+  profilePhotoUrl,
 }: {
   onBack: () => void;
   onOpenResponse: () => void;
@@ -22,6 +27,10 @@ export function CitizenBeforeScreen({
   onRegisterHousehold?: () => void;
   initialStep?: string;
   isDarkMode?: boolean;
+  citizenName?: string;
+  qrCodeId?: string;
+  registrationType?: string;
+  profilePhotoUrl?: string;
 }) {
   const [step, setStep] = React.useState(initialStep);
   
@@ -102,15 +111,25 @@ export function CitizenBeforeScreen({
               <Text style={localStyles.sideLabel}>DIGITAL IDENTITY</Text>
               <View style={localStyles.identityContent}>
                  <View style={localStyles.qrBox}>
-                    <Ionicons name="qr-code" size={24} color="#000" />
+                    {qrCodeId ? (
+                      <QRCode value={qrCodeId} size={52} backgroundColor="transparent" />
+                    ) : (
+                      <Ionicons name="qr-code" size={24} color="#000" />
+                    )}
                  </View>
-                 <View>
-                    <Text style={localStyles.idNumber}>IND-2891</Text>
-                    <Text style={localStyles.idName}>ELENA VILLACRUZ</Text>
-                    <View style={localStyles.verifiedBadge}>
-                       <View style={localStyles.smallGreenDot} />
-                       <Text style={localStyles.verifiedText}>VERIFIED</Text>
-                    </View>
+                 <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={localStyles.idNumber} numberOfLines={1}>{qrCodeId ?? '—'}</Text>
+                    <Text style={localStyles.idName} numberOfLines={1}>{citizenName ? citizenName.toUpperCase() : 'NOT REGISTERED'}</Text>
+                    {citizenName ? (
+                      <View style={localStyles.verifiedBadge}>
+                         <View style={localStyles.smallGreenDot} />
+                         <Text style={localStyles.verifiedText}>{registrationType?.toUpperCase() ?? 'VERIFIED'}</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity onPress={onRegisterIndividual} style={[localStyles.verifiedBadge, { backgroundColor: '#FFF3E0' }]}>
+                         <Text style={[localStyles.verifiedText, { color: '#E65100' }]}>REGISTER NOW</Text>
+                      </TouchableOpacity>
+                    )}
                  </View>
               </View>
            </View>
@@ -232,9 +251,9 @@ const getStyles = (theme: any) => StyleSheet.create({
   sideColumn: { flex: 1, minWidth: 300, gap: 24 },
   identityCard: { backgroundColor: "#fff", borderRadius: 32, padding: 24, borderWidth: 1, borderColor: theme.line },
   sideLabel: { fontSize: 10, ...fonts.black, color: theme.textLight, letterSpacing: 1.5, marginBottom: 20 },
-  identityContent: { flexDirection: "row", alignItems: "center", gap: 16 },
-  qrBox: { width: 56, height: 56, borderRadius: 16, backgroundColor: "#1A1C1A", alignItems: "center", justifyContent: "center" },
-  idNumber: { fontSize: 16, ...fonts.black, color: theme.text },
+  identityContent: { flexDirection: "row", alignItems: "center" },
+  qrBox: { width: 60, height: 60, borderRadius: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: theme.line, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  idNumber: { fontSize: 12, ...fonts.black, color: theme.text },
   idName: { fontSize: 12, ...fonts.bold, color: theme.textMuted, marginTop: 2 },
   verifiedBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#E8F5E9", alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginTop: 8 },
   smallGreenDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#2E7D32", marginRight: 6 },

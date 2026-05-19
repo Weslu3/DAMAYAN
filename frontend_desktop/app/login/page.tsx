@@ -82,6 +82,8 @@ export default function UnifiedLoginPage() {
         router.push("/dispatcher");
       } else if (userRole === "admin") {
         router.push("/admin");
+      } else if (userRole === "citizen") {
+        router.push("/citizen");
       } else {
         setError("Your role does not have access to the desktop command center.");
       }

@@ -85,11 +85,17 @@ export function Input({
   placeholder,
   secureTextEntry,
   onChangeText,
+  value,
+  keyboardType,
+  autoCapitalize,
 }: {
   label?: string;
   placeholder: string;
   secureTextEntry?: boolean;
   onChangeText?: (text: string) => void;
+  value?: string;
+  keyboardType?: "default" | "email-address" | "numeric" | "phone-pad";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
 }) {
   return (
     <View style={styles.inputWrap}>
@@ -99,6 +105,9 @@ export function Input({
         placeholderTextColor={theme.textLight}
         secureTextEntry={secureTextEntry}
         onChangeText={onChangeText}
+        value={value}
+        keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
         style={styles.input}
       />
     </View>

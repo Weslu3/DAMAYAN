@@ -2,19 +2,29 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, SafeAreaView, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme, fonts } from "../theme";
+import type { CitizenProfile } from "../api";
+import type { AuthSession } from "../types";
 
 interface CitizenProfileEditScreenProps {
   onBack: () => void;
   onSave: (data: any) => void;
+  citizenProfile?: CitizenProfile | null;
+  session?: AuthSession | null;
 }
 
-export function CitizenProfileEditScreen({ onBack, onSave }: CitizenProfileEditScreenProps) {
+export function CitizenProfileEditScreen({ onBack, onSave, citizenProfile, session }: CitizenProfileEditScreenProps) {
+  const resolvedFullName =
+    citizenProfile?.fullName ||
+    (citizenProfile?.firstName && citizenProfile?.lastName
+      ? `${citizenProfile.firstName} ${citizenProfile.lastName}`
+      : session?.user ? `${session.user.firstName || ""} ${session.user.lastName || ""}`.trim() : "");
+
   const [profile, setProfile] = useState({
-    fullName: "Elena Villacruz",
-    email: "elena.v@email.com",
-    phone: "+63 912 345 6789",
-    address: "Brgy. 102, Dist 4, Central Visayas",
-    emergencyContact: "Mario Villacruz (+63 999 888 7777)",
+    fullName: resolvedFullName || "",
+    email: session?.user?.email || "",
+    phone: citizenProfile?.phone || session?.user?.phone || "",
+    address: "",
+    emergencyContact: "",
   });
 
   const handleSave = () => {

@@ -135,9 +135,11 @@ export async function signup(payload: {
   firstName: string;
   lastName: string;
   email: string;
-  phone: string;
+  phone?: string;
   password: string;
   role?: string;
+  governmentIdKey?: string;
+  governmentIdFileName?: string;
 }) {
   return request<{
     access_token: string;
@@ -146,6 +148,39 @@ export async function signup(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getGovernmentIdUploadUrl(params: {
+  applicantRole: string;
+  applicantEmail: string;
+  fileName: string;
+}) {
+  return request<{
+    bucket: string;
+    objectPath: string;
+    signedUrl: string;
+    token: string;
+    path: string;
+  }>("/auth/uploads/government-id", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function updateProfile(
+  token: string,
+  updates: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    profilePhotoKey?: string;
+    gender?: string;
+  },
+) {
+  return request<{ user: AuthSession["user"] }>("/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  }, token);
 }
 
 export async function getDashboard(scope: "admin" | "site-manager", token: string) {
@@ -452,4 +487,39 @@ export async function registerCitizenWithQR(
       familyId:          payload.familyId      ?? null,
     }),
   }, token);
+}
+
+export interface CitizenProfile {
+  id?: string;
+  userId?: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  birthDate?: string;
+  gender?: string;
+  bloodType?: string;
+  medicalConditions?: string;
+  registrationType?: string;
+  qrCodeId?: string;
+  familyId?: string;
+  phone?: string;
+  profilePhotoKey?: string;
+  createdAt?: string;
+}
+
+export async function getCitizenProfile(token: string): Promise<CitizenProfile> {
+  return request<CitizenProfile>("/citizen/profile", {}, token);
+}
+
+export async function getFileViewUrl(
+  token: string,
+  bucket: string,
+  objectPath: string,
+  expiresIn = 3600,
+): Promise<string> {
+  const result = await request<{ signedUrl: string }>("/auth/uploads/view-url", {
+    method: "POST",
+    body: JSON.stringify({ bucket, objectPath, expiresIn }),
+  }, token);
+  return result.signedUrl;
 }

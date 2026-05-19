@@ -420,6 +420,34 @@ export async function createManualCheckIn(
   }, token);
 }
 
+export async function checkOutById(token: string, id: string) {
+  return request<CheckInRecord>(`/site-manager/check-ins/${id}/checkout`, {
+    method: "PATCH",
+  }, token);
+}
+
+export async function getCheckInByQrCode(token: string, qrCodeId: string): Promise<CheckInRecord | null> {
+  const all = await request<CheckInRecord[]>("/site-manager/check-ins", {}, token);
+  return all.find(
+    (r) => (r.qrCode === qrCodeId || r.evacueeId === qrCodeId || r.evacueeNumber === qrCodeId) && r.status === "checked-in"
+  ) ?? null;
+}
+
+export async function getCitizenByQrCode(token: string, qrCodeId: string) {
+  const results = await request<Array<{
+    id: string;
+    userId?: string;
+    fullName?: string;
+    firstName?: string;
+    lastName?: string;
+    registrationType?: string;
+    qrCodeId?: string;
+    familySize?: number;
+    createdAt: string;
+  }>>(`/site-manager/citizens?search=${encodeURIComponent(qrCodeId)}`, {}, token);
+  return results.find((c) => c.qrCodeId === qrCodeId) ?? null;
+}
+
 export async function updateIncidentReport(
   token: string,
   id: string,
@@ -655,10 +683,39 @@ export async function createAdminObjectViewUrl(
   }, token);
 }
 
-export async function getCitizenProfile(token: string) {
-  return request<any>("/citizen/profile", {
-    method: "GET",
+export interface CitizenProfile {
+  id?: string;
+  userId?: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  birthDate?: string;
+  gender?: string;
+  bloodType?: string;
+  medicalConditions?: string;
+  registrationType?: string;
+  qrCodeId?: string;
+  familyId?: string;
+  phone?: string;
+  profilePhotoKey?: string;
+  createdAt?: string;
+}
+
+export async function getCitizenProfile(token: string): Promise<CitizenProfile> {
+  return request<CitizenProfile>("/citizen/profile", {}, token);
+}
+
+export async function getFileViewUrl(
+  token: string,
+  bucket: string,
+  objectPath: string,
+  expiresIn = 3600,
+): Promise<string> {
+  const result = await request<{ signedUrl: string }>("/auth/uploads/view-url", {
+    method: "POST",
+    body: JSON.stringify({ bucket, objectPath, expiresIn }),
   }, token);
+  return result.signedUrl;
 }
 
 export async function registerCitizen(token: string, payload: {

@@ -7,13 +7,12 @@ import {
   View,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "../../components/UI";
 import { roleColors, theme, fonts } from "../../theme";
 import { styles } from "./CitizenLoginScreen.styles";
-import { login, getProfile, ApiError } from "../../api";
+import { login, ApiError } from "../../api";
 import { saveSession } from "../../session";
 import { AppRole } from "../../types";
 
@@ -33,10 +32,12 @@ export function CitizenLoginScreen({
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async () => {
+    setError(null);
     if (!username.trim() || !password.trim()) {
-      Alert.alert("Missing credentials", "Please enter both email and password.");
+      setError("Please enter both email and password.");
       return;
     }
 
@@ -50,22 +51,20 @@ export function CitizenLoginScreen({
       });
 
       if (result.user.role !== AppRole.CITIZEN) {
-        Alert.alert("Access Denied", "This account does not have citizen access.");
+        setError("This account does not have citizen access.");
         return;
       }
 
       const accessToken = result.access_token?.trim();
       if (!accessToken) {
-        Alert.alert("Error", "Login succeeded but no access token was returned.");
+        setError("Login succeeded but no access token was returned.");
         return;
       }
-
-      const profile = await getProfile(accessToken);
 
       await saveSession({
         accessToken,
         expiresIn: result.expiresIn,
-        user: profile.user,
+        user: { ...result.user, authUserId: result.user.id },
       });
 
       onSubmit();
@@ -74,7 +73,7 @@ export function CitizenLoginScreen({
         caughtError instanceof ApiError
           ? caughtError.message
           : "Unable to sign in. Please try again.";
-      Alert.alert("Login Failed", message);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -176,8 +175,14 @@ export function CitizenLoginScreen({
               </View>
             </View>
 
+            {error ? (
+              <View style={{ backgroundColor: "#FFF0F0", borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: "#FFCCCC" }}>
+                <Text style={{ color: "#C0392B", fontSize: 14, ...fonts.medium }}>{error}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.actionStack}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={handleLogin}
                 disabled={loading}
                 style={[styles.primaryAction, { backgroundColor: accent, opacity: loading ? 0.6 : 1 }]}

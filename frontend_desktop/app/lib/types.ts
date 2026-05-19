@@ -115,6 +115,7 @@ export interface CheckInRecord {
   location: string;
   status: string;
   checkInTime?: string;
+  qrCode?: string;
 }
 
 export interface IncidentReport {

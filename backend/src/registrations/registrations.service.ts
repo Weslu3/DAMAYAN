@@ -383,6 +383,24 @@ export class RegistrationsService {
     };
   }
 
+  async findProfilePhotoFromStorage(email: string, role: string): Promise<string | null> {
+    const supabase = this.supabaseService.getClient();
+    const prefix = `${role.toLowerCase()}/${email.trim().toLowerCase()}/`;
+    const { data, error } = await supabase.storage
+      .from('government-ids')
+      .list(prefix, { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
+    if (error || !data?.length) return null;
+    return `${prefix}${data[0].name}`;
+  }
+
+  async saveProfilePhotoKey(userId: string, photoKey: string): Promise<void> {
+    const supabase = this.supabaseService.getClient() as any;
+    await supabase
+      .from('user_profiles')
+      .update({ profile_photo_key: photoKey })
+      .eq('auth_user_id', userId);
+  }
+
   private parseFullName(fullName: string) {
     const parts = fullName
       .trim()

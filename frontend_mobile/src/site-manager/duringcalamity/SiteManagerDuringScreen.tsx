@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native";
 import { theme, fonts, lightTheme, darkTheme } from "../../theme";
-import { createIncidentReport, createManualCheckIn, getInventory, scanCheckIn, getCitizenByQrCode, getCapacity, getCheckInByQrCode, checkOutById } from "../../api";
+import { createIncidentReport, createManualCheckIn, getInventory, getCitizenByQrCode, getCapacity, getCheckInByQrCode, checkOutById } from "../../api";
 import { loadSession } from "../../session";
 import { parseScannedPayload, getInitials } from "../qr/qr-utils";
 import type { AuthSession } from "../../types";
@@ -225,124 +225,6 @@ export function SiteManagerDuringScreen({
       Alert.alert("Check-in failed", message);
     }
   };
-
-   const handleSubmitIncident = async () => {
-      if (!session?.accessToken || !session.user) {
-         Alert.alert("Session expired", "Please sign in again.");
-         return;
-      }
-
-      if (!incidentDescription.trim()) {
-         Alert.alert("Missing details", "Please add incident details before submitting.");
-         return;
-      }
-
-      try {
-         await createIncidentReport(session.accessToken, {
-            disasterId: "current-disaster",
-            reportedBy: session.user.email || "System",
-            title: incidentType,
-            content: incidentDescription,
-            severity,
-            location: "Central Site",
-         });
-
-         setIncidentDescription("");
-         Alert.alert("Success", "Incident report submitted.");
-      } catch (error) {
-         const message = error instanceof Error ? error.message : "Failed to submit incident";
-         Alert.alert("Submit failed", message);
-      }
-   };
-
-   const handleRefreshInventory = async () => {
-      if (!session?.accessToken) {
-         Alert.alert("Session expired", "Please sign in again.");
-         return;
-      }
-
-      try {
-         const inventory = await getInventory("site-manager", session.accessToken);
-         Alert.alert("Inventory updated", `${inventory.length} items synced.`);
-      } catch (error) {
-         const message = error instanceof Error ? error.message : "Failed to update inventory";
-         Alert.alert("Update failed", message);
-      }
-   };
-
-   const handleConfirmCheckIn = async () => {
-      if (!session?.accessToken) {
-         Alert.alert("Session expired", "Please sign in again.");
-         return;
-      }
-
-      try {
-         if (activeTab === "scan") {
-            if (!scanCode.trim()) {
-               Alert.alert("Missing QR", "Enter scanned QR content before confirming check-in.");
-               return;
-            }
-
-            await scanCheckIn(session.accessToken, {
-               qrCode: scanCode.trim(),
-            });
-
-            setScanCode("");
-         } else {
-            if (!manualId.trim()) {
-               Alert.alert("Missing ID", "Please enter a citizen name or ID.");
-               return;
-            }
-
-            await createManualCheckIn(session.accessToken, {
-               evacueeNumber: manualId.trim(),
-               firstName: manualId.split(" ")[0] || "",
-               zone: manualZone.trim() || "",
-               location: "Site Manager Mobile Check-in",
-               familySize: Number(manualGroupSize) > 0 ? Number(manualGroupSize) : undefined,
-            });
-
-            setManualId("");
-            setManualZone("");
-            setManualGroupSize("");
-         }
-
-         Alert.alert("Success", "Check-in recorded successfully.");
-      } catch (error) {
-         const message = error instanceof Error ? error.message : "Failed to record check-in";
-         Alert.alert("Check-in failed", message);
-      }
-   };
-
-   const handleOpenCamera = async () => {
-      const permission = cameraPermission?.granted
-         ? cameraPermission
-         : await requestCameraPermission();
-
-      if (!permission?.granted) {
-         Alert.alert("Camera denied", "Camera permission is required for QR scanning.");
-         return;
-      }
-
-      scanLockRef.current = false;
-      setIsCameraOpen(true);
-   };
-
-   const handleBarcodeScanned = (event: { data?: string }) => {
-      if (scanLockRef.current) {
-         return;
-      }
-
-      const payload = event.data?.trim();
-      if (!payload) {
-         return;
-      }
-
-      scanLockRef.current = true;
-      setScanCode(payload);
-      setIsCameraOpen(false);
-      Alert.alert("QR captured", "Scan payload captured. Tap Confirm Check-in to submit.");
-   };
 
    const handleSubmitIncident = async () => {
       if (!session?.accessToken || !session.user) {

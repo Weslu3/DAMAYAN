@@ -12,8 +12,10 @@ export class SignupDto {
   @IsEmail()
   email!: string;
 
+  @IsOptional()
   @Transform(({ value }) => {
-    let digits = String(value ?? '').replace(/\D/g, '');
+    if (!value) return undefined;
+    let digits = String(value).replace(/\D/g, '');
 
     if (digits.startsWith('63')) {
       digits = digits.slice(2);
@@ -21,10 +23,11 @@ export class SignupDto {
       digits = digits.slice(1);
     }
 
-    return `+63${digits.slice(0, 10)}`;
+    const tenDigits = digits.slice(0, 10);
+    return tenDigits.length >= 9 ? `+63${tenDigits}` : undefined;
   })
   @IsPhoneNumber('PH')
-  phone!: string;
+  phone?: string;
 
   @IsNotEmpty()
   @MinLength(6)
