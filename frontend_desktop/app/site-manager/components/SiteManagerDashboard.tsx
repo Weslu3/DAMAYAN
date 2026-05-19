@@ -21,6 +21,8 @@ import {
   createManualCheckIn,
   checkOutById,
   getCheckInByQrCode,
+  getSiteManagerCitizens,
+  SiteManagerCitizenRecord,
 } from "../../lib/api";
 import { AppRole, AuthSession, CapacityCenter, CheckInRecord, DashboardOverview, DisasterEvent, IncidentReport, InventoryItem } from "../../lib/types";
 
@@ -164,7 +166,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isDarkMode, setIsDarkMode] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
-    const [activeTab, setActiveTab] = useState<"Dashboard" | "Inventory" | "SiteMap">("Dashboard");
+    const [activeTab, setActiveTab] = useState<"Dashboard" | "Inventory" | "SiteMap" | "Citizens">("Dashboard");
     const [selectedItem, setSelectedItem] = useState<any>(null);
     const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
     const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
@@ -239,13 +241,13 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
     const [recoveryTab, setRecoveryTab] = useState<"assess" | "structure" | "plans" | "audit">("assess");
     const [damageAssessment, setDamageAssessment] = useState({
-      infraStatus: "Partially Restored",
-      estimatedCost: "450000",
-      reliefNeeded: "200",
-      durationDays: "14",
-      shelterRating: "4",
-      successNotes: "Swift coordination of primary evacuation center within 30 minutes of peak water levels. No casualties recorded inside the hub.",
-      bottlenecks: "Water drainage backflow at low-lying entry point. Power grid disconnected for 18 hours without immediate secondary generator activation.",
+      infraStatus: "",
+      estimatedCost: "",
+      reliefNeeded: "",
+      durationDays: "",
+      shelterRating: "0",
+      successNotes: "",
+      bottlenecks: "",
       isSubmitted: false,
     });
     const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
@@ -258,11 +260,23 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     });
     const [historySearchQuery, setHistorySearchQuery] = useState("");
     const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+    const [citizenRegistry, setCitizenRegistry] = useState<SiteManagerCitizenRecord[]>([]);
+    const [citizenRegistryLoading, setCitizenRegistryLoading] = useState(false);
+    const [citizenRegistryError, setCitizenRegistryError] = useState<string | null>(null);
+    const [citizenSearchQuery, setCitizenSearchQuery] = useState("");
+    const [inventoryFilter, setInventoryFilter] = useState<"all" | "critical" | "low" | "secure">("all");
 
     const pathname = usePathname();
 
   useEffect(() => {
-    if (pathname === "/site-manager" || pathname === "/site-manager/") {
+    const tabParam = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("tab")?.toLowerCase()
+      : null;
+    const isPhasePage = /\/site-manager\/(before|during|after)calamity$/.test(pathname);
+
+    if ((pathname === "/site-manager" || pathname === "/site-manager/" || isPhasePage) && tabParam === "citizens") {
+      setActiveTab("Citizens");
+    } else if (pathname === "/site-manager" || pathname === "/site-manager/" || isPhasePage) {
       setActiveTab("Dashboard");
     } else if (pathname.startsWith("/site-manager/inventory")) {
       setActiveTab("Inventory");
@@ -356,13 +370,38 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
         })
         .catch(() => setDisasterEvents([]));
 
-      await Promise.allSettled([dashboardPromise, inventoryPromise, checkInPromise, incidentPromise, capacityPromise, disastersPromise]);
+      const citizensPromise = getSiteManagerCitizens(stored.accessToken)
+        .then(setCitizenRegistry)
+        .catch(() => setCitizenRegistry([]));
+
+      await Promise.allSettled([dashboardPromise, inventoryPromise, checkInPromise, incidentPromise, capacityPromise, disastersPromise, citizensPromise]);
 
       setLoadingData(false);
     }
 
     hydrate();
   }, [router]);
+
+  useEffect(() => {
+    async function hydrateCitizens() {
+      if (!session?.accessToken || activeTab !== "Citizens") {
+        return;
+      }
+
+      setCitizenRegistryLoading(true);
+      setCitizenRegistryError(null);
+      try {
+        const records = await getSiteManagerCitizens(session.accessToken, citizenSearchQuery);
+        setCitizenRegistry(records);
+      } catch (error) {
+        setCitizenRegistryError(error instanceof Error ? error.message : "Failed to load citizens");
+      } finally {
+        setCitizenRegistryLoading(false);
+      }
+    }
+
+    void hydrateCitizens();
+  }, [activeTab, citizenSearchQuery, session?.accessToken]);
 
   const toggleDarkMode = () => {
     if (document.documentElement.classList.contains("dark")) {
@@ -931,7 +970,15 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
   const effectiveInventory = inventoryItems;
   const maxQuantity = Math.max(1, ...effectiveInventory.map((item) => item.quantity));
 
-  const inventoryData = effectiveInventory.slice(0, 4).map((item) => {
+  // Sort inventory items by stock level: critical (error) first, then low (warning), then secure
+  const sortedByStockLevel = effectiveInventory.slice().sort((a, b) => {
+    const toneA = getInventoryTone(a.status);
+    const toneB = getInventoryTone(b.status);
+    const tonePriority = { error: 0, warning: 1, secure: 2 };
+    return (tonePriority[toneA] ?? 2) - (tonePriority[toneB] ?? 2);
+  });
+
+  const inventoryData = sortedByStockLevel.slice(0, 4).map((item) => {
     const percent = Math.max(5, Math.min(100, Math.round((item.quantity / maxQuantity) * 100)));
     const tone = getInventoryTone(item.status);
     return {
@@ -949,7 +996,17 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     after: "before",
   }[phase];
 
-  const inventoryTable = effectiveInventory.slice(0, 8).map((item) => {
+  // Filter inventory table by selected filter
+  const filteredInventory = sortedByStockLevel.filter((item) => {
+    if (inventoryFilter === "all") return true;
+    const tone = getInventoryTone(item.status);
+    if (inventoryFilter === "critical") return tone === "error";
+    if (inventoryFilter === "low") return tone === "warning";
+    if (inventoryFilter === "secure") return tone === "secure";
+    return true;
+  });
+
+  const inventoryTable = filteredInventory.slice(0, 8).map((item) => {
     const stockPercent = Math.max(5, Math.min(100, Math.round((item.quantity / maxQuantity) * 100)));
     const tone = getInventoryTone(item.status);
     return {
@@ -990,16 +1047,90 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
         ? (activeAlerts != null ? String(activeAlerts) : "N/A")
         : (recoveryProgress != null ? `${recoveryProgress}%` : "N/A");
 
-  const activityLogs = [
-    ...checkIns.slice(0, 3).map((entry) => ({
-      t: formatRelativeTime(entry.checkInTime),
-      m: `${entry.fullName || `${entry.firstName} ${entry.lastName}`} at ${entry.location || "Site"}`,
-    })),
-    ...incidentReports.slice(0, 2).map((report) => ({
-      t: formatRelativeTime(report.createdAt),
-      m: `${report.title} - ${report.status}`,
-    })),
-  ].slice(0, 4);
+  const heroMetricBreakdown =
+    phase === "before"
+      ? [
+          {
+            label: "Capacity Ratio",
+            value: `${Math.max(0, (overview?.capacity.totalCapacity ?? 0) - (overview?.capacity.totalOccupancy ?? 0)).toLocaleString()} / ${(overview?.capacity.totalCapacity ?? 0).toLocaleString()}`,
+          },
+          {
+            label: "Available Capacity",
+            value: `${Math.max(0, (overview?.capacity.totalCapacity ?? 0) - (overview?.capacity.totalOccupancy ?? 0)).toLocaleString()} slots`,
+          },
+          {
+            label: "Total Capacity",
+            value: `${(overview?.capacity.totalCapacity ?? 0).toLocaleString()} slots`,
+          },
+        ]
+      : phase === "during"
+        ? [
+            {
+              label: "High/Critical Alerts",
+              value: `${overview?.incidentReports.highSeverityReports ?? 0}`,
+            },
+            {
+              label: "Total Incident Reports",
+              value: `${overview?.incidentReports.totalReports ?? 0}`,
+            },
+          ]
+        : [
+            {
+              label: "Checked-Out",
+              value: `${overview?.checkIns.totalCheckedOut ?? 0}`,
+            },
+            {
+              label: "Total Check-ins",
+              value: `${overview?.checkIns.total ?? 0}`,
+            },
+          ];
+
+  const checkInActivity = checkIns
+    .map((entry) => {
+      const fullName = (entry.fullName || `${entry.firstName ?? ""} ${entry.lastName ?? ""}`).trim();
+      const location = entry.location?.trim();
+      const checkInTime = entry.checkInTime?.trim();
+
+      if (!fullName || !location || !checkInTime) {
+        return null;
+      }
+
+      const normalizedName = fullName.toLowerCase();
+      if (normalizedName.startsWith("unknown") || normalizedName === "user") {
+        return null;
+      }
+
+      return {
+        at: new Date(checkInTime).getTime() || 0,
+        t: formatRelativeTime(checkInTime),
+        m: `Check-in: ${fullName} at ${location}`,
+      };
+    })
+    .filter((entry): entry is { at: number; t: string; m: string } => entry !== null);
+
+  const incidentActivity = incidentReports
+    .map((report) => {
+      const title = report.title?.trim();
+      const status = report.status?.trim();
+      const location = report.location?.trim();
+      const createdAt = report.createdAt?.trim();
+
+      if (!title || !status || !location || !createdAt) {
+        return null;
+      }
+
+      return {
+        at: new Date(createdAt).getTime() || 0,
+        t: formatRelativeTime(createdAt),
+        m: `Incident: ${title} (${status}) at ${location}`,
+      };
+    })
+    .filter((entry): entry is { at: number; t: string; m: string } => entry !== null);
+
+  const activityLogs = [...checkInActivity, ...incidentActivity]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 6)
+    .map(({ t, m }) => ({ t, m }));
 
   const incidentTypeOptions = Array.from(
     new Set(
@@ -1322,6 +1453,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             { id: 'Dashboard', label: 'Dashboard', icon: 'grid_view', path: `/site-manager/${phase}calamity` },
             { id: 'Inventory', label: 'Inventory', icon: 'inventory_2', path: `/site-manager/inventory?phase=${phase}` },
             { id: 'SiteMap', label: 'Interactive Site Map', icon: 'map', path: `/site-manager/sitemap?phase=${phase}` },
+            { id: 'Citizens', label: 'Citizen Verification', icon: 'badge', path: `/site-manager/${phase}calamity?tab=citizens` },
           ].map((item) => {
             const isActive = activeTab === item.id && !showProfile;
             return (
@@ -1405,20 +1537,32 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
               {activeTab === "Dashboard" && phaseConfig.mainTitle}
               {activeTab === "Inventory" && "Logistics & Inventory"}
               {activeTab === "SiteMap" && "Regional Site Map"}
+              {activeTab === "Citizens" && "Citizen Verification & Registry"}
             </h2>
             <p className="text-[#444743] dark:text-[#c4c7c0] max-w-lg">
               {activeTab === "Dashboard" && `${displayName}: ${phaseConfig.mainDesc}`}
               {activeTab === "Inventory" && "Manage incoming and outgoing relief assets."}
               {activeTab === "SiteMap" && "Live monitoring of active shelters and supply routes."}
+              {activeTab === "Citizens" && "Use QR/manual verification and view the current citizen registry from backend records."}
             </p>
             {loadingData && <p className="text-xs text-[#707a6c] mt-2">Loading live dashboard data...</p>}
             {loadError && <p className="text-xs text-red-600 mt-2">{loadError}</p>}
           </div>
           {activeTab === "Dashboard" && (
             <div className="flex gap-4">
-              <div className="bg-white dark:bg-[#232622] p-4 rounded-2xl shadow-sm border border-[#dadad5] dark:border-[#3b3b3b] flex flex-col items-center min-w-[120px]">
-                <span className="text-3xl font-black" style={{ color: phaseConfig.primaryColor }}>{heroMetricValue}</span>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-[#444743] dark:text-[#a0a39f]">{phaseConfig.heroMetricLabel}</span>
+              <div className="bg-white dark:bg-[#232622] p-4 rounded-2xl shadow-sm border border-[#dadad5] dark:border-[#3b3b3b] flex flex-col min-w-[300px]">
+                <div className="flex items-end justify-between gap-4">
+                  <span className="text-3xl font-black" style={{ color: phaseConfig.primaryColor }}>{heroMetricValue}</span>
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-[#444743] dark:text-[#a0a39f]">{phaseConfig.heroMetricLabel}</span>
+                </div>
+                <div className="mt-3 pt-3 border-t border-[#dadad5]/60 dark:border-[#3b3b3b] space-y-1.5">
+                  {heroMetricBreakdown.map((item) => (
+                    <div key={item.label} className="flex items-start justify-between gap-3 text-[10px]">
+                      <span className="font-black uppercase tracking-widest text-[#707a6c]">{item.label}</span>
+                      <span className="font-bold text-right text-[#1a1c19] dark:text-[#e2e3dd]">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -2114,105 +2258,29 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                   {phase === 'before' ? 'checklist' : phase === 'during' ? 'qr_code_scanner' : 'how_to_reg'}
                 </span>
                 <h4 className="font-bold text-lg mb-2">
-                  {phase === 'before' ? 'Readiness Check' : phase === 'during' ? 'Identity Verification' : 'Final Aid Dispensing'}
+                  {phase === 'before' ? 'Readiness Check' : phase === 'during' ? 'Response Checkpoint' : 'Final Aid Dispensing'}
                 </h4>
                 <p className="text-sm text-[#444743] mb-6">
-                  {phase === 'before' ? 'Verify all staging protocols and personnel presence.' : phase === 'during' ? 'Active intake: scan QR codes for rapid shelter entry.' : 'Verify citizen relief ID for recovery kit distribution.'}
+                  {phase === 'before' ? 'Verify all staging protocols and personnel presence.' : phase === 'during' ? 'Use the Citizens tab for QR check-in/check-out and identity verification.' : 'Verify citizen relief ID for recovery kit distribution.'}
                 </p>
-                {phase === 'during' && (
-                  <div className="w-full space-y-3 mb-4">
-                    <div className="flex gap-2 bg-[#dadad5] p-1 rounded-lg">
-                      <button
-                        onClick={() => { setCheckInMode("scan"); setCheckInError(null); scanLockRef.current = false; }}
-                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${checkInMode === "scan" ? "bg-white shadow-sm" : "text-[#444743]"}`}
-                      >Scan QR</button>
-                      <button
-                        onClick={() => { setCheckInMode("manual"); setCheckInError(null); scanLockRef.current = false; }}
-                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${checkInMode === "manual" ? "bg-white shadow-sm" : "text-[#444743]"}`}
-                      >Manual ID</button>
-                    </div>
-
-                    {checkInMode === "scan" && (
-                      <div className="flex gap-2 bg-[#f0f0eb] p-1 rounded-lg">
-                        <button
-                          onClick={() => { setScanType("check-in"); setCheckInError(null); scanLockRef.current = false; }}
-                          className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-in" ? "bg-[#FFB300] text-white shadow-sm" : "text-[#444743]"}`}
-                        >Check-In</button>
-                        <button
-                          onClick={() => { setScanType("check-out"); setCheckInError(null); scanLockRef.current = false; }}
-                          className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-out" ? "bg-[#2E7D32] text-white shadow-sm" : "text-[#444743]"}`}
-                        >Check-Out</button>
-                      </div>
-                    )}
-                    
-                    {checkInMode === "scan" ? (
-                      <div className="rounded-xl overflow-hidden animate-in fade-in zoom-in duration-300">
-                        {isScanLookingUp ? (
-                          <div className="h-40 bg-black flex items-center justify-center">
-                            <span className="text-white text-sm font-bold animate-pulse">Looking up citizen...</span>
-                          </div>
-                        ) : (
-                          <Scanner
-                            onScan={handleQrScanned}
-                            onError={() => setCheckInError("Camera error. Check browser permissions.")}
-                            styles={{ container: { height: 200 } }}
-                          />
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-3 animate-in slide-in-from-top-2 duration-300 w-full overflow-hidden">
-                        <input 
-                          className="w-full bg-white border border-[#dadad5] rounded-xl px-4 py-3 text-sm focus:ring-2" 
-                          style={{ outlineColor: phaseConfig.primaryColor } as any} 
-                          placeholder="Citizen Name or ID..." 
-                          type="text"
-                          value={manualCheckInState.citizenName}
-                          onChange={(e) => setManualCheckInState({ ...manualCheckInState, citizenName: e.target.value })}
-                        />
-                        <div className="grid grid-cols-2 gap-3">
-                          <input 
-                            className="w-full bg-white border border-[#dadad5] rounded-xl px-4 py-3 text-sm" 
-                            placeholder="Zone" 
-                            type="text"
-                            value={manualCheckInState.zone}
-                            onChange={(e) => setManualCheckInState({ ...manualCheckInState, zone: e.target.value })}
-                          />
-                          <input 
-                            className="w-full bg-white border border-[#dadad5] rounded-xl px-4 py-3 text-sm" 
-                            placeholder="Group Size" 
-                            type="number" 
-                            min="0"
-                            value={manualCheckInState.groupSize}
-                            onChange={(e) => setManualCheckInState({ ...manualCheckInState, groupSize: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {phase === 'during' && checkInError && (
-                  <p className="text-red-600 text-sm mb-3">{checkInError}</p>
-                )}
                 {phase === 'before' && readinessStatusMessage && (
                   <p className="text-[#0d631b] text-sm mb-3">{readinessStatusMessage}</p>
                 )}
-                {!(phase === 'during' && checkInMode === 'scan') && (
-                  <button
-                    onClick={() => {
-                      if (phase === 'before') {
-                        setCheckInError(null);
-                        setReadinessStatusMessage('Readiness status logged successfully.');
-                      }
-                      else if (phase === 'during') handleSubmitManualCheckIn();
-                      else setIsReceiveModalOpen(true);
-                    }}
-                    disabled={isSubmittingCheckIn || isClosingOperations}
-                    className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg disabled:opacity-50"
-                    style={{ background: phaseConfig.primaryColor }}
-                  >
-                    {isSubmittingCheckIn || isClosingOperations ? "Processing..." : (phase === 'before' ? 'Log Readiness Status' : phase === 'during' ? 'Confirm Check-in' : 'Verify & Log Aid')}
-                  </button>
-                )}
+                <button
+                  onClick={() => {
+                    if (phase === 'before') {
+                      setCheckInError(null);
+                      setReadinessStatusMessage('Readiness status logged successfully.');
+                    }
+                    else if (phase === 'during') router.push(`/site-manager/${phase}calamity?tab=citizens`);
+                    else setIsReceiveModalOpen(true);
+                  }}
+                  disabled={isSubmittingCheckIn || isClosingOperations}
+                  className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg disabled:opacity-50"
+                  style={{ background: phaseConfig.primaryColor }}
+                >
+                  {isSubmittingCheckIn || isClosingOperations ? "Processing..." : (phase === 'before' ? 'Log Readiness Status' : phase === 'during' ? 'Open Citizens Tab' : 'Verify & Log Aid')}
+                </button>
               </div>
 
               <div className="bg-[#f4f4ef] dark:bg-[#232622] px-6 py-8 rounded-2xl flex flex-col justify-between">
@@ -2230,12 +2298,14 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     ))}
                   </ul>
                 </div>
+                {activityLogs.length > 0 && (
                 <div className="mt-6 pt-4 border-t border-[#dadad5]">
-                  <p className="text-[10px] font-bold text-[#444743] uppercase tracking-widest mb-2">Protocol Note</p>
+                  <p className="text-[10px] font-bold text-[#444743] uppercase tracking-widest mb-2">Latest Activity</p>
                   <p className="text-xs italic text-[#444743]">
-                    {activityLogs.length > 0 ? activityLogs[0].m : "Waiting for latest operational updates from backend."}
+                    {activityLogs[0].m}
                   </p>
                 </div>
+                )}
               </div>
             </div>
             )}
@@ -2362,62 +2432,65 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                 </div>
               </div>
             </div>
-
-            {/* Closing Operations (After Phase Only) */}
-            {phase === 'after' && (
-              <div className="bg-[#1a1c19] text-white rounded-3xl p-6 shadow-xl animate-in fade-in duration-700">
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-primary-fixed">
-                  <span className="material-symbols-outlined">exit_to_app</span>
-                  Closing Operations
-                </h3>
-                <p className="text-[#dadad5]/80 text-xs mb-6">Finalize day-of operations and prepare site handover documentation.</p>
-                <div className="space-y-3">
-                  <button 
-                    onClick={handleCloseOperations}
-                    disabled={isClosingOperations}
-                    className="w-full bg-white/5 hover:bg-white/10 border border-white/10 p-4 rounded-2xl flex items-center gap-4 transition-all group disabled:opacity-50"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                      <span className="material-symbols-outlined">lock_clock</span>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-bold text-sm">{isClosingOperations ? "Processing..." : "Initiate Check-out"}</p>
-                      <p className="text-[10px] text-[#dadad5]/50 uppercase tracking-widest">Site Lockdown</p>
-                    </div>
-                  </button>
-                  <button 
-                    onClick={handleGenerateReport}
-                    disabled={isGeneratingReport}
-                    className="w-full bg-white/5 hover:bg-white/10 border border-white/10 p-4 rounded-2xl flex items-center gap-4 transition-all group disabled:opacity-50"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-orange-400/20 flex items-center justify-center text-orange-400 group-hover:scale-110 transition-transform">
-                      <span className="material-symbols-outlined">analytics</span>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-bold text-sm">{isGeneratingReport ? "Generating..." : "Site Summary Report"}</p>
-                      <p className="text-[10px] text-[#dadad5]/50 uppercase tracking-widest">Generate PDF & Sync</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            )}
           </section>
 
           {/* Inventory Table Section (After Phase Specific) */}
           {phase === 'after' ? (
             <section className="md:col-span-12 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm overflow-hidden">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <div>
-                  <h3 className="text-2xl font-bold">Post-Event Inventory Audit</h3>
-                  <p className="text-[#444743] text-sm">Consolidating remaining relief goods and logging unusable items before site closure.</p>
-                </div>
-                <div className="flex gap-2">
+              <div className="flex flex-col gap-6 mb-8">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-bold">Post-Event Inventory Audit</h3>
+                    <p className="text-[#444743] text-sm">Consolidating remaining relief goods and logging unusable items before site closure.</p>
+                  </div>
                   <button 
                     onClick={() => setIsReceiveModalOpen(true)}
-                    className="bg-[#2196F3] text-white px-6 py-2 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg hover:scale-105 transition-transform active:scale-95"
+                    className="bg-[#2196F3] text-white px-6 py-2 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg hover:scale-105 transition-transform active:scale-95 w-fit"
                   >
                     <span className="material-symbols-outlined">inventory</span>
                     Audit Remaining Stock
+                  </button>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => setInventoryFilter("all")}
+                    className={`px-4 py-2 rounded-full font-bold text-sm transition-all ${
+                      inventoryFilter === "all"
+                        ? "bg-[#2196F3] text-white shadow-lg"
+                        : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b]"
+                    }`}
+                  >
+                    All Items
+                  </button>
+                  <button
+                    onClick={() => setInventoryFilter("critical")}
+                    className={`px-4 py-2 rounded-full font-bold text-sm transition-all ${
+                      inventoryFilter === "critical"
+                        ? "bg-[#ba1a1a] text-white shadow-lg"
+                        : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b]"
+                    }`}
+                  >
+                    Critical Only
+                  </button>
+                  <button
+                    onClick={() => setInventoryFilter("low")}
+                    className={`px-4 py-2 rounded-full font-bold text-sm transition-all ${
+                      inventoryFilter === "low"
+                        ? "bg-[#FFB300] text-white shadow-lg"
+                        : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b]"
+                    }`}
+                  >
+                    Low Stock
+                  </button>
+                  <button
+                    onClick={() => setInventoryFilter("secure")}
+                    className={`px-4 py-2 rounded-full font-bold text-sm transition-all ${
+                      inventoryFilter === "secure"
+                        ? "bg-[#2E7D32] text-white shadow-lg"
+                        : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b]"
+                    }`}
+                  >
+                    Secure
                   </button>
                 </div>
               </div>
@@ -2434,7 +2507,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#dadad5]/30">
-                    {inventoryTable.map((row, i) => (
+                    {inventoryTable.length > 0 ? inventoryTable.map((row, i) => (
                       <tr key={i} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors">
                         <td className="px-6 py-5 font-bold text-sm flex items-center gap-3">
                           <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>{row.icon}</span>
@@ -2467,7 +2540,13 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    )) : (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-[#444743]">
+                          <p className="font-bold">No items match the selected filter</p>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -2510,6 +2589,161 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             </section>
           )}
         </div>
+        )}
+
+        {activeTab === "Citizens" && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <section className="bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
+                <div className="mb-6">
+                  <h3 className="text-2xl font-black">Identity Verification</h3>
+                  <p className="text-sm text-[#444743] dark:text-[#c4c7c0]">QR scanner and manual entry for check-in and check-out.</p>
+                </div>
+
+                <div className="w-full space-y-3 mb-4">
+                  <div className="flex gap-2 bg-[#dadad5] dark:bg-[#3b3b3b] p-1 rounded-lg">
+                    <button
+                      onClick={() => { setCheckInMode("scan"); setCheckInError(null); scanLockRef.current = false; }}
+                      className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${checkInMode === "scan" ? "bg-white dark:bg-[#1a1c19] shadow-sm" : "text-[#444743] dark:text-[#c4c7c0]"}`}
+                    >Scan QR</button>
+                    <button
+                      onClick={() => { setCheckInMode("manual"); setCheckInError(null); scanLockRef.current = false; }}
+                      className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${checkInMode === "manual" ? "bg-white dark:bg-[#1a1c19] shadow-sm" : "text-[#444743] dark:text-[#c4c7c0]"}`}
+                    >Manual ID</button>
+                  </div>
+
+                  {checkInMode === "scan" && (
+                    <div className="flex gap-2 bg-[#f0f0eb] dark:bg-[#1a1c19] p-1 rounded-lg">
+                      <button
+                        onClick={() => { setScanType("check-in"); setCheckInError(null); scanLockRef.current = false; }}
+                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-in" ? "bg-[#FFB300] text-white shadow-sm" : "text-[#444743] dark:text-[#c4c7c0]"}`}
+                      >Check-In</button>
+                      <button
+                        onClick={() => { setScanType("check-out"); setCheckInError(null); scanLockRef.current = false; }}
+                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-out" ? "bg-[#2E7D32] text-white shadow-sm" : "text-[#444743] dark:text-[#c4c7c0]"}`}
+                      >Check-Out</button>
+                    </div>
+                  )}
+
+                  {checkInMode === "scan" ? (
+                    <div className="rounded-xl overflow-hidden animate-in fade-in zoom-in duration-300 border border-[#dadad5] dark:border-[#3b3b3b]">
+                      {isScanLookingUp ? (
+                        <div className="h-52 bg-black flex items-center justify-center">
+                          <span className="text-white text-sm font-bold animate-pulse">Looking up citizen...</span>
+                        </div>
+                      ) : (
+                        <Scanner
+                          onScan={handleQrScanned}
+                          onError={() => setCheckInError("Camera error. Check browser permissions.")}
+                          styles={{ container: { height: 240 } }}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3 animate-in slide-in-from-top-2 duration-300 w-full overflow-hidden">
+                      <input
+                        className="w-full bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-sm"
+                        placeholder="Citizen Name or ID..."
+                        type="text"
+                        value={manualCheckInState.citizenName}
+                        onChange={(e) => setManualCheckInState({ ...manualCheckInState, citizenName: e.target.value })}
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          className="w-full bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-sm"
+                          placeholder="Zone"
+                          type="text"
+                          value={manualCheckInState.zone}
+                          onChange={(e) => setManualCheckInState({ ...manualCheckInState, zone: e.target.value })}
+                        />
+                        <input
+                          className="w-full bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-sm"
+                          placeholder="Group Size"
+                          type="number"
+                          min="0"
+                          value={manualCheckInState.groupSize}
+                          onChange={(e) => setManualCheckInState({ ...manualCheckInState, groupSize: e.target.value })}
+                        />
+                      </div>
+                      <button
+                        onClick={handleSubmitManualCheckIn}
+                        disabled={isSubmittingCheckIn}
+                        className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg disabled:opacity-50"
+                        style={{ background: phaseConfig.primaryColor }}
+                      >
+                        {isSubmittingCheckIn ? "Processing..." : "Confirm Manual Check-In"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {checkInError && <p className="text-red-600 text-sm">{checkInError}</p>}
+
+                <div className="mt-6 pt-5 border-t border-[#dadad5] dark:border-[#3b3b3b]">
+                  <h4 className="text-sm font-black uppercase tracking-wider mb-3">Recent Check-In Activity</h4>
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {checkIns.slice(0, 8).map((record) => (
+                      <div key={record.id} className="p-3 rounded-xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
+                        <p className="font-bold text-sm">{record.firstName || "Citizen"} {record.lastName || ""}</p>
+                        <p className="text-[10px] uppercase tracking-wider text-[#707a6c]">{record.evacueeNumber || "No QR"}</p>
+                      </div>
+                    ))}
+                    {checkIns.length === 0 && (
+                      <p className="text-sm text-[#707a6c]">No recent check-ins yet.</p>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+                  <div>
+                    <h3 className="text-2xl font-black">Citizen Registry</h3>
+                    <p className="text-sm text-[#444743] dark:text-[#c4c7c0]">Backend-powered list of citizens visible to site manager.</p>
+                  </div>
+                  <input
+                    value={citizenSearchQuery}
+                    onChange={(e) => setCitizenSearchQuery(e.target.value)}
+                    placeholder="Search name, QR, or ID"
+                    className="w-full sm:w-64 bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-2 text-sm"
+                  />
+                </div>
+
+                {citizenRegistryError && <p className="text-red-600 text-sm mb-3">{citizenRegistryError}</p>}
+
+                <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
+                  {citizenRegistryLoading && (
+                    <p className="text-sm text-[#707a6c]">Loading citizens...</p>
+                  )}
+
+                  {!citizenRegistryLoading && citizenRegistry.map((citizen) => {
+                    const fullName = citizen.fullName || `${citizen.firstName ?? ""} ${citizen.lastName ?? ""}`.trim() || "Unnamed Citizen";
+                    return (
+                      <div key={citizen.id} className="p-4 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-black text-sm">{fullName}</p>
+                            <p className="text-[10px] uppercase tracking-widest text-[#707a6c]">QR: {citizen.qrCodeId || "N/A"}</p>
+                          </div>
+                          <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-[#e8f5e9] text-[#2E7D32]">
+                            {(citizen.registrationType || "registered").replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-[11px] text-[#444743] dark:text-[#c4c7c0] flex gap-3">
+                          <span>Family: {citizen.familySize ?? 1}</span>
+                          <span>ID: {citizen.id}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {!citizenRegistryLoading && citizenRegistry.length === 0 && (
+                    <p className="text-sm text-[#707a6c]">No citizens found for your current search.</p>
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
         )}
 
         {activeTab === "Inventory" && (
@@ -2623,13 +2857,13 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     <p className="text-xl md:text-2xl font-black mt-1 text-[#2E7D32] dark:text-[#81C784]">
                       {loadingData ? "..." : `${capacityCenters.length > 0 
                         ? Math.round(capacityCenters.reduce((sum, c) => sum + c.utilizationRate, 0) / capacityCenters.length)
-                        : 60}%`}
+                        : 0}%`}
                     </p>
                   </div>
                   <div className="flex flex-col items-center justify-center">
                     <p className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-[#707a6c]">Resources</p>
                     <p className="text-xl md:text-2xl font-black mt-1 text-[#1a1c19] dark:text-white">
-                      {loadingData ? "..." : (overview?.inventory.totalCategories ?? (inventoryItems.length > 0 ? inventoryItems.length : 5))}
+                      {loadingData ? "..." : (overview?.inventory.totalCategories ?? inventoryItems.length ?? 0)}
                     </p>
                   </div>
                 </div>
@@ -2692,6 +2926,10 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
           <Link href="/site-manager/sitemap" className={`flex flex-col items-center justify-center p-3 transition-colors ${activeTab === 'SiteMap' && !showProfile ? 'rounded-2xl bg-[#dadad5]/50 dark:bg-[#3b3b3b]' : 'text-[#444743] dark:text-[#a0a39f]'}`} style={activeTab === 'SiteMap' && !showProfile ? { color: phaseConfig.primaryColor } : {}}>
             <span className="material-symbols-outlined">map</span>
             <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">Site Map</span>
+          </Link>
+          <Link href={`/site-manager/${phase}calamity?tab=citizens`} className={`flex flex-col items-center justify-center p-3 transition-colors ${activeTab === 'Citizens' && !showProfile ? 'rounded-2xl bg-[#dadad5]/50 dark:bg-[#3b3b3b]' : 'text-[#444743] dark:text-[#a0a39f]'}`} style={activeTab === 'Citizens' && !showProfile ? { color: phaseConfig.primaryColor } : {}}>
+            <span className="material-symbols-outlined">badge</span>
+            <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">Citizens</span>
           </Link>
       </nav>
 

@@ -411,6 +411,7 @@ export async function createManualCheckIn(
     lastName?: string;
     zone?: string;
     location?: string;
+    centerId?: string;
     familySize?: number;
   },
 ) {
@@ -446,6 +447,25 @@ export async function getCitizenByQrCode(token: string, qrCodeId: string) {
     createdAt: string;
   }>>(`/site-manager/citizens?search=${encodeURIComponent(qrCodeId)}`, {}, token);
   return results.find((c) => c.qrCodeId === qrCodeId) ?? null;
+}
+
+export interface SiteManagerCitizenRecord {
+  id: string;
+  userId?: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  registrationType?: string;
+  qrCodeId?: string;
+  familySize?: number;
+  createdAt?: string;
+}
+
+export async function getSiteManagerCitizens(token: string, search?: string) {
+  const qs = search?.trim()
+    ? `?search=${encodeURIComponent(search.trim())}`
+    : "";
+  return request<SiteManagerCitizenRecord[]>(`/site-manager/citizens${qs}`, {}, token);
 }
 
 export async function updateIncidentReport(

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -36,12 +37,41 @@ import { CreateFamilyDto } from '../../registrations/dto/create-family.dto.js';
 import { UpdateFamilyDto } from '../../registrations/dto/update-family.dto.js';
 import { CreateIncidentAttachmentUploadDto } from '../../uploads/dto/create-incident-attachment-upload.dto.js';
 import { CreateObjectViewUrlDto } from '../../uploads/dto/create-object-view-url.dto.js';
+import { ApiCenterService } from '../../apicenter/apicenter.service.js';
 
 @Controller('site-manager')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(AppRole.LINE_MANAGER)
 export class SiteManagerController {
-  constructor(@Inject(SiteManagerProxyService) private readonly siteManagerProxyService: SiteManagerProxyService) {}
+  constructor(
+    @Inject(SiteManagerProxyService) private readonly siteManagerProxyService: SiteManagerProxyService,
+    private readonly apiCenterService: ApiCenterService,
+  ) {}
+
+  @Get('geo/geocode')
+  async geocodeAddress(@Query('address') address?: string) {
+    const input = address?.trim();
+
+    if (!input) {
+      throw new BadRequestException('address query is required');
+    }
+
+    const result = await this.apiCenterService.geoGeocode(input);
+    const latitude = Number((result as any).latitude ?? (result as any).lat);
+    const longitude = Number((result as any).longitude ?? (result as any).lng);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new BadRequestException('Unable to geocode address');
+    }
+
+    return {
+      formattedAddress: (result as any).formattedAddress ?? (result as any).formatted_address ?? input,
+      latitude,
+      longitude,
+      placeId: (result as any).placeId ?? (result as any).place_id,
+      provider: (result as any).provider ?? 'apicenter',
+    };
+  }
 
   @Get('dashboard')
   getDashboard() {

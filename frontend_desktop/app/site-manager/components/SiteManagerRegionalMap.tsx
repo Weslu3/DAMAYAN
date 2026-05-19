@@ -134,7 +134,7 @@ export default function SiteManagerRegionalMap({
     void geocodeIncidentLocations();
     void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centers, assignedCenterId, showShelters, selectedFilter, searchQuery, phase]);
+  }, [centers, assignedCenterId, showShelters, selectedFilter, searchQuery, phase, token]);
 
   useEffect(() => {
     drawIncidentMarkers();
@@ -142,7 +142,7 @@ export default function SiteManagerRegionalMap({
     void geocodeIncidentLocations();
     void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, incidentReports, structureDamageRecords]);
+  }, [phase, incidentReports, structureDamageRecords, token]);
 
   function markerColor(center: CapacityCenter): string {
     if (center.id === assignedCenterId) return "#2196F3";
@@ -430,11 +430,15 @@ export default function SiteManagerRegionalMap({
   }
 
   async function geocodeMissingCenters() {
+    if (!token) return;
+
     const missing = centers.filter((c) => !geocodeCacheRef.current[c.id]).slice(0, 12);
     if (missing.length === 0) return;
 
     for (const center of missing) {
-      const address = `${center.barangay}, ${center.municipality}, Philippines`;
+      const address = [center.address, center.barangay, center.municipality, "Philippines"]
+        .filter(Boolean)
+        .join(", ");
       try {
         const result = await geocodeAddress(token, address);
         geocodeCacheRef.current[center.id] = [result.latitude, result.longitude];
