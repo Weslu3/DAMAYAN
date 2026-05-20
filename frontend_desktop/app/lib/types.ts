@@ -15,6 +15,11 @@ export interface AuthUser {
   phone: string;
   role: AppRole;
   accountStatus?: "pending" | "active" | "rejected";
+  gender?: string | null;
+  address?: string | null;
+  barangay?: string | null;
+  municipality?: string | null;
+  province?: string | null;
 }
 
 export interface AuthSession {

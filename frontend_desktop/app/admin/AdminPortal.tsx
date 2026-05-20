@@ -817,14 +817,16 @@ function ApprovalsPage({
           </div>
           <div style={{ fontSize: "0.7rem", color: "#bbb", marginBottom: "0.6rem" }}>Submitted {a.submitted}</div>
           {/* Docs */}
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            {a.docs.map((doc) => (
-              <div key={doc.name} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.3rem 0.65rem", background: "var(--admin-surface-low)", borderRadius: "0.5rem", fontSize: "0.72rem" }}>
-                 <span style={{ fontWeight: 600 }}>{doc.name}</span> ({doc.type})
-                {docStatusBadge(doc.status)}
-              </div>
-            ))}
-          </div>
+          {a.docs.length > 0 && (
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              {a.docs.map((doc) => (
+                <div key={doc.name} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.3rem 0.65rem", background: "var(--admin-surface-low)", borderRadius: "0.5rem", fontSize: "0.72rem" }}>
+                   <span style={{ fontWeight: 600 }}>{doc.name}</span> ({doc.type})
+                  {docStatusBadge(doc.status)}
+                </div>
+              ))}
+            </div>
+          )}
           {a.rejectReason && (
             <div style={{ marginTop: "0.6rem", padding: "0.5rem 0.75rem", background: "var(--admin-red-bg)", border: "1px solid var(--admin-red-border)", borderRadius: "0.5rem", fontSize: "0.75rem", color: "var(--admin-red)" }}>
               <strong>Rejection reason:</strong> {a.rejectReason}
@@ -3426,6 +3428,7 @@ function mapApprovalToAccount(record: AdminApprovalRecord): PendingAccount {
     status === "active" ? "APPROVED" : status === "rejected" ? "REJECTED" : "PENDING";
   const role = String(record.role ?? "dispatcher").toLowerCase();
   const labelRole = role === "line_manager" ? "Site Manager" : "Dispatcher";
+  const hasGovernmentId = Boolean(record.governmentIdKey);
   // Map documents from rich backend metadata (with fallback for old shape)
   const docs: PendingAccount["docs"] = record.documents && record.documents.length > 0
     ? record.documents.map((doc) => ({
@@ -3435,9 +3438,9 @@ function mapApprovalToAccount(record: AdminApprovalRecord): PendingAccount {
         bucket: doc.bucket,
         objectPath: doc.objectPath || undefined,
       }))
-    : Boolean(record.governmentIdKey)
+    : hasGovernmentId
       ? [{ name: "Government ID", type: "Uploaded", status: "PENDING" as const }]
-      : [{ name: "Government ID", type: "Missing", status: "FAILED" as const }];
+      : [];
 
   return {
     id: record.id,

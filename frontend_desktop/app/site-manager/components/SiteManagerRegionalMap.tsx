@@ -10,11 +10,35 @@ interface SiteManagerRegionalMapProps {
   height?: number | string;
   phase?: 'before' | 'during' | 'after';
   assignedCenterId?: string;
+  assignedMunicipality?: string;
+  assignedBarangay?: string;
   incidentReports?: any[];
   structureDamageRecords?: any[];
 }
 
 const PH_CENTER: [number, number] = [12.8797, 121.774];
+
+const FALLBACK_COORDS: Record<string, [number, number]> = {
+  "makati": [14.5547, 121.0244],
+  "quezon city": [14.6760, 121.0437],
+  "pasig": [14.5764, 121.0851],
+  "taguig": [14.5176, 121.0509],
+  "manila": [14.5995, 120.9842],
+  "marikina": [14.6507, 121.1029],
+  "san juan": [14.6042, 121.0300],
+  "mandaluyong": [14.5794, 121.0359],
+  "pasay": [14.5378, 120.9993],
+  "parañaque": [14.4793, 121.0198],
+  "las piñas": [14.4445, 120.9939],
+  "muntinlupa": [14.4081, 121.0415],
+  "valenzuela": [14.7011, 120.9830],
+  "malabon": [14.6628, 120.9560],
+  "navotas": [14.6732, 120.9429],
+  "pateros": [14.5454, 121.0687],
+  "caloocan": [14.6507, 120.9715],
+  "cauayan": [16.9200, 121.7700],
+  "isabela": [17.0000, 122.0000],
+};
 
 export default function SiteManagerRegionalMap({
   centers,
@@ -22,6 +46,8 @@ export default function SiteManagerRegionalMap({
   height = 550,
   phase = 'before',
   assignedCenterId,
+  assignedMunicipality,
+  assignedBarangay,
   incidentReports = [],
   structureDamageRecords = [],
 }: SiteManagerRegionalMapProps) {
@@ -134,7 +160,7 @@ export default function SiteManagerRegionalMap({
     void geocodeIncidentLocations();
     void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centers, assignedCenterId, showShelters, selectedFilter, searchQuery, phase, token]);
+  }, [centers, assignedCenterId, assignedMunicipality, assignedBarangay, showShelters, selectedFilter, searchQuery, phase, token]);
 
   useEffect(() => {
     drawIncidentMarkers();
@@ -144,12 +170,63 @@ export default function SiteManagerRegionalMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, incidentReports, structureDamageRecords, token]);
 
+  // Auto-center the map to the assigned location whenever it changes
+  useEffect(() => {
+    if (!assignedMunicipality || !token) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const locationKey = `assigned-location:${assignedMunicipality}:${assignedBarangay ?? ''}`;
+    const cached = geocodeCacheRef.current[locationKey];
+    if (cached) {
+      map.flyTo(cached, 14, { animate: true, duration: 1.5 });
+      return;
+    }
+
+    const query = assignedBarangay
+      ? `${assignedBarangay}, ${assignedMunicipality}, Philippines`
+      : `${assignedMunicipality}, Philippines`;
+
+    geocodeAddress(token, query)
+      .then((result) => {
+        const coords: [number, number] = [result.latitude, result.longitude];
+        geocodeCacheRef.current[locationKey] = coords;
+        map.flyTo(coords, 14, { animate: true, duration: 1.5 });
+      })
+      .catch(() => {
+        // Fallback if SDK fails
+        const muniKey = assignedMunicipality.toLowerCase().trim();
+        const fallback = FALLBACK_COORDS[muniKey] || PH_CENTER;
+        geocodeCacheRef.current[locationKey] = fallback;
+        map.flyTo(fallback, 13, { animate: true, duration: 1.5 });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignedMunicipality, assignedBarangay, token]);
+
+  // Refit bounds when filter or search changes
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const L = leafletRef.current;
+    if (!map || !L || markersRef.current.length === 0) return;
+
+    const bounds = L.latLngBounds([]);
+    let hasValidMarker = false;
+    markersRef.current.forEach((marker: any) => {
+      bounds.extend(marker.getLatLng());
+      hasValidMarker = true;
+    });
+
+    if (hasValidMarker && bounds.isValid()) {
+      map.flyToBounds(bounds.pad(0.2), { duration: 1 });
+    }
+  }, [selectedFilter, searchQuery, phase]);
+
   function markerColor(center: CapacityCenter): string {
     if (center.id === assignedCenterId) return "#2196F3";
     if (phase === 'before') {
-      // Pre-deployment supply readiness score (stable calculation based on capacity and slots)
-      const score = (center.availableSlots * 17 + center.capacity * 3) % 100;
-      return score >= 60 ? "#2E7D32" : score >= 30 ? "#FFB300" : "#ba1a1a";
+      // Readiness based on available slots vs capacity
+      const readinessPercent = center.capacity > 0 ? Math.round((center.availableSlots / center.capacity) * 100) : 0;
+      return readinessPercent >= 60 ? "#2E7D32" : readinessPercent >= 30 ? "#FFB300" : "#ba1a1a";
     }
     if (phase === 'after') {
       return center.currentOccupancy === 0 ? "#2E7D32" : "#FFB300";
@@ -321,9 +398,36 @@ export default function SiteManagerRegionalMap({
 
   function getFilteredCenters(): CapacityCenter[] {
     let filtered = centers;
-    if (selectedFilter === "critical") filtered = filtered.filter(c => c.utilizationRate >= 90);
-    else if (selectedFilter === "moderate") filtered = filtered.filter(c => c.utilizationRate >= 70 && c.utilizationRate < 90);
-    else if (selectedFilter === "safe") filtered = filtered.filter(c => c.utilizationRate < 70);
+
+    // Scope to assigned municipality (and optionally barangay) so the user only
+    // sees shelters within their assigned area
+    if (assignedMunicipality) {
+      const muni = assignedMunicipality.toLowerCase().trim();
+      filtered = filtered.filter(c => c.municipality.toLowerCase().trim() === muni);
+    }
+
+    if (selectedFilter !== "all") {
+      filtered = filtered.filter(c => {
+        if (phase === 'before') {
+          const readinessPercent = c.capacity > 0 ? Math.round((c.availableSlots / c.capacity) * 100) : 0;
+          if (selectedFilter === "critical") return readinessPercent < 30;
+          if (selectedFilter === "moderate") return readinessPercent >= 30 && readinessPercent < 60;
+          if (selectedFilter === "safe") return readinessPercent >= 60;
+        } else if (phase === 'after') {
+          const checkedOut = Math.max(0, c.capacity - c.currentOccupancy);
+          const progressWidth = c.capacity > 0 ? Math.round((checkedOut / c.capacity) * 100) : 100;
+          if (selectedFilter === "critical") return progressWidth < 30;
+          if (selectedFilter === "moderate") return progressWidth >= 30 && progressWidth < 70;
+          if (selectedFilter === "safe") return progressWidth >= 70;
+        } else {
+          // During phase
+          if (selectedFilter === "critical") return c.utilizationRate >= 90;
+          if (selectedFilter === "moderate") return c.utilizationRate >= 70 && c.utilizationRate < 90;
+          if (selectedFilter === "safe") return c.utilizationRate < 70;
+        }
+        return true;
+      });
+    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -423,10 +527,7 @@ export default function SiteManagerRegionalMap({
       );
 
       markersRef.current.push(marker);
-      bounds.extend(cached);
     });
-
-    if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
   }
 
   async function geocodeMissingCenters() {
@@ -443,7 +544,14 @@ export default function SiteManagerRegionalMap({
         const result = await geocodeAddress(token, address);
         geocodeCacheRef.current[center.id] = [result.latitude, result.longitude];
       } catch {
-        // Ignore geocoding failures
+        // Fallback geocoding if the API fails so markers are still drawn
+        const muniKey = center.municipality.toLowerCase().trim();
+        const base = FALLBACK_COORDS[muniKey] || PH_CENTER;
+        // Use a tiny deterministic offset (0.01 deg is ~1km) so markers in the same city don't completely overlap
+        const hash = center.name.length + (center.capacity % 100);
+        const latOffset = (hash % 10 - 5) * 0.005;
+        const lngOffset = ((hash * 3) % 10 - 5) * 0.005;
+        geocodeCacheRef.current[center.id] = [base[0] + latOffset, base[1] + lngOffset];
       }
     }
     drawMarkers();
@@ -468,6 +576,46 @@ export default function SiteManagerRegionalMap({
             <p className="text-[10px] font-black text-[#1a1c19] dark:text-white">{phaseLabel}</p>
           </div>
         </div>
+
+        {/* Your Zone badge */}
+        {assignedMunicipality && (
+          <div className="bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-xl rounded-2xl px-4 py-2.5 border border-[#2196F3]/40 shadow-xl flex items-center gap-2.5">
+            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: "#2196F3" }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[8px] font-black uppercase tracking-[0.15em] text-[#2196F3]">Your Zone</p>
+              <p className="text-[10px] font-black text-[#1a1c19] dark:text-white truncate">
+                {assignedBarangay ? `${assignedBarangay}, ` : ""}{assignedMunicipality}
+              </p>
+            </div>
+            <button
+              title="Re-center to your zone"
+              onClick={() => {
+                const map = mapInstanceRef.current;
+                if (!map || !token) return;
+                const locationKey = `assigned-location:${assignedMunicipality}:${assignedBarangay ?? ''}`;
+                const cached = geocodeCacheRef.current[locationKey];
+                if (cached) { map.flyTo(cached, 14, { animate: true, duration: 1 }); return; }
+                const query = assignedBarangay
+                  ? `${assignedBarangay}, ${assignedMunicipality}, Philippines`
+                  : `${assignedMunicipality}, Philippines`;
+                geocodeAddress(token, query)
+                  .then(r => { 
+                    geocodeCacheRef.current[locationKey] = [r.latitude, r.longitude];
+                    map.flyTo([r.latitude, r.longitude], 14, { animate: true, duration: 1 }); 
+                  })
+                  .catch(() => {
+                    const muniKey = assignedMunicipality.toLowerCase().trim();
+                    const fallback = FALLBACK_COORDS[muniKey] || PH_CENTER;
+                    geocodeCacheRef.current[locationKey] = fallback;
+                    map.flyTo(fallback, 13, { animate: true, duration: 1 });
+                  });
+              }}
+              className="w-6 h-6 rounded-lg bg-[#2196F3]/10 hover:bg-[#2196F3]/20 flex items-center justify-center transition-colors flex-shrink-0"
+            >
+              <span className="material-symbols-outlined text-[#2196F3]" style={{ fontSize: 14 }}>my_location</span>
+            </button>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative">
@@ -543,6 +691,18 @@ export default function SiteManagerRegionalMap({
               [
                 { color: "#2E7D32", label: "Deactivated / Closed" },
                 { color: "#FFB300", label: "Active Checking Out" },
+                { color: "#2196F3", label: "Assigned to You" },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-2.5">
+                  <div className="w-3 h-3 rounded-full border-2 border-white shadow-sm" style={{ background: item.color }} />
+                  <span className="text-[10px] font-bold text-[#444743] dark:text-[#a0a39f]">{item.label}</span>
+                </div>
+              ))
+            ) : phase === 'before' ? (
+              [
+                { color: "#2E7D32", label: "Safe Readiness (>= 60%)" },
+                { color: "#FFB300", label: "Moderate Readiness (30-59%)" },
+                { color: "#ba1a1a", label: "Critical Readiness (< 30%)" },
                 { color: "#2196F3", label: "Assigned to You" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2.5">

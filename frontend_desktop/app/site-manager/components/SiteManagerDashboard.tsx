@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import SiteManagerProfilePage from "./SiteManagerProfilePage";
 import SiteManagerRegionalMap from "./SiteManagerRegionalMap";
 import CustomSelect from "./CustomSelect";
@@ -142,6 +142,18 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     return "secure";
   }
 
+
+
+  function getSeverityBadgeClass(severity: string): string {
+    if (severity === 'Severe / Collapse') {
+      return 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300';
+    }
+    if (severity === 'Major Damage') {
+      return 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300';
+    }
+    return 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300';
+  }
+
   function formatRelativeTime(iso?: string): string {
     if (!iso) {
       return "Recent";
@@ -161,6 +173,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
   const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) => {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const menuRef = useRef<HTMLDivElement>(null);
     const [checkInMode, setCheckInMode] = useState<"scan" | "manual">("scan");
     const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -206,7 +219,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     const [readinessStatusMessage, setReadinessStatusMessage] = useState<string | null>(null);
     const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
     const [checkInError, setCheckInError] = useState<string | null>(null);
-    const [scanType, setScanType] = useState<"check-in" | "check-out">("check-in");
+    const [scanType, setScanType] = useState<"check-in" | "check-out">(phase === "after" ? "check-out" : "check-in");
     const [scannedCitizen, setScannedCitizen] = useState<{ id: string; fullName?: string; firstName?: string; lastName?: string; registrationType?: string; qrCodeId?: string; familySize?: number } | null>(null);
     const [scanModalOpen, setScanModalOpen] = useState(false);
     const [checkOutRecord, setCheckOutRecord] = useState<{ id: string; fullName: string; checkInTime?: string } | null>(null);
@@ -231,13 +244,16 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       itemId: "",
       quantity: "",
     });
+    const [duringInventoryMode, setDuringInventoryMode] = useState<"distribute" | "add">("distribute");
     const [isSubmittingNewBatch, setIsSubmittingNewBatch] = useState(false);
     const [newBatchError, setNewBatchError] = useState<string | null>(null);
     const [newBatchSuccess, setNewBatchSuccess] = useState<string | null>(null);
+    const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
 
     const [isClosingOperations, setIsClosingOperations] = useState(false);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
     const [isRefreshingInventory, setIsRefreshingInventory] = useState(false);
+    const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
 
     const [recoveryTab, setRecoveryTab] = useState<"assess" | "structure" | "plans" | "audit">("assess");
     const [damageAssessment, setDamageAssessment] = useState({
@@ -265,13 +281,12 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     const [citizenRegistryError, setCitizenRegistryError] = useState<string | null>(null);
     const [citizenSearchQuery, setCitizenSearchQuery] = useState("");
     const [inventoryFilter, setInventoryFilter] = useState<"all" | "critical" | "low" | "secure">("all");
+    const [checklistFilter, setChecklistFilter] = useState<"all" | "high" | "low" | "essential">("all");
 
     const pathname = usePathname();
 
   useEffect(() => {
-    const tabParam = typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("tab")?.toLowerCase()
-      : null;
+    const tabParam = searchParams.get("tab")?.toLowerCase();
     const isPhasePage = /\/site-manager\/(before|during|after)calamity$/.test(pathname);
 
     if ((pathname === "/site-manager" || pathname === "/site-manager/" || isPhasePage) && tabParam === "citizens") {
@@ -283,7 +298,11 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     } else if (pathname.startsWith("/site-manager/sitemap")) {
       setActiveTab("SiteMap");
     }
-  }, [pathname]);
+  }, [pathname, searchParams]);
+
+  useEffect(() => {
+    setScanType(phase === "after" ? "check-out" : "check-in");
+  }, [phase]);
 
 
   useEffect(() => {
@@ -335,38 +354,38 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
         .catch(() => setCapacityCenters([]));
 
       const disastersPromise = getDisasterEvents("site-manager", stored.accessToken)
-        .then((payload) => {
-          const eventList = Array.isArray(payload)
-            ? payload
-            : Array.isArray((payload as { disasterEvents?: DisasterEvent[] }).disasterEvents)
-              ? (payload as { disasterEvents: DisasterEvent[] }).disasterEvents
-              : [];
+        .then(async (payload) => {
+          let eventList: DisasterEvent[] = [];
+          if (Array.isArray(payload)) {
+            eventList = payload;
+          } else if (payload && Array.isArray((payload as any).disasterEvents)) {
+            eventList = (payload as any).disasterEvents;
+          }
           setDisasterEvents(eventList);
 
           const selectedDisasterId =
             eventList.find((event) => event.status?.toLowerCase() === "active")?.id ??
             eventList[0]?.id;
 
-          return getLatestAfterActionAssessment(stored.accessToken, selectedDisasterId)
-            .then((assessment) => {
-              if (!assessment) {
-                return;
+          if (selectedDisasterId) {
+            try {
+              const assessment = await getLatestAfterActionAssessment(stored.accessToken, selectedDisasterId);
+              if (assessment) {
+                setDamageAssessment({
+                  infraStatus: assessment.infraStatus,
+                  estimatedCost: String(assessment.estimatedCost),
+                  reliefNeeded: String(assessment.reliefNeeded),
+                  durationDays: String(assessment.durationDays),
+                  shelterRating: String(assessment.shelterRating),
+                  successNotes: assessment.successNotes,
+                  bottlenecks: assessment.bottlenecks,
+                  isSubmitted: true,
+                });
               }
-
-              setDamageAssessment({
-                infraStatus: assessment.infraStatus,
-                estimatedCost: String(assessment.estimatedCost),
-                reliefNeeded: String(assessment.reliefNeeded),
-                durationDays: String(assessment.durationDays),
-                shelterRating: String(assessment.shelterRating),
-                successNotes: assessment.successNotes,
-                bottlenecks: assessment.bottlenecks,
-                isSubmitted: true,
-              });
-            })
-            .catch(() => {
+            } catch {
               // Keep local defaults when no assessment exists yet.
-            });
+            }
+          }
         })
         .catch(() => setDisasterEvents([]));
 
@@ -429,8 +448,8 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       return;
     }
 
-    if (!incidentFormState.disasterId.trim() || !incidentFormState.location.trim()) {
-      setIncidentSubmitError("Please select disaster context and location.");
+    if (!incidentFormState.location.trim()) {
+      setIncidentSubmitError("Please select a location.");
       return;
     }
 
@@ -441,7 +460,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       const { createIncidentReport } = await import("../../lib/api");
       
       await createIncidentReport(session.accessToken, {
-        disasterId: incidentFormState.disasterId,
+        disasterId: incidentFormState.disasterId || incidentDisasterOptions[0]?.id || "",
         reportedBy: session.user.email || "System",
         title: incidentFormState.type,
         content: incidentFormState.description,
@@ -586,7 +605,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     setIsSubmittingCheckIn(true);
     try {
       await createManualCheckIn(session.accessToken, {
-        evacueeNumber: scannedCitizen.qrCodeId!,
+        evacueeNumber: scannedCitizen.qrCodeId || "",
         firstName: scannedCitizen.firstName || scannedCitizen.fullName?.split(" ")[0] || "",
         location: "Site Manager Desktop Check-in",
         centerId: selectedCenterId,
@@ -643,6 +662,44 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     }
   };
 
+  const handleSubmitManualCheckOut = async () => {
+    if (!session?.accessToken) {
+      setCheckInError("Session expired. Please login again.");
+      return;
+    }
+
+    const inputVal = manualCheckInState.citizenName.trim();
+    if (!inputVal) {
+      setCheckInError("Please enter citizen ID or QR code.");
+      return;
+    }
+
+    setIsSubmittingCheckIn(true);
+    setCheckInError(null);
+
+    try {
+      const qrCodeId = inputVal.startsWith("QR-") ? inputVal.replace("QR-", "") : inputVal;
+      const record = await getCheckInByQrCode(session.accessToken, qrCodeId);
+      if (!record) {
+        setCheckInError(`No active check-in found for ID/QR: ${qrCodeId}`);
+        return;
+      }
+
+      await checkOutById(session.accessToken, record.id);
+      
+      setManualCheckInState({ citizenName: "", zone: "", groupSize: "" });
+      const freshCheckIns = await getRecentCheckIns(session.accessToken);
+      setCheckIns(freshCheckIns);
+      alert("Citizen checked out successfully.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to submit check-out";
+      setCheckInError(message);
+      console.error("Check-out error:", error);
+    } finally {
+      setIsSubmittingCheckIn(false);
+    }
+  };
+
   const handleReceiveGoods = async () => {
     if (!session?.accessToken) {
       setReceiveGoodsError("Session expired. Please login again.");
@@ -657,8 +714,8 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       return;
     }
 
-    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
-      setReceiveGoodsError("Please enter a valid quantity greater than 0.");
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity < 0) {
+      setReceiveGoodsError("Please enter a valid quantity.");
       return;
     }
 
@@ -666,15 +723,25 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     setReceiveGoodsError(null);
 
     try {
-      const { receiveInventory } = await import("../../lib/api");
-      
-      await receiveInventory(session.accessToken, {
-        itemIds: [selectedItemId],
-        quantities: [parsedQuantity],
-        arrivalTerminal: receiveGoodsState.arrivalTerminal || "Main Terminal",
-        waybillNumber: receiveGoodsState.waybillNumber || "N/A",
-        condition: receiveGoodsState.condition,
-      });
+      if (phase === 'after') {
+        const { adjustInventoryItem } = await import("../../lib/api");
+        const currentItem = inventoryItems.find(item => item.id === selectedItemId);
+        const currentQuantity = currentItem ? Number(currentItem.quantity) : 0;
+        const adjustment = parsedQuantity - currentQuantity;
+
+        await adjustInventoryItem(session.accessToken, selectedItemId, adjustment);
+        alert("Remaining stock audited and updated successfully.");
+      } else {
+        const { receiveInventory } = await import("../../lib/api");
+        await receiveInventory(session.accessToken, {
+          itemIds: [selectedItemId],
+          quantities: [parsedQuantity],
+          arrivalTerminal: receiveGoodsState.arrivalTerminal || "Main Terminal",
+          waybillNumber: receiveGoodsState.waybillNumber || "N/A",
+          condition: receiveGoodsState.condition,
+        });
+        alert("Goods received successfully.");
+      }
 
       setReceiveGoodsState({
         arrivalTerminal: "",
@@ -686,11 +753,10 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       setIsReceiveModalOpen(false);
       const freshInventory = await getInventory("site-manager", session.accessToken);
       setInventoryItems(freshInventory);
-      alert("Goods received successfully.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to receive goods";
+      const message = error instanceof Error ? error.message : "Failed to process request";
       setReceiveGoodsError(message);
-      console.error("Receive goods error:", error);
+      console.error("Audit/Receive goods error:", error);
     } finally {
       setIsSubmittingReceiveGoods(false);
     }
@@ -728,11 +794,14 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
       if (phase === 'during') {
         const { adjustInventoryItem } = await import("../../lib/api");
-        await adjustInventoryItem(session.accessToken, selectedItemId, -parsedQuantity);
+        const adjustment = duringInventoryMode === "add" ? parsedQuantity : -parsedQuantity;
+        await adjustInventoryItem(session.accessToken, selectedItemId, adjustment);
         
-        const defaultPrefix = "Disp";
+        const defaultPrefix = duringInventoryMode === "add" ? "Add" : "Disp";
         refName = newBatchState.name.trim() || `${defaultPrefix}-${new Date().toISOString().split('T')[0]}-${Math.floor(Math.random()*1000)}`;
-        successMsg = `Recorded distribution of ${parsedQuantity} units. (Ref: ${refName})`;
+        successMsg = duringInventoryMode === "add"
+          ? `Added ${parsedQuantity} units to inventory. (Ref: ${refName})`
+          : `Recorded distribution of ${parsedQuantity} units. (Ref: ${refName})`;
       } else if (phase === 'after') {
         const { adjustInventoryItem } = await import("../../lib/api");
         const currentItem = inventoryItems.find(item => item.id === selectedItemId);
@@ -905,7 +974,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       link.setAttribute("download", `damayan_inventory_export_${phase}_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      link.remove();
     } catch (err) {
       console.error("Failed to export CSV:", err);
       alert("Failed to export CSV. Please try again.");
@@ -968,7 +1037,12 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
   const displayName = session?.user.name?.trim() || "Site Manager";
   const effectiveInventory = inventoryItems;
-  const maxQuantity = Math.max(1, ...effectiveInventory.map((item) => item.quantity));
+
+  const quantities = effectiveInventory.map((item) => item.quantity);
+  const sortedQuantities = quantities.slice().sort((a, b) => a - b);
+  const scaleMax = sortedQuantities.length > 0
+    ? Math.max(100, Math.min(2000, sortedQuantities[Math.floor(sortedQuantities.length * 0.75)] || sortedQuantities[sortedQuantities.length - 1]))
+    : 1000;
 
   // Sort inventory items by stock level: critical (error) first, then low (warning), then secure
   const sortedByStockLevel = effectiveInventory.slice().sort((a, b) => {
@@ -978,14 +1052,35 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     return (tonePriority[toneA] ?? 2) - (tonePriority[toneB] ?? 2);
   });
 
-  const inventoryData = sortedByStockLevel.slice(0, 4).map((item) => {
-    const percent = Math.max(5, Math.min(100, Math.round((item.quantity / maxQuantity) * 100)));
+  const filteredChecklistItems = sortedByStockLevel.filter((item) => {
     const tone = getInventoryTone(item.status);
+    if (checklistFilter === "high") {
+      return tone === "secure";
+    }
+    if (checklistFilter === "low") {
+      return tone === "warning" || tone === "error";
+    }
+    if (checklistFilter === "essential") {
+      const name = item.name.toLowerCase();
+      const cat = (item.category || "").toLowerCase();
+      const essentialKeywords = ["water", "food", "medicine", "medical", "kit", "rice", "hygiene", "blanket", "canned", "flashlight", "battery", "first aid"];
+      return essentialKeywords.some(keyword => name.includes(keyword) || cat.includes(keyword));
+    }
+    return true; // "all"
+  });
+
+  const inventoryData = filteredChecklistItems.map((item) => {
+    const percent = Math.max(5, Math.min(100, Math.round((item.quantity / scaleMax) * 100)));
+    const tone = getInventoryTone(item.status);
+    const statusMap: Record<string, string> = {
+      error: "Critical",
+      warning: "Low Stock",
+    };
     return {
       name: item.name,
       detail: `${item.quantity.toLocaleString()} ${item.unit}`,
       percent: `${percent}%`,
-      status: tone === "error" ? "Critical" : tone === "warning" ? "Low Stock" : "Secure",
+      status: statusMap[tone] || "Secure",
       tone,
     };
   });
@@ -1007,14 +1102,19 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
   });
 
   const inventoryTable = filteredInventory.slice(0, 8).map((item) => {
-    const stockPercent = Math.max(5, Math.min(100, Math.round((item.quantity / maxQuantity) * 100)));
+    const stockPercent = Math.max(5, Math.min(100, Math.round((item.quantity / scaleMax) * 100)));
     const tone = getInventoryTone(item.status);
+    const statusMap: Record<string, string> = {
+      error: "Critical",
+      warning: "Replenish",
+    };
     return {
+      id: item.id,
       category: item.name,
       stock: `${stockPercent}%`,
       incoming: tone === "warning" ? `${Math.max(0, Math.round(item.quantity * 0.3)).toLocaleString()} ${item.unit}` : "--",
       eta: tone === "warning" ? "Pending" : "--",
-      status: tone === "error" ? "Critical" : tone === "warning" ? "Replenish" : "Stable",
+      status: statusMap[tone] || "Stable",
       icon: "inventory_2",
       tone,
       quantity: `${item.quantity.toLocaleString()} ${item.unit}`,
@@ -1040,50 +1140,51 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
         ),
       )
     : null;
-  const heroMetricValue =
-    phase === "before"
-      ? (readinessScore != null ? `${readinessScore}%` : "N/A")
-      : phase === "during"
-        ? (activeAlerts != null ? String(activeAlerts) : "N/A")
-        : (recoveryProgress != null ? `${recoveryProgress}%` : "N/A");
 
-  const heroMetricBreakdown =
-    phase === "before"
-      ? [
-          {
-            label: "Capacity Ratio",
-            value: `${Math.max(0, (overview?.capacity.totalCapacity ?? 0) - (overview?.capacity.totalOccupancy ?? 0)).toLocaleString()} / ${(overview?.capacity.totalCapacity ?? 0).toLocaleString()}`,
-          },
-          {
-            label: "Available Capacity",
-            value: `${Math.max(0, (overview?.capacity.totalCapacity ?? 0) - (overview?.capacity.totalOccupancy ?? 0)).toLocaleString()} slots`,
-          },
-          {
-            label: "Total Capacity",
-            value: `${(overview?.capacity.totalCapacity ?? 0).toLocaleString()} slots`,
-          },
-        ]
-      : phase === "during"
-        ? [
-            {
-              label: "High/Critical Alerts",
-              value: `${overview?.incidentReports.highSeverityReports ?? 0}`,
-            },
-            {
-              label: "Total Incident Reports",
-              value: `${overview?.incidentReports.totalReports ?? 0}`,
-            },
-          ]
-        : [
-            {
-              label: "Checked-Out",
-              value: `${overview?.checkIns.totalCheckedOut ?? 0}`,
-            },
-            {
-              label: "Total Check-ins",
-              value: `${overview?.checkIns.total ?? 0}`,
-            },
-          ];
+  let heroMetricValue = "N/A";
+  if (phase === "before") {
+    heroMetricValue = readinessScore != null ? `${readinessScore}%` : "N/A";
+  } else if (phase === "during") {
+    heroMetricValue = activeAlerts != null ? String(activeAlerts) : "N/A";
+  } else {
+    heroMetricValue = recoveryProgress != null ? `${recoveryProgress}%` : "N/A";
+  }
+
+  let heroMetricBreakdown;
+  if (phase === "before") {
+    heroMetricBreakdown = [
+      {
+        label: "Capacity Ratio",
+        value: `${Math.max(0, (overview?.capacity.totalCapacity ?? 0) - (overview?.capacity.totalOccupancy ?? 0)).toLocaleString()} / ${(overview?.capacity.totalCapacity ?? 0).toLocaleString()}`,
+      },
+      {
+        label: "Available Capacity",
+        value: `${Math.max(0, (overview?.capacity.totalCapacity ?? 0) - (overview?.capacity.totalOccupancy ?? 0)).toLocaleString()} slots`,
+      },
+      {
+        label: "Total Capacity",
+        value: `${(overview?.capacity.totalCapacity ?? 0).toLocaleString()} slots`,
+      },
+    ];
+  } else if (phase === "during") {
+    heroMetricBreakdown = [
+      {
+        label: "Total Incident Reports",
+        value: `${overview?.incidentReports.totalReports ?? 0}`,
+      },
+    ];
+  } else {
+    heroMetricBreakdown = [
+      {
+        label: "Checked-Out",
+        value: `${overview?.checkIns.totalCheckedOut ?? 0}`,
+      },
+      {
+        label: "Total Check-ins",
+        value: `${overview?.checkIns.total ?? 0}`,
+      },
+    ];
+  }
 
   const checkInActivity = checkIns
     .map((entry) => {
@@ -1132,23 +1233,36 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     .slice(0, 6)
     .map(({ t, m }) => ({ t, m }));
 
-  const incidentTypeOptions = Array.from(
-    new Set(
-      incidentReports
-        .map((report) => report.title?.trim())
-        .concat(disasterEvents.map((event) => event.type?.trim()))
-        .concat(incidentFormState.type)
-        .filter((value): value is string => Boolean(value && value.length > 0)),
-    ),
-  );
+  const incidentTypeOptions = [
+    "Earthquake",
+    "Tsunami",
+    "Typhoon",
+    "Storm Surge",
+    "Landslide",
+    "Volcanic Ashfall",
+    "Aftershock",
+    "Medical Emergency",
+    "Injury",
+    "Fire",
+    "Flooding",
+    "Security Concern",
+    "Missing Person",
+    "Crowd Control",
+    "Facility Damage",
+    "Power Outage",
+    "Sanitation Issue",
+    "Supply Shortage",
+  ];
 
   const incidentSeverityOptions = Array.from(
     new Set(
-      incidentReports
-        .map((report) => report.severity?.trim())
-        .concat(disasterEvents.map((event) => event.severityLevel?.trim()))
-        .concat(incidentFormState.severity)
-        .filter((value): value is string => Boolean(value && value.length > 0)),
+      ["Critical", "High", "Moderate"].concat(
+        incidentReports
+          .map((report) => report.severity?.trim())
+          .concat(disasterEvents.map((event) => event.severityLevel?.trim()))
+          .concat(incidentFormState.severity)
+          .filter((value): value is string => Boolean(value && value.length > 0))
+      )
     ),
   );
 
@@ -1238,6 +1352,106 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
     .sort((left, right) => right.sortAt - left.sortAt)
     .slice(0, 10);
 
+  const allAuditEntries: AuditEntry[] = (() => {
+    if (phase === "before") {
+      const items: AuditEntry[] = [
+        ...capacityCenters.map((center) => ({
+          id: `before-capacity-${center.id}`,
+          title: "Evacuation Center Prepared",
+          timestamp: "Just Now",
+          source: "Capacity Setup",
+          status: "Ready",
+          note: `${center.name} is online with ${center.capacity} slots capacity.`,
+          sortAt: 1,
+        })),
+        ...inventoryItems.map((item, idx) => ({
+          id: `before-supply-${item.id}`,
+          title: `Supply Stack Prepared: ${item.name}`,
+          timestamp: "Recently",
+          source: "Inventory Prep",
+          status: item.status || "Ready",
+          note: `Stocking: ${item.quantity.toLocaleString()} ${item.unit} available at staging area.`,
+          sortAt: 2 + idx,
+        })),
+      ];
+      if (readinessStatusMessage) {
+        items.push({
+          id: `before-readiness`,
+          title: "Readiness Logged",
+          timestamp: "Today",
+          source: "Operational Readiness",
+          status: "Success",
+          note: readinessStatusMessage,
+          sortAt: 9999,
+        });
+      }
+      return items.sort((left, right) => right.sortAt - left.sortAt);
+    }
+
+    if (phase === "during") {
+      return [
+        ...incidentReports
+          .filter((r) => {
+            const titleLower = (r.title || "").toLowerCase();
+            return !titleLower.includes("damage") && !titleLower.includes("structure");
+          })
+          .map((report) => ({
+            id: `incident-${report.id}`,
+            title: report.title,
+            timestamp: formatTimestamp(report.createdAt),
+            source: "Incident Report",
+            status: report.status,
+            note: `${report.severity} severity at ${report.location}`,
+            sortAt: new Date(report.createdAt).getTime() || 0,
+          })),
+        ...checkIns
+          .filter((entry) => entry.status !== "checked-out")
+          .map((entry) => ({
+            id: `checkin-${entry.id}`,
+            title: entry.fullName || entry.evacueeNumber,
+            timestamp: formatTimestamp(entry.checkInTime),
+            source: "Check-in",
+            status: entry.status,
+            note: `${entry.zone || "Unknown zone"} • Checked into ${entry.location || "Evacuation site"}`,
+            sortAt: new Date(entry.checkInTime ?? "").getTime() || 0,
+          })),
+      ].sort((left, right) => right.sortAt - left.sortAt);
+    }
+
+    // phase === 'after'
+    return [
+      ...checkIns
+        .filter((entry) => entry.status === "checked-out")
+        .map((entry) => ({
+          id: `checkout-${entry.id}`,
+          title: entry.fullName || entry.evacueeNumber,
+          timestamp: formatTimestamp(entry.checkInTime),
+          source: "Check-out",
+          status: "checked-out",
+          note: `Safely checked out and departed site.`,
+          sortAt: new Date(entry.checkInTime ?? "").getTime() || 0,
+        })),
+      ...structureDamageRecords.map((rec) => ({
+        id: `damage-${rec.id}`,
+        title: `Structure Damage Logged`,
+        timestamp: "Recently",
+        source: "Recovery Registry",
+        status: rec.status,
+        note: `${rec.ownerName} - ${rec.address} (${rec.severity} severity)`,
+        sortAt: 100,
+      })),
+      ...recoveryPlans.map((plan) => ({
+        id: `plan-${plan.id}`,
+        title: plan.name,
+        timestamp: "Published",
+        source: "Rehabilitation Plan",
+        status: plan.status,
+        note: `Lead: ${plan.lead} • Progress: ${plan.progress}%`,
+        sortAt: 200,
+      })),
+    ].sort((left, right) => right.sortAt - left.sortAt);
+  })();
+
   const historicalDisasterSource = archivedDisasterEvents.length > 0 ? archivedDisasterEvents : disasterEvents;
   const historicalDisasterReports: HistoricalDisasterRecord[] = historicalDisasterSource
     .slice()
@@ -1251,7 +1465,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       affectedAreas: event.affectedAreas.length,
       status: event.status,
       lessonsLearned: event.notes?.trim() || "No post-event notes have been recorded for this disaster event yet.",
-      fullText: `${event.name} (${event.type}) affected ${event.affectedAreas.join(", ") || event.province}. Status: ${event.status}. Started ${formatTimestamp(event.dateStarted)}${event.dateEnded ? ` and ended ${formatTimestamp(event.dateEnded)}` : " and remains active."}`,
+      fullText: `${event.name} (${event.type}) affected ${event.affectedAreas.join(", ") || event.province}. Status: ${event.status}. Started ${formatTimestamp(event.dateStarted)}` + (event.dateEnded ? ` and ended ${formatTimestamp(event.dateEnded)}` : " and remains active."),
     }));
 
   const selectedHistoricalReport = historicalDisasterReports.find((report) => report.id === selectedReportId) ?? null;
@@ -1268,6 +1482,27 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       setSelectedReportId(historicalDisasterReports[0].id);
     }
   }, [historicalDisasterReports, selectedReportId]);
+
+  let inventoryTaskStatus = "Pending";
+  if (loadingData) {
+    inventoryTaskStatus = "Loading";
+  } else if (inventoryItems.length > 0) {
+    inventoryTaskStatus = "Ready";
+  }
+
+  let commsTaskStatus = "Active";
+  if (loadingData) {
+    commsTaskStatus = "Loading";
+  } else if (loadError) {
+    commsTaskStatus = "Needs Attention";
+  }
+
+  let volunteerTaskStatus = "Pending";
+  if (loadingData) {
+    volunteerTaskStatus = "Loading";
+  } else if ((overview?.checkIns.total ?? checkIns.length) > 0) {
+    volunteerTaskStatus = "Complete";
+  }
 
   const essentialTasks = phase === 'after' ? [
     {
@@ -1289,38 +1524,63 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
   ] : [
     {
       t: "Inventory Validation",
-      s: loadingData ? "Loading" : inventoryItems.length > 0 ? "Ready" : "Pending",
+      s: inventoryTaskStatus,
     },
     {
       t: "Comms Stabilization",
-      s: loadingData ? "Loading" : loadError ? "Needs Attention" : "Active",
+      s: commsTaskStatus,
     },
     {
       t: "Volunteer Briefing",
-      s: loadingData ? "Loading" : (overview?.checkIns.total ?? checkIns.length) > 0 ? "Complete" : "Pending",
+      s: volunteerTaskStatus,
     },
   ];
+
+  let totalAssetsVal = "N/A";
+  let totalAssetsTrend = "No backend data";
+  let criticalLowsVal = "N/A";
+
+  if (loadingData) {
+    totalAssetsVal = "...";
+    totalAssetsTrend = "Loading";
+    criticalLowsVal = "...";
+  } else if (overview) {
+    totalAssetsVal = overview.inventory.itemCount.toLocaleString();
+    totalAssetsTrend = `${overview.inventory.totalCategories} categories`;
+    criticalLowsVal = String(overview.inventory.lowStockItems);
+  }
 
   const inventoryCards = [
     {
       label: "Total Assets",
-      value: loadingData ? "..." : overview ? overview.inventory.itemCount.toLocaleString() : "N/A",
-      trend: loadingData ? "Loading" : overview ? `${overview.inventory.totalCategories} categories` : "No backend data",
+      value: totalAssetsVal,
+      trend: totalAssetsTrend,
+      source: loadingData
+        ? "Counting all items in your site inventory..."
+        : overview
+          ? "Counted from all inventory items currently recorded for this site"
+          : "No inventory count was returned for this site",
       color: "#2196F3",
     },
     {
       label: "Critical Lows",
-      value: loadingData ? "..." : overview ? String(overview.inventory.lowStockItems) : "N/A",
+      value: criticalLowsVal,
       trend: "Needs attention",
+      source: loadingData
+        ? "Checking which supplies are running low..."
+        : overview
+          ? "Items marked low or critical based on the current recorded stock"
+          : "No low-stock count was returned for this site",
       color: "#ba1a1a",
     },
     {
       label: "In Transit",
       value: loadingData ? "..." : "N/A",
       trend: loadingData ? "Loading" : "No backend metric",
+      source: "No shipment tracking count is available",
       color: "#FFB300",
     },
-  ];
+  ].filter((card) => (phase === "before" || card.label !== "In Transit"));
 
   const activeShelters = overview?.capacity.totalCenters;
   const totalPopulation = overview?.capacity.totalOccupancy;
@@ -1363,14 +1623,16 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="hidden md:block relative">
-            <input
-              className="bg-[#eeeeea] dark:bg-[#232622] border-none rounded-full px-4 py-2 text-sm focus:ring-2 w-64"
-              placeholder="Search logistics..."
-              type="text"
-            />
-            <span className="material-symbols-outlined absolute right-3 top-2 text-[#444743]">search</span>
-          </div>
+
+          
+          <button 
+            onClick={() => setIsActivityModalOpen(true)}
+            className="flex items-center gap-1.5 px-4 h-10 rounded-full border border-[#dadad5] dark:border-[#3b3b3b] hover:bg-[#eeeeea] dark:hover:bg-[#232622] transition-colors text-xs font-black uppercase tracking-wider text-[#1a1c19] dark:text-[#e2e3dd]"
+          >
+            <span className="material-symbols-outlined text-sm" style={{ color: phaseConfig.primaryColor }}>analytics</span>
+            Live Activity
+          </button>
+
           <div className="relative" ref={menuRef}>
             <button 
               onClick={() => setIsProfileOpen(!isProfileOpen)}
@@ -1453,7 +1715,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             { id: 'Dashboard', label: 'Dashboard', icon: 'grid_view', path: `/site-manager/${phase}calamity` },
             { id: 'Inventory', label: 'Inventory', icon: 'inventory_2', path: `/site-manager/inventory?phase=${phase}` },
             { id: 'SiteMap', label: 'Interactive Site Map', icon: 'map', path: `/site-manager/sitemap?phase=${phase}` },
-            { id: 'Citizens', label: 'Citizen Verification', icon: 'badge', path: `/site-manager/${phase}calamity?tab=citizens` },
+            { id: 'Citizens', label: phase === 'after' ? 'Citizen Check-Out' : 'Citizen Check-In', icon: 'badge', path: `/site-manager/${phase}calamity?tab=citizens` },
           ].map((item) => {
             const isActive = activeTab === item.id && !showProfile;
             return (
@@ -1537,14 +1799,25 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
               {activeTab === "Dashboard" && phaseConfig.mainTitle}
               {activeTab === "Inventory" && "Logistics & Inventory"}
               {activeTab === "SiteMap" && "Regional Site Map"}
-              {activeTab === "Citizens" && "Citizen Verification & Registry"}
+              {activeTab === "Citizens" && (phase === "after" ? "Citizen Check-Out & Registry" : "Citizen Check-In & Registry")}
             </h2>
-            <p className="text-[#444743] dark:text-[#c4c7c0] max-w-lg">
-              {activeTab === "Dashboard" && `${displayName}: ${phaseConfig.mainDesc}`}
-              {activeTab === "Inventory" && "Manage incoming and outgoing relief assets."}
-              {activeTab === "SiteMap" && "Live monitoring of active shelters and supply routes."}
-              {activeTab === "Citizens" && "Use QR/manual verification and view the current citizen registry from backend records."}
-            </p>
+            <div className="text-[#444743] dark:text-[#c4c7c0] max-w-lg flex flex-col gap-2">
+              <p>
+                {activeTab === "Dashboard" && `${displayName}: ${phaseConfig.mainDesc}`}
+                {activeTab === "Inventory" && "Manage incoming and outgoing relief assets."}
+                {activeTab === "SiteMap" && "Live monitoring of active shelters and supply routes."}
+                {activeTab === "Citizens" && (phase === "after"
+                  ? "Use QR/manual verification to check out citizens leaving the evacuation site and view the current registry."
+                  : "Use QR/manual verification to check in citizens arriving at the evacuation site and view the current registry.")
+                }
+              </p>
+              {activeTab === "Dashboard" && phase === "before" && capacityCenters.length > 0 && (
+                <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-[#5f6b5e] dark:text-[#a0a39f] bg-[#f4f4ef] dark:bg-[#1a1c19] w-fit px-3 py-1.5 rounded-lg border border-[#dadad5] dark:border-[#3b3b3b]">
+                  <span className="material-symbols-outlined text-[14px]">location_on</span>
+                  <span>Assigned Location: {session?.user?.municipality || "N/A"}, {session?.user?.barangay || "N/A"}</span>
+                </div>
+              )}
+            </div>
             {loadingData && <p className="text-xs text-[#707a6c] mt-2">Loading live dashboard data...</p>}
             {loadError && <p className="text-xs text-red-600 mt-2">{loadError}</p>}
           </div>
@@ -1571,7 +1844,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
         {activeTab === "Dashboard" && (
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           {/* Main Action Card */}
-          <section className="md:col-span-8 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
+          <section className="md:col-span-12 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h3 className="text-2xl font-bold">{phaseConfig.checklistTitle}</h3>
@@ -1587,45 +1860,44 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             {phase === 'after' ? (
               <div className="space-y-6 mb-8 animate-in fade-in duration-500">
                 {/* Custom Recovery Tabs */}
-                <div className="flex gap-2 bg-[#dadad5]/40 dark:bg-[#3b3b3b]/30 p-1.5 rounded-2xl w-full max-w-2xl">
-                  <button 
+                <div className="flex gap-2 bg-[#dadad5]/40 dark:bg-[#3b3b3b]/30 p-1.5 rounded-2xl w-full max-w-2xl">                  <button 
                     onClick={() => setRecoveryTab("assess")}
                     className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "assess" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
                   >
                     <span className="material-symbols-outlined text-sm">analytics</span>
-                    1. Damage & Shelter
+                    <span>1. Damage & Shelter</span>
                   </button>
                   <button 
                     onClick={() => setRecoveryTab("structure")}
                     className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "structure" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
                   >
                     <span className="material-symbols-outlined text-sm">home_work</span>
-                    2. Structure Intake
+                    <span>2. Structure Intake</span>
                   </button>
                   <button 
                     onClick={() => setRecoveryTab("plans")}
                     className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "plans" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
                   >
                     <span className="material-symbols-outlined text-sm">target</span>
-                    3. Recovery Plans
+                    <span>3. Recovery Plans</span>
                   </button>
                   <button 
                     onClick={() => setRecoveryTab("audit")}
                     className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "audit" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
                   >
                     <span className="material-symbols-outlined text-sm">assignment</span>
-                    4. Audit & History
+                    <span>4. Audit & History</span>
                   </button>
                 </div>
-
-                {/* Tab Content 1: Damage & Shelter Assessment Form */}
+ 
+                 {/* Tab Content 1: Damage & Shelter Assessment Form */}
                 {recoveryTab === "assess" && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-[#f4f4ef] dark:bg-[#232622] p-6 md:p-8 rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b]">
                     <div className="lg:col-span-8 space-y-6">
                       <div>
                         <h4 className="text-lg font-black flex items-center gap-2 text-[#1a1c19] dark:text-white">
                           <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>analytics</span>
-                          Post-Disaster Impact & Shelter Evaluation
+                          <span>Post-Disaster Impact & Shelter Evaluation</span>
                         </h4>
                         <p className="text-xs text-[#707a6c] mt-1">Submit reports for central administration evaluation and aid calculations.</p>
                       </div>
@@ -1647,11 +1919,11 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                             </div>
                             <div>
                               <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Est. Financial Damage</p>
-                              <p className="font-black text-sm text-green-700 mt-0.5">PHP {parseInt(damageAssessment.estimatedCost).toLocaleString()}</p>
+                              <p className="font-black text-sm text-green-700 mt-0.5">PHP {Number.parseInt(damageAssessment.estimatedCost || "0").toLocaleString()}</p>
                             </div>
                             <div>
                               <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Relief Kits Required</p>
-                              <p className="font-black text-sm text-green-700 mt-0.5">{parseInt(damageAssessment.reliefNeeded).toLocaleString()} units</p>
+                              <p className="font-black text-sm text-green-700 mt-0.5">{Number.parseInt(damageAssessment.reliefNeeded || "0").toLocaleString()} units</p>
                             </div>
                             <div>
                               <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Est. Rebuilding Duration</p>
@@ -1663,7 +1935,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                             <p className="font-bold text-[#444743] uppercase tracking-wider text-[9px]">Shelter Performance Rating</p>
                             <div className="flex gap-1 mt-1">
                               {Array.from({ length: 5 }).map((_, idx) => (
-                                <span key={idx} className="material-symbols-outlined text-sm" style={{ color: idx < parseInt(damageAssessment.shelterRating) ? '#FFB300' : '#dadad5' }}>
+                                <span key={`perf-star-${idx}`} className="material-symbols-outlined text-sm" style={{ color: idx < Number.parseInt(damageAssessment.shelterRating || "0") ? '#FFB300' : '#dadad5' }}>
                                   star
                                 </span>
                               ))}
@@ -1684,7 +1956,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                         <div className="space-y-4 text-left">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Infrastructure Status</label>
+                              <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Infrastructure Status</span>
                               <CustomSelect 
                                 value={damageAssessment.infraStatus}
                                 onChange={(val: any) => setDamageAssessment(prev => ({ ...prev, infraStatus: val }))}
@@ -1698,7 +1970,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                             </div>
 
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Est. Financial Damage (PHP)</label>
+                              <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Est. Financial Damage (PHP)</span>
                               <input 
                                 type="number"
                                 value={damageAssessment.estimatedCost}
@@ -1708,7 +1980,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                             </div>
 
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Relief Kits Required</label>
+                              <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Relief Kits Required</span>
                               <input 
                                 type="number"
                                 value={damageAssessment.reliefNeeded}
@@ -1718,7 +1990,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                             </div>
 
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Est. Rebuilding Duration (Days)</label>
+                              <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Est. Rebuilding Duration (Days)</span>
                               <input 
                                 type="number"
                                 value={damageAssessment.durationDays}
@@ -1729,15 +2001,15 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           </div>
 
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Evacuation Shelter Performance Rating</label>
+                            <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Evacuation Shelter Performance Rating</span>
                             <div className="flex gap-2 items-center">
                               {Array.from({ length: 5 }).map((_, idx) => (
                                 <button 
-                                  key={idx} 
+                                  key={`rating-btn-${idx}`} 
                                   onClick={() => setDamageAssessment(prev => ({ ...prev, shelterRating: String(idx + 1) }))}
                                   className="hover:scale-110 active:scale-95 transition-transform"
                                 >
-                                  <span className="material-symbols-outlined text-2xl" style={{ color: idx < parseInt(damageAssessment.shelterRating) ? '#FFB300' : '#dadad5' }}>
+                                  <span className="material-symbols-outlined text-2xl" style={{ color: idx < Number.parseInt(damageAssessment.shelterRating || "0") ? '#FFB300' : '#dadad5' }}>
                                     star
                                   </span>
                                 </button>
@@ -1747,7 +2019,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           </div>
 
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Operational Successes Summary</label>
+                            <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Operational Successes Summary</span>
                             <textarea 
                               rows={2}
                               value={damageAssessment.successNotes}
@@ -1758,7 +2030,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           </div>
 
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Challenges & Staging Bottlenecks</label>
+                            <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Challenges & Staging Bottlenecks</span>
                             <textarea 
                               rows={2}
                               value={damageAssessment.bottlenecks}
@@ -1831,19 +2103,39 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                         </div>
                       </div>
 
-                      <button 
-                        onClick={() => {
-                          if (!damageAssessment.isSubmitted) {
-                            alert('🔒 Please fill out the report and submit it first before generating a print job.');
-                            return;
-                          }
-                          window.print();
-                        }}
-                        className="w-full bg-[#1a1c19] dark:bg-white text-white dark:text-black py-3 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all shadow-md flex items-center justify-center gap-2"
-                      >
-                        <span className="material-symbols-outlined text-sm">print</span>
-                        Print Assessment PDF
-                      </button>
+                      <div className="space-y-2 mt-4 w-full">
+                        <button 
+                          onClick={() => {
+                            if (!damageAssessment.isSubmitted) {
+                              alert('🔒 Please fill out the report and submit it first before generating a print job.');
+                              return;
+                            }
+                            globalThis.window.print();
+                          }}
+                          className="w-full bg-[#1a1c19] dark:bg-white text-white dark:text-black py-3 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 hover:brightness-110"
+                        >
+                          <span className="material-symbols-outlined text-sm">print</span>
+                          Print Assessment PDF
+                        </button>
+
+                        <button 
+                          onClick={handleGenerateReport}
+                          disabled={isGeneratingReport}
+                          className="w-full bg-[#f4f4ef] dark:bg-[#232622] text-black dark:text-white border border-[#dadad5] dark:border-[#3b3b3b] py-3 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all shadow-sm flex items-center justify-center gap-2 hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b] disabled:opacity-50"
+                        >
+                          <span className={`material-symbols-outlined text-sm ${isGeneratingReport ? 'animate-spin' : ''}`}>analytics</span>
+                          {isGeneratingReport ? "Generating Report..." : "Generate Summary Report"}
+                        </button>
+
+                        <button 
+                          onClick={handleCloseOperations}
+                          disabled={isClosingOperations}
+                          className="w-full bg-red-700 hover:bg-red-800 text-white py-3 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          <span className="material-symbols-outlined text-sm">cancel</span>
+                          {isClosingOperations ? "Closing Shelter..." : "Close Shelter Operations"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1865,7 +2157,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                         <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white pb-3 border-b border-[#dadad5]/50">Register New Damaged Unit</h5>
                         
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Homeowner Full Name</label>
+                          <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Homeowner Full Name</span>
                           <input 
                             type="text" 
                             value={structureDamageForm.ownerName}
@@ -1876,7 +2168,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                         </div>
 
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Structure Address</label>
+                          <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Structure Address</span>
                           <input 
                             type="text" 
                             value={structureDamageForm.address}
@@ -1887,7 +2179,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                         </div>
 
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Damage Severity Level</label>
+                          <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Damage Severity Level</span>
                           <CustomSelect 
                             value={structureDamageForm.severity}
                             onChange={(val: any) => setStructureDamageForm(prev => ({ ...prev, severity: val }))}
@@ -1956,7 +2248,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           style={{ background: phaseConfig.primaryColor }}
                         >
                           <span className="material-symbols-outlined text-sm">home_work</span>
-                          Register Structure Damage
+                          <span>Register Structure Damage</span>
                         </button>
                       </div>
 
@@ -1986,11 +2278,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                                   <td className="py-3.5 text-[#1a1c19] dark:text-white">{rec.ownerName}</td>
                                   <td className="py-3.5 text-[#444743] dark:text-[#a0a39f]">{rec.address}</td>
                                   <td className="py-3.5">
-                                    <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase ${
-                                      rec.severity === 'Severe / Collapse' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' :
-                                      rec.severity === 'Major Damage' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' :
-                                      'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300'
-                                    }`}>
+                                    <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase ${getSeverityBadgeClass(rec.severity)}`}>
                                       {rec.severity}
                                     </span>
                                   </td>
@@ -2021,7 +2309,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     <div>
                       <h4 className="text-lg font-black flex items-center gap-2 text-[#1a1c19] dark:text-white">
                         <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>target</span>
-                        Published Rehabilitation & Recovery Plans
+                        <span>Published Rehabilitation & Recovery Plans</span>
                       </h4>
                       <p className="text-xs text-[#707a6c] mt-1">Oversight panel to track, adjust, and report progress on ground execution.</p>
                     </div>
@@ -2078,7 +2366,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           link.setAttribute("download", "Damayan_Auditing_Activity_Log.csv");
                           document.body.appendChild(link);
                           link.click();
-                          document.body.removeChild(link);
+                          link.remove();
                         }}
                         className="bg-white dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] hover:bg-[#eeeeea] dark:hover:bg-white/5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all flex items-center gap-2 shrink-0 text-[#1a1c19] dark:text-white"
                       >
@@ -2097,7 +2385,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
                         <div className="space-y-4">
                           <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Historical Disaster Event</label>
+                            <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c]">Historical Disaster Event</span>
                             <CustomSelect 
                               value={selectedReportId || ""}
                               onChange={(val: any) => setSelectedReportId(val || null)}
@@ -2314,24 +2602,24 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             {phase === 'during' && (
               <div className="mt-8 pt-8 border-t border-[#dadad5] animate-in slide-in-from-bottom-4 duration-500">
                 <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h3 className="text-xl font-bold">Report Site Incident</h3>
+                  <div className="space-y-1 pr-6">
+                    <h3 className="text-xl font-black text-[#1a1c19] dark:text-white leading-tight">Report Site Incident</h3>
                     <p className="text-[#444743] text-sm">Log critical events or medical emergencies immediately.</p>
                   </div>
-                  <span className="bg-orange-100 text-[#FFB300] px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">{activeAlerts} active alerts</span>
+                  <button 
+                    onClick={() => setIsAlertsModalOpen(true)}
+                    className="bg-orange-100 hover:bg-orange-200 text-[#FFB300] px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-colors active:scale-95 cursor-pointer flex items-center gap-1 shrink-0"
+                  >
+                    <span className="material-symbols-outlined text-[12px]">warning</span>
+                    {activeAlerts} active alerts
+                  </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Disaster Context</label>
-                    <CustomSelect
-                      value={incidentFormState.disasterId}
-                      onChange={(val: any) => setIncidentFormState({ ...incidentFormState, disasterId: val })}
-                      placeholder={incidentDisasterOptions.length > 0 ? "Select active disaster" : "No disaster events available"}
-                      options={incidentDisasterOptions.map((event) => ({ value: event.id, label: event.name }))}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Location</label>
+                    <span className="block text-[10px] font-black uppercase text-[#444743] ml-1">
+                      Location <span className="text-red-600">*</span>
+                    </span>
                     <CustomSelect
                       value={incidentFormState.location}
                       onChange={(val: any) => setIncidentFormState({ ...incidentFormState, location: val })}
@@ -2340,7 +2628,9 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Incident Type</label>
+                    <span className="block text-[10px] font-black uppercase text-[#444743] ml-1">
+                      Incident Type <span className="text-red-600">*</span>
+                    </span>
                     <CustomSelect 
                       value={incidentFormState.type}
                       onChange={(val: any) => setIncidentFormState({ ...incidentFormState, type: val })}
@@ -2349,7 +2639,9 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Severity</label>
+                    <span className="block text-[10px] font-black uppercase text-[#444743] ml-1">
+                      Severity <span className="text-red-600">*</span>
+                    </span>
                     <div className="flex gap-2">
                       {incidentSeverityOptions.slice(0, 3).map((severity) => {
                         const normalized = severity.toLowerCase();
@@ -2374,7 +2666,9 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     </div>
                   </div>
                   <div className="md:col-span-2 space-y-1">
-                    <label className="text-[10px] font-black uppercase text-[#444743] ml-1">Detailed Description</label>
+                    <span className="block text-[10px] font-black uppercase text-[#444743] ml-1">
+                      Detailed Description <span className="text-red-600">*</span>
+                    </span>
                     <textarea 
                       className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-sm min-h-[100px]" 
                       placeholder="Describe the situation..."
@@ -2398,42 +2692,6 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             )}
           </section>
 
-          {/* Sidebar Area */}
-          <section className="md:col-span-4 space-y-6">
-            <div className="bg-[#1a1c19] text-white rounded-3xl p-6 shadow-xl">
-              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>analytics</span>
-                Live Activity
-              </h3>
-              <div className="space-y-4">
-                {activityLogs.map((log, i) => (
-                  <div key={i} className="flex gap-4 items-start">
-                    <div className="w-1 h-10 rounded-full mt-1" style={{ background: phaseConfig.primaryColor }}></div>
-                    <div>
-                      <p className="text-[10px] font-bold text-[#dadad5] uppercase">{log.t}</p>
-                      <p className="text-xs text-[#dadad5]/80">{log.m}</p>
-                    </div>
-                  </div>
-                ))}
-                {activityLogs.length === 0 && (
-                  <p className="text-xs text-[#dadad5]/80">No recent activity logs available.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-[#232622] rounded-3xl p-6 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm relative overflow-hidden group min-h-[200px]">
-              <div className="absolute inset-0 opacity-40 group-hover:opacity-80 transition-opacity">
-                <img className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBpSvAOIIisjz13eQiOCstFnz3vVDhXSLsC2wkcR0gzF0aE74mgQ4wHIUPQxpjnjM9rNALymOt0yzw4BUqDzXDmvL68DiBEHgtwXcoRktsaAjW4XF8rQ9xFDqsWjQVCUV3lpc9WdLCHcs9vEn68r458YriOvYDyAOpkuQmDaQXPWqqt7wAiApmtFpPyTHIgyKDI39znTvbgGnTysMQr1Ezpxs0enh_BMJvFIA9nVdUBqndsA8qbD84JSmQa6tncbOhO9dg-xTC8Mwxc" alt="Map" />
-              </div>
-              <div className="relative z-10 flex flex-col justify-end h-full">
-                <div className="bg-white/90 p-4 rounded-2xl shadow-lg">
-                  <h4 className="font-bold text-sm">Interactive Site Map</h4>
-                  <p className="text-[10px] text-[#444743] uppercase tracking-widest">Real-time zone activity monitor</p>
-                </div>
-              </div>
-            </div>
-          </section>
-
           {/* Inventory Table Section (After Phase Specific) */}
           {phase === 'after' ? (
             <section className="md:col-span-12 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm overflow-hidden">
@@ -2443,13 +2701,6 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     <h3 className="text-2xl font-bold">Post-Event Inventory Audit</h3>
                     <p className="text-[#444743] text-sm">Consolidating remaining relief goods and logging unusable items before site closure.</p>
                   </div>
-                  <button 
-                    onClick={() => setIsReceiveModalOpen(true)}
-                    className="bg-[#2196F3] text-white px-6 py-2 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg hover:scale-105 transition-transform active:scale-95 w-fit"
-                  >
-                    <span className="material-symbols-outlined">inventory</span>
-                    Audit Remaining Stock
-                  </button>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <button
@@ -2503,12 +2754,12 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                       <th className="px-6 py-4">Incoming</th>
                       <th className="px-6 py-4">ETA</th>
                       <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
+                      <th className="px-6 py-4 text-right">Item Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#dadad5]/30">
-                    {inventoryTable.length > 0 ? inventoryTable.map((row, i) => (
-                      <tr key={i} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors">
+                    {inventoryTable.length > 0 ? inventoryTable.map((row) => (
+                      <tr key={`inventory-row-${row.category}`} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors">
                         <td className="px-6 py-5 font-bold text-sm flex items-center gap-3">
                           <span className="material-symbols-outlined" style={{ color: phaseConfig.primaryColor }}>{row.icon}</span>
                           {row.category}
@@ -2528,16 +2779,22 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                             {row.status}
                           </span>
                         </td>
-                        <td className="px-6 py-5 text-right">
-                          <button 
-                            onClick={() => {
-                              setSelectedItem(row);
-                              setIsActionPanelOpen(true);
-                            }}
-                            className="material-symbols-outlined text-[#444743] hover:text-[#0d631b] p-2 hover:bg-[#f4f4ef] rounded-full transition-all active:scale-90"
-                          >
-                            edit_note
-                          </button>
+                        <td className="px-6 py-5">
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedItem(row);
+                                setStockAdjustmentState({ quantity: 0, reason: "Correction/Audit", notes: "" });
+                                setStockAdjustmentError(null);
+                                setIsActionPanelOpen(true);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-xl border border-[#dadad5] bg-white dark:bg-[#1a1c19] px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-[#444743] shadow-sm hover:border-[#2196F3] hover:bg-blue-50 hover:text-[#2196F3] transition-all active:scale-95"
+                            >
+                              <span className="material-symbols-outlined text-sm">edit_note</span>
+                              Adjust Stock
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )) : (
@@ -2553,39 +2810,103 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             </section>
           ) : (
             <section className="md:col-span-12 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-8 border-b border-[#dadad5]/30 pb-6">
               <div>
                 <h3 className="text-2xl font-bold">Essential Supply Checklist</h3>
-                <p className="text-[#444743] text-sm">Real-time inventory levels across regional staging areas.</p>
+                <p className="text-[#444743] dark:text-[#a0a39f] text-sm">Real-time inventory levels across regional staging areas.</p>
               </div>
-              <button 
-                onClick={() => router.push('/site-manager/inventory')}
-                className="text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg hover:opacity-90 transition-opacity disabled:opacity-50" 
-                style={{ background: phaseConfig.primaryColor }}
-              >
-                Update Site Inventory
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setChecklistFilter("all")}
+                  className={`px-4 py-2 rounded-full font-bold text-xs transition-all ${
+                    checklistFilter === "all"
+                      ? "text-white shadow-md scale-105"
+                      : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5]/50"
+                  }`}
+                  style={checklistFilter === "all" ? { background: phaseConfig.primaryColor } : {}}
+                >
+                  All Items
+                </button>
+                <button
+                  onClick={() => setChecklistFilter("high")}
+                  className={`px-4 py-2 rounded-full font-bold text-xs transition-all ${
+                    checklistFilter === "high"
+                      ? "text-white shadow-md scale-105"
+                      : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5]/50"
+                  }`}
+                  style={checklistFilter === "high" ? { background: "#2E7D32" } : {}}
+                >
+                  High Supply
+                </button>
+                <button
+                  onClick={() => setChecklistFilter("low")}
+                  className={`px-4 py-2 rounded-full font-bold text-xs transition-all ${
+                    checklistFilter === "low"
+                      ? "text-white shadow-md scale-105"
+                      : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5]/50"
+                  }`}
+                  style={checklistFilter === "low" ? { background: "#ba1a1a" } : {}}
+                >
+                  Low/Critical Stock
+                </button>
+                <button
+                  onClick={() => setChecklistFilter("essential")}
+                  className={`px-4 py-2 rounded-full font-bold text-xs transition-all flex items-center gap-1.5 ${
+                    checklistFilter === "essential"
+                      ? "text-white shadow-md scale-105"
+                      : "bg-[#f4f4ef] dark:bg-[#1a1c19] text-[#444743] hover:bg-[#dadad5]/50"
+                  }`}
+                  style={checklistFilter === "essential" ? { background: "#FFB300" } : {}}
+                >
+                  <span className="material-symbols-outlined text-xs">star</span>
+                  <span>Essential Only</span>
+                </button>
+
+                <div className="h-6 w-[1px] bg-[#dadad5] mx-2 hidden xl:block" />
+
+                <button 
+                  onClick={() => router.push('/site-manager/inventory')}
+                  className="text-white px-6 py-2 rounded-full font-bold text-xs shadow-lg hover:scale-105 transition-all disabled:opacity-50" 
+                  style={{ background: phaseConfig.primaryColor }}
+                >
+                  Update Site Inventory
+                </button>
+              </div>
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {inventoryData.map((item, i) => (
-                <div key={i} className="p-5 rounded-2xl bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] group hover:scale-[1.02] transition-transform">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-md" style={{ background: item.tone === 'error' ? '#b91c1c' : item.tone === 'warning' ? '#d97706' : phaseConfig.primaryColor }}>
-                      {item.name[0]}
+            {inventoryData.length === 0 ? (
+              <div className="py-16 text-center text-[#707a6c] bg-[#f4f4ef]/30 dark:bg-[#1a1c19]/30 rounded-3xl border border-dashed border-[#dadad5] dark:border-[#3b3b3b]">
+                <span className="material-symbols-outlined text-4xl mb-2 text-[#707a6c]/60">inventory_2</span>
+                <p className="font-bold text-sm">No items found matching the selected filter</p>
+                <p className="text-xs text-[#707a6c] mt-1">Try switching to another filter or check in new supplies.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in duration-300">
+                {inventoryData.map((item) => (
+                  <div key={`inventory-card-${item.name}`} className="p-5 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] group hover:scale-[1.02] transition-transform">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-md" style={{ background: item.tone === 'error' ? '#b91c1c' : item.tone === 'warning' ? '#d97706' : phaseConfig.primaryColor }}>
+                        {item.name[0]}
+                      </div>
+                      <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded ${
+                        item.tone === 'error' 
+                          ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' 
+                          : item.tone === 'warning' 
+                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' 
+                            : 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300'
+                      }`}>
+                        {item.status}
+                      </span>
                     </div>
-                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${item.tone === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                      {item.status}
-                    </span>
+                    <h4 className="font-bold text-sm mb-1">{item.name}</h4>
+                    <p className="text-xs text-[#444743] dark:text-[#a0a39f] mb-4">{item.detail}</p>
+                    <div className="w-full h-1.5 bg-[#dadad5] dark:bg-[#3b3b3b] rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-1000" style={{ width: item.percent, background: item.tone === 'error' ? '#b91c1c' : phaseConfig.primaryColor }}></div>
+                    </div>
                   </div>
-                  <h4 className="font-bold text-sm mb-1">{item.name}</h4>
-                  <p className="text-xs text-[#444743] mb-4">{item.detail}</p>
-                  <div className="w-full h-1.5 bg-[#dadad5] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-1000" style={{ width: item.percent, background: item.tone === 'error' ? '#b91c1c' : phaseConfig.primaryColor }}></div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
             </section>
           )}
         </div>
@@ -2593,11 +2914,15 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
         {activeTab === "Citizens" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <section className="bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <section className="lg:col-span-7 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
                 <div className="mb-6">
-                  <h3 className="text-2xl font-black">Identity Verification</h3>
-                  <p className="text-sm text-[#444743] dark:text-[#c4c7c0]">QR scanner and manual entry for check-in and check-out.</p>
+                  <h3 className="text-2xl font-black">{phase === "after" ? "Citizen Check-Out" : "Citizen Check-In"}</h3>
+                  <p className="text-sm text-[#444743] dark:text-[#c4c7c0]">
+                    {phase === "after"
+                      ? "QR scanner and manual entry for citizen check-out."
+                      : "QR scanner and manual entry for citizen check-in."}
+                  </p>
                 </div>
 
                 <div className="w-full space-y-3 mb-4">
@@ -2612,19 +2937,6 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     >Manual ID</button>
                   </div>
 
-                  {checkInMode === "scan" && (
-                    <div className="flex gap-2 bg-[#f0f0eb] dark:bg-[#1a1c19] p-1 rounded-lg">
-                      <button
-                        onClick={() => { setScanType("check-in"); setCheckInError(null); scanLockRef.current = false; }}
-                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-in" ? "bg-[#FFB300] text-white shadow-sm" : "text-[#444743] dark:text-[#c4c7c0]"}`}
-                      >Check-In</button>
-                      <button
-                        onClick={() => { setScanType("check-out"); setCheckInError(null); scanLockRef.current = false; }}
-                        className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${scanType === "check-out" ? "bg-[#2E7D32] text-white shadow-sm" : "text-[#444743] dark:text-[#c4c7c0]"}`}
-                      >Check-Out</button>
-                    </div>
-                  )}
-
                   {checkInMode === "scan" ? (
                     <div className="rounded-xl overflow-hidden animate-in fade-in zoom-in duration-300 border border-[#dadad5] dark:border-[#3b3b3b]">
                       {isScanLookingUp ? (
@@ -2638,6 +2950,24 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                           styles={{ container: { height: 240 } }}
                         />
                       )}
+                    </div>
+                  ) : phase === "after" ? (
+                    <div className="space-y-3 animate-in slide-in-from-top-2 duration-300 w-full overflow-hidden">
+                      <input
+                        className="w-full bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] rounded-xl px-4 py-3 text-sm"
+                        placeholder="Citizen ID or QR Code..."
+                        type="text"
+                        value={manualCheckInState.citizenName}
+                        onChange={(e) => setManualCheckInState({ ...manualCheckInState, citizenName: e.target.value })}
+                      />
+                      <button
+                        onClick={handleSubmitManualCheckOut}
+                        disabled={isSubmittingCheckIn}
+                        className="w-full text-white py-3 rounded-xl font-bold hover:opacity-90 transition-opacity shadow-lg disabled:opacity-50"
+                        style={{ background: phaseConfig.primaryColor }}
+                      >
+                        {isSubmittingCheckIn ? "Processing..." : "Confirm Manual Check-Out"}
+                      </button>
                     </div>
                   ) : (
                     <div className="space-y-3 animate-in slide-in-from-top-2 duration-300 w-full overflow-hidden">
@@ -2680,7 +3010,9 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                 {checkInError && <p className="text-red-600 text-sm">{checkInError}</p>}
 
                 <div className="mt-6 pt-5 border-t border-[#dadad5] dark:border-[#3b3b3b]">
-                  <h4 className="text-sm font-black uppercase tracking-wider mb-3">Recent Check-In Activity</h4>
+                  <h4 className="text-sm font-black uppercase tracking-wider mb-3">
+                    {phase === "after" ? "Recent Check-Out Activity" : "Recent Check-In Activity"}
+                  </h4>
                   <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                     {checkIns.slice(0, 8).map((record) => (
                       <div key={record.id} className="p-3 rounded-xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
@@ -2689,13 +3021,15 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                       </div>
                     ))}
                     {checkIns.length === 0 && (
-                      <p className="text-sm text-[#707a6c]">No recent check-ins yet.</p>
+                      <p className="text-sm text-[#707a6c]">
+                        {phase === "after" ? "No recent check-outs yet." : "No recent check-ins yet."}
+                      </p>
                     )}
                   </div>
                 </div>
               </section>
 
-              <section className="bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
+              <section className="lg:col-span-5 bg-white dark:bg-[#232622] rounded-3xl p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                   <div>
                     <h3 className="text-2xl font-black">Citizen Registry</h3>
@@ -2726,7 +3060,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                             <p className="text-[10px] uppercase tracking-widest text-[#707a6c]">QR: {citizen.qrCodeId || "N/A"}</p>
                           </div>
                           <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-[#e8f5e9] text-[#2E7D32]">
-                            {(citizen.registrationType || "registered").replace(/_/g, " ")}
+                            {(citizen.registrationType || "registered").replaceAll("_", " ")}
                           </span>
                         </div>
                         <div className="mt-2 text-[11px] text-[#444743] dark:text-[#c4c7c0] flex gap-3">
@@ -2748,7 +3082,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
         {activeTab === "Inventory" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className={`grid grid-cols-1 ${inventoryCards.length === 2 ? "md:grid-cols-2" : "md:grid-cols-3"} gap-6`}>
               {inventoryCards.map((stat, i) => (
                 <div key={i} className="bg-white dark:bg-[#232622] p-6 rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
                   <p className="text-[10px] font-black uppercase tracking-widest text-[#444743] mb-1">{stat.label}</p>
@@ -2759,6 +3093,9 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                   <div className="w-full h-1 bg-[#f4f4ef] dark:bg-[#1a1c19] mt-4 rounded-full overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: '70%', background: stat.color }}></div>
                   </div>
+                  <p className="mt-3 text-[10px] font-bold uppercase tracking-wider text-[#707a6c] dark:text-[#a0a39f]">
+                    {stat.source}
+                  </p>
                 </div>
               ))}
             </div>
@@ -2767,13 +3104,21 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
               <div className="flex justify-between items-center mb-8">
                 <div>
                   <h3 className="text-2xl font-black">
-                    {phase === 'before' ? 'Prepare Shelter Supplies' : phase === 'during' ? 'Distribute Relief Goods' : 'Final Inventory Check'}
+                    {phase === 'before' ? 'Prepare Shelter Supplies' : phase === 'during' ? 'Relief Goods Movement' : 'Final Inventory Check'}
                   </h3>
                   <p className="text-[#444743] text-sm mt-1">
-                    {phase === 'before' ? 'Count your current items and add new deliveries before evacuees arrive.' : phase === 'during' ? 'Record items you give out to evacuees to keep your stock levels accurate.' : 'Count everything you have left so we can safely pack up the shelter.'}
+                    {phase === 'before' ? 'Count your current items and add new deliveries before evacuees arrive.' : phase === 'during' ? 'Record distributions to evacuees or add incoming stock during active operations.' : 'Count everything you have left so we can safely pack up the shelter.'}
                   </p>
                 </div>
                 <div className="flex gap-2">
+                  <button 
+                    onClick={handleRefreshInventory} 
+                    disabled={isRefreshingInventory} 
+                    className="bg-[#f4f4ef] dark:bg-[#1a1c19] px-4 py-2 rounded-xl text-xs font-bold border border-[#dadad5] hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b] transition-colors active:scale-95 flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <span className={`material-symbols-outlined text-xs ${isRefreshingInventory ? 'animate-spin' : ''}`}>refresh</span>
+                    {isRefreshingInventory ? 'Refreshing...' : 'Refresh'}
+                  </button>
                   <button onClick={handleExportCSV} className="bg-[#f4f4ef] dark:bg-[#1a1c19] px-4 py-2 rounded-xl text-xs font-bold border border-[#dadad5] hover:bg-[#dadad5] dark:hover:bg-[#3b3b3b] transition-colors active:scale-95">Export CSV</button>
                   <button 
                     onClick={handleCreateNewBatch}
@@ -2781,26 +3126,64 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     className="text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg disabled:opacity-50" 
                     style={{ background: phaseConfig.primaryColor }}
                   >
-                    {isSubmittingNewBatch ? "Processing..." : (phase === 'before' ? 'Add to Supplies' : phase === 'during' ? 'Record Distribution' : 'Update Final Count')}
+                    {isSubmittingNewBatch ? "Processing..." : (phase === 'before' ? 'Add to Supplies' : phase === 'during' ? (duringInventoryMode === 'add' ? 'Add Stock' : 'Record Distribution') : 'Update Final Count')}
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                <input
-                  className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-xs font-bold"
-                  placeholder={phase === 'before' ? 'Delivery or request name (optional)' : phase === 'during' ? 'Who/Where did you give this to?' : 'Notes or condition (optional)'}
-                  value={newBatchState.name}
-                  onChange={(e) => setNewBatchState({ ...newBatchState, name: e.target.value })}
-                />
+              {phase === 'during' && (
+                <div className="inline-grid grid-cols-2 gap-2 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] p-1 mb-4 border border-[#dadad5] dark:border-[#3b3b3b]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDuringInventoryMode("distribute");
+                      setNewBatchError(null);
+                      setNewBatchSuccess(null);
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                      duringInventoryMode === "distribute"
+                        ? "text-white shadow-sm"
+                        : "text-[#444743] hover:bg-white/60 dark:hover:bg-white/5"
+                    }`}
+                    style={duringInventoryMode === "distribute" ? { background: phaseConfig.primaryColor } : {}}
+                  >
+                    Distribute
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDuringInventoryMode("add");
+                      setNewBatchError(null);
+                      setNewBatchSuccess(null);
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                      duringInventoryMode === "add"
+                        ? "text-white shadow-sm"
+                        : "text-[#444743] hover:bg-white/60 dark:hover:bg-white/5"
+                    }`}
+                    style={duringInventoryMode === "add" ? { background: "#2E7D32" } : {}}
+                  >
+                    Add Stock
+                  </button>
+                </div>
+              )}
+              <div className={`grid grid-cols-1 ${phase === 'before' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-3 mb-4`}>
+                {phase !== 'before' && (
+                  <input
+                    className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-xs font-bold"
+                    placeholder={phase === 'during' ? (duringInventoryMode === 'add' ? 'Source, supplier, or delivery note' : 'Who/Where did you give this to?') : 'Notes or condition (optional)'}
+                    value={newBatchState.name}
+                    onChange={(e) => setNewBatchState({ ...newBatchState, name: e.target.value })}
+                  />
+                )}
                 <CustomSelect
                   value={newBatchState.itemId}
                   onChange={(val: any) => setNewBatchState({ ...newBatchState, itemId: val })}
                   options={inventoryItems.map((item) => ({ value: item.id, label: item.name }))}
-                  placeholder={phase === 'before' ? 'Select item to add' : phase === 'during' ? 'Select item to give out' : 'Select item to count'}
+                  placeholder={phase === 'before' ? 'Select item to add' : phase === 'during' ? (duringInventoryMode === 'add' ? 'Select item to add' : 'Select item to give out') : 'Select item to count'}
                 />
                 <input
                   className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-xl px-4 py-3 text-xs font-bold"
-                  placeholder={phase === 'before' ? 'Quantity to add' : phase === 'during' ? 'Quantity given out' : 'Actual quantity left'}
+                  placeholder={phase === 'before' ? 'Quantity to add' : phase === 'during' ? (duringInventoryMode === 'add' ? 'Quantity to add' : 'Quantity given out') : 'Actual quantity left'}
                   type="number"
                   min="1"
                   value={newBatchState.quantity}
@@ -2810,8 +3193,8 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
               {newBatchError && <p className="text-red-600 text-xs mb-2">{newBatchError}</p>}
               {newBatchSuccess && <p className="text-[#2E7D32] text-xs mb-4">{newBatchSuccess}</p>}
               <div className="space-y-4">
-                {inventoryTable.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-[#f4f4ef]/50 dark:bg-white/5 border border-transparent hover:border-[#dadad5] transition-all">
+                {inventoryTable.map((item) => (
+                  <div key={`receive-audit-item-${item.category}`} className="flex items-center justify-between p-4 rounded-2xl bg-[#f4f4ef]/50 dark:bg-white/5 border border-transparent hover:border-[#dadad5] transition-all">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-xl bg-white dark:bg-[#1a1c19] flex items-center justify-center border border-[#dadad5] dark:border-[#3b3b3b]">
                         <span className="material-symbols-outlined" style={{ color: item.tone === "error" ? "#ba1a1a" : item.tone === "warning" ? "#FFB300" : "#2E7D32" }}>package_2</span>
@@ -2873,6 +3256,9 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     token={session?.accessToken ?? ""}
                     height={600} 
                     phase={phase} 
+                    assignedCenterId={capacityCenters.length > 0 ? capacityCenters[0].id : undefined}
+                    assignedMunicipality={session?.user?.municipality ?? undefined}
+                    assignedBarangay={session?.user?.barangay ?? undefined}
                     incidentReports={incidentReports}
                     structureDamageRecords={structureDamageRecords}
                   />
@@ -2883,26 +3269,65 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                 <div className="bg-white dark:bg-[#232622] rounded-3xl p-5 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
                   <h4 className="text-sm font-black uppercase tracking-widest mb-4">Shelter Directory</h4>
                   <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-                    {capacityCenters.slice(0, 8).map((center) => (
-                      <div key={center.id} className="p-4 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-black text-sm">{center.name}</p>
-                            <p className="text-[10px] text-[#707a6c] uppercase tracking-widest">{center.barangay}, {center.municipality}</p>
+                    {(() => {
+                      const filteredCenters = capacityCenters.filter(c => 
+                        !session?.user?.municipality || 
+                        c.municipality.toLowerCase().trim() === session.user.municipality.toLowerCase().trim()
+                      );
+
+                      if (filteredCenters.length === 0) {
+                        return (
+                          <p className="text-sm text-[#707a6c]">No shelter records available for your zone.</p>
+                        );
+                      }
+
+                      return filteredCenters.map((center) => {
+                        let metricPercent = center.utilizationRate;
+                        let metricColor = center.utilizationRate >= 90 ? "#ba1a1a" : center.utilizationRate >= 70 ? "#FFB300" : "#2E7D32";
+                        let metricBg = center.utilizationRate >= 90 ? "#ffdad6" : center.utilizationRate >= 70 ? "#fff3e0" : "#e8f5e9";
+                        let metricLabel = "Occupied";
+                        let statLeft = `${center.currentOccupancy.toLocaleString()} Occupied`;
+                        let statRight = `${center.availableSlots.toLocaleString()} Available`;
+
+                        if (phase === 'before') {
+                          metricPercent = center.capacity > 0 ? Math.round((center.availableSlots / center.capacity) * 100) : 0;
+                          metricColor = metricPercent >= 60 ? "#2E7D32" : metricPercent >= 30 ? "#FFB300" : "#ba1a1a";
+                          metricBg = metricPercent >= 60 ? "#e8f5e9" : metricPercent >= 30 ? "#fff3e0" : "#ffdad6";
+                          metricLabel = "Readiness";
+                          statLeft = `${center.availableSlots.toLocaleString()} Available`;
+                          statRight = `${center.capacity.toLocaleString()} Capacity`;
+                        } else if (phase === 'after') {
+                          const checkedOut = Math.max(0, center.capacity - center.currentOccupancy);
+                          metricPercent = center.capacity > 0 ? Math.round((checkedOut / center.capacity) * 100) : 100;
+                          metricColor = metricPercent >= 70 ? "#2E7D32" : metricPercent >= 30 ? "#FFB300" : "#ba1a1a";
+                          metricBg = metricPercent >= 70 ? "#e8f5e9" : metricPercent >= 30 ? "#fff3e0" : "#ffdad6";
+                          metricLabel = "Cleared";
+                          statLeft = `${center.currentOccupancy.toLocaleString()} Remaining`;
+                          statRight = `${checkedOut.toLocaleString()} Checked Out`;
+                        }
+
+                        return (
+                        <div key={center.id} className="p-4 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-black text-sm">{center.name}</p>
+                              <p className="text-[10px] text-[#707a6c] uppercase tracking-widest">{center.barangay}, {center.municipality}</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full" style={{ background: metricBg, color: metricColor }}>
+                                {Math.round(metricPercent)}%
+                              </span>
+                              <span className="text-[8px] text-[#707a6c] uppercase font-black tracking-widest">{metricLabel}</span>
+                            </div>
                           </div>
-                          <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full" style={{ background: center.utilizationRate >= 90 ? "#ffdad6" : center.utilizationRate >= 70 ? "#fff3e0" : "#e8f5e9", color: center.utilizationRate >= 90 ? "#ba1a1a" : center.utilizationRate >= 70 ? "#FFB300" : "#2E7D32" }}>
-                            {Math.round(center.utilizationRate)}%
-                          </span>
+                          <div className="mt-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-[#444743]">
+                            <span>{statLeft}</span>
+                            <span>{statRight}</span>
+                          </div>
                         </div>
-                        <div className="mt-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-[#444743]">
-                          <span>{center.currentOccupancy.toLocaleString()} Occupied</span>
-                          <span>{center.availableSlots.toLocaleString()} Available</span>
-                        </div>
-                      </div>
-                    ))}
-                    {capacityCenters.length === 0 && (
-                      <p className="text-sm text-[#707a6c]">No shelter records available yet.</p>
-                    )}
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
               </div>
@@ -2929,92 +3354,98 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
           </Link>
           <Link href={`/site-manager/${phase}calamity?tab=citizens`} className={`flex flex-col items-center justify-center p-3 transition-colors ${activeTab === 'Citizens' && !showProfile ? 'rounded-2xl bg-[#dadad5]/50 dark:bg-[#3b3b3b]' : 'text-[#444743] dark:text-[#a0a39f]'}`} style={activeTab === 'Citizens' && !showProfile ? { color: phaseConfig.primaryColor } : {}}>
             <span className="material-symbols-outlined">badge</span>
-            <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">Citizens</span>
+            <span className="text-[9px] font-black uppercase tracking-wider mt-0.5">{phase === "after" ? "Check-Out" : "Check-In"}</span>
           </Link>
       </nav>
 
       {/* Item Action Side Panel */}
       {isActionPanelOpen && selectedItem && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setIsActionPanelOpen(false)}></div>
-          <aside className="relative w-full max-w-xl bg-white dark:bg-[#1a1c19] rounded-[3.5rem] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.3)] p-12 animate-in zoom-in-95 duration-500 flex flex-col border border-white/20">
-            <div className="flex justify-between items-start mb-10">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6">
+          <button 
+            type="button" 
+            aria-label="Close adjustment panel"
+            className="absolute inset-0 w-full h-full bg-black/35 backdrop-blur-sm animate-in fade-in duration-300 cursor-default border-none outline-none focus:outline-none" 
+            onClick={() => setIsActionPanelOpen(false)}
+          />
+          <aside className="relative w-full max-w-lg max-h-[88vh] overflow-y-auto bg-white dark:bg-[#1a1c19] rounded-3xl shadow-[0_24px_70px_-24px_rgba(0,0,0,0.45)] p-6 md:p-8 animate-in zoom-in-95 duration-300 flex flex-col border border-[#dadad5] dark:border-[#3b3b3b]">
+            <div className="flex justify-between items-start gap-4 mb-6">
               <div>
-                <div className="flex items-center gap-2 mb-2">
-                   <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: phaseConfig.primaryColor }}></span>
-                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#707a6c]">Internal Registry</span>
+                <div className="flex items-center gap-2 mb-1.5">
+                   <span className="w-2 h-2 rounded-full" style={{ background: phaseConfig.primaryColor }}></span>
+                   <span className="text-[10px] font-black uppercase tracking-[0.18em] text-[#707a6c]">Inventory Adjustment</span>
                 </div>
-                <h3 className="text-4xl font-black tracking-tight">Stock Adjustment</h3>
+                <h3 className="text-2xl md:text-3xl font-black tracking-tight leading-tight">
+                  {phase === "after" ? "Post-Event Stock Update" : "Stock Adjustment"}
+                </h3>
+                <p className="text-xs font-bold text-[#707a6c] mt-1">Update the count or reason for this item.</p>
               </div>
-              <button onClick={() => setIsActionPanelOpen(false)} className="w-12 h-12 flex items-center justify-center bg-[#f4f4ef] hover:bg-red-50 hover:text-red-600 rounded-2xl transition-all">
+              <button onClick={() => setIsActionPanelOpen(false)} className="w-10 h-10 flex items-center justify-center bg-[#f4f4ef] hover:bg-red-50 hover:text-red-600 rounded-xl transition-all shrink-0">
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
 
             {/* Premium Item Header */}
-            <div className="bg-[#f4f4ef] dark:bg-[#232622] p-8 rounded-[2.5rem] mb-10 border border-[#dadad5] relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                 <span className="material-symbols-outlined text-8xl rotate-12">{selectedItem.icon}</span>
-              </div>
-              
-              <div className="flex items-center gap-6 mb-8 relative z-10">
-                <div className="w-20 h-20 rounded-3xl bg-white flex items-center justify-center border border-[#dadad5] shadow-xl">
-                   <span className="material-symbols-outlined text-4xl" style={{ color: phaseConfig.primaryColor }}>{selectedItem.icon}</span>
+            <div className="bg-[#f4f4ef] dark:bg-[#232622] p-5 rounded-2xl mb-6 border border-[#dadad5] dark:border-[#3b3b3b]">
+              <div className="flex items-start gap-4 mb-5">
+                <div className="w-14 h-14 rounded-2xl bg-white dark:bg-[#1a1c19] flex items-center justify-center border border-[#dadad5] shadow-sm shrink-0">
+                   <span className="material-symbols-outlined text-2xl" style={{ color: phaseConfig.primaryColor }}>{selectedItem.icon}</span>
                 </div>
-                <div>
-                  <p className="text-2xl font-black">{selectedItem.category}</p>
-                  <div className="flex gap-2 mt-1">
-                    <span className="px-2 py-0.5 rounded-md bg-white border border-[#dadad5] text-[9px] font-black uppercase tracking-widest text-[#444743]">ID: {selectedItem.category.slice(0,3).toUpperCase()}-2026</span>
-                    <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest" style={{ background: selectedItem.tone === 'error' ? '#ffdad6' : '#e8f5e9', color: selectedItem.tone === 'error' ? '#ba1a1a' : '#2E7D32' }}>{selectedItem.status}</span>
+                <div className="min-w-0">
+                   <p className="text-xl font-black leading-snug">{selectedItem.category}</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <span className="px-2 py-1 rounded-lg bg-white dark:bg-[#1a1c19] border border-[#dadad5] text-[9px] font-black uppercase tracking-widest text-[#444743]">ID: {selectedItem.category.slice(0,3).toUpperCase()}-2026</span>
+                    <span className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest" style={{ background: selectedItem.tone === 'error' ? '#ffdad6' : selectedItem.tone === 'warning' ? '#fff3e0' : '#e8f5e9', color: selectedItem.tone === 'error' ? '#ba1a1a' : selectedItem.tone === 'warning' ? '#b26a00' : '#2E7D32' }}>{selectedItem.status}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 relative z-10">
-                <div className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl border border-white">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-white dark:bg-[#1a1c19] p-4 rounded-2xl border border-[#dadad5]">
                    <p className="text-[10px] font-black text-[#707a6c] uppercase tracking-widest mb-1">Live Quantity</p>
-                   <div className="flex items-baseline gap-1">
-                     <span className="text-3xl font-black">{selectedItem.stock}</span>
-                     <span className="text-xs font-bold text-[#707a6c]">Available</span>
+                   <div className="flex items-baseline gap-2">
+                     <span className="text-2xl font-black">{selectedItem.quantity ?? selectedItem.stock}</span>
+                     <span className="text-xs font-bold text-[#707a6c]">available</span>
                    </div>
                 </div>
-                <div className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl border border-white">
-                   <p className="text-[10px] font-black text-[#707a6c] uppercase tracking-widest mb-1">Impact Radius</p>
-                   <div className="flex items-baseline gap-1">
-                     <span className="text-3xl font-black text-orange-600">High</span>
-                     <span className="text-xs font-bold text-[#707a6c]">Zone A</span>
+                <div className="bg-white dark:bg-[#1a1c19] p-4 rounded-2xl border border-[#dadad5]">
+                   <p className="text-[10px] font-black text-[#707a6c] uppercase tracking-widest mb-1">Stock Level</p>
+                   <div className="flex items-baseline gap-2">
+                     <span className="text-2xl font-black" style={{ color: selectedItem.tone === 'error' ? '#ba1a1a' : selectedItem.tone === 'warning' ? '#d97706' : phaseConfig.primaryColor }}>{selectedItem.stock}</span>
+                     <span className="text-xs font-bold text-[#707a6c]">recorded</span>
                    </div>
                 </div>
               </div>
             </div>
 
             {/* Input Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
                <div className="space-y-3">
-                 <label className="text-xs font-black uppercase tracking-[0.15em] text-[#444743] ml-1">Manual Override</label>
-                 <div className="flex items-center gap-3 bg-[#f4f4ef] p-2 rounded-2xl border border-[#dadad5] shadow-inner">
+                 <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] ml-1">Quantity Change</span>
+                 <div className="flex items-center gap-2 bg-[#f4f4ef] p-2 rounded-2xl border border-[#dadad5]">
                    <button 
-                     onClick={() => setStockAdjustmentState({ ...stockAdjustmentState, quantity: stockAdjustmentState.quantity - 1 })}
-                     className="w-12 h-12 rounded-xl bg-white shadow-sm font-black text-xl hover:scale-105 active:scale-95 transition-all"
+                     onClick={() => setStockAdjustmentState({ ...stockAdjustmentState, quantity: Math.max(0, stockAdjustmentState.quantity - 1) })}
+                     disabled={stockAdjustmentState.quantity <= 0}
+                     className="w-10 h-10 rounded-xl bg-white shadow-sm font-black text-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:hover:scale-100 disabled:cursor-not-allowed"
                    >-</button>
                    <div className="flex-grow flex flex-col items-center">
                      <input 
                        className="w-full bg-transparent border-none text-center font-black text-2xl focus:ring-0 p-0" 
                        type="number"
+                       min="0"
                        value={stockAdjustmentState.quantity}
-                       onChange={(e) => setStockAdjustmentState({ ...stockAdjustmentState, quantity: parseInt(e.target.value) || 0 })}
+                       onChange={(e) => setStockAdjustmentState({ ...stockAdjustmentState, quantity: Math.max(0, Number.parseInt(e.target.value || "0") || 0) })}
                      />
                      <span className="text-[9px] font-black text-[#707a6c] uppercase tracking-tighter">Units</span>
                    </div>
                    <button 
                      onClick={() => setStockAdjustmentState({ ...stockAdjustmentState, quantity: stockAdjustmentState.quantity + 1 })}
-                     className="w-12 h-12 rounded-xl bg-white shadow-sm font-black text-xl hover:scale-105 active:scale-95 transition-all"
+                     className="w-10 h-10 rounded-xl bg-white shadow-sm font-black text-lg hover:scale-105 active:scale-95 transition-all"
                    >+</button>
                  </div>
                </div>
 
                <div className="space-y-3">
-                 <label className="text-xs font-black uppercase tracking-[0.15em] text-[#444743] ml-1">Change Reason</label>
+                 <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] ml-1">Change Reason</span>
                  <div className="relative group">
                     <CustomSelect
                       value={stockAdjustmentState.reason}
@@ -3023,18 +3454,19 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                         { value: "Distribution Update", label: "Distribution Update" },
                         { value: "Damaged Goods", label: "Damaged Goods" },
                         { value: "Correction/Audit", label: "Correction/Audit" },
-                        { value: "Expiry Removal", label: "Expiry Removal" }
+                        { value: "Expiry Removal", label: "Expiry Removal" },
+                        { value: "Post-Event Count", label: "Post-Event Count" }
                       ]}
                       placeholder="Select reason"
                     />
-                  </div>
+                 </div>
                </div>
 
                <div className="md:col-span-2 space-y-3">
-                 <label className="text-xs font-black uppercase tracking-[0.15em] text-[#444743] ml-1">Adjustment Notes</label>
+                 <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] ml-1">Adjustment Notes</span>
                  <textarea 
-                    className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-2xl p-5 text-sm font-medium focus:ring-2 min-h-[100px] transition-all" 
-                    placeholder="Provide context for this registry update..."
+                    className="w-full bg-[#f4f4ef] border border-[#dadad5] rounded-2xl p-4 text-sm font-medium focus:ring-2 min-h-[88px] transition-all" 
+                    placeholder="Optional note, e.g. final count after inspection..."
                     value={stockAdjustmentState.notes}
                     onChange={(e) => setStockAdjustmentState({ ...stockAdjustmentState, notes: e.target.value })}
                     style={{ outlineColor: phaseConfig.primaryColor } as any}
@@ -3047,18 +3479,18 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
             )}
 
             {/* Bottom Actions */}
-            <div className="flex gap-4 mt-auto">
+            <div className="flex gap-3 mt-auto">
               <button 
                 onClick={() => setIsActionPanelOpen(false)} 
-                className="flex-1 bg-[#f4f4ef] text-[#444743] py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs hover:bg-[#eeeeea] active:scale-95 transition-all"
+                className="flex-1 bg-[#f4f4ef] text-[#444743] py-4 rounded-2xl font-black uppercase tracking-[0.16em] text-xs hover:bg-[#eeeeea] active:scale-95 transition-all"
               >
                 Cancel
               </button>
               <button 
                 onClick={handleConfirmStockAdjustment}
                 disabled={isSubmittingStockAdjustment}
-                className="flex-[2] text-white py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-[0_20px_40px_-10px_rgba(0,0,0,0.2)] hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed" 
-                style={{ background: `linear-gradient(135deg, ${phaseConfig.primaryColor}, ${phaseConfig.primaryContainer})` }}
+                className="flex-[2] text-white py-4 rounded-2xl font-black uppercase tracking-[0.16em] text-xs shadow-lg hover:brightness-110 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed" 
+                style={{ background: phaseConfig.primaryColor }}
               >
                 {isSubmittingStockAdjustment ? 'Processing...' : 'Confirm Update'}
               </button>
@@ -3070,7 +3502,12 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       {/* QR Scan Citizen Confirmation Modal */}
       {scanModalOpen && scannedCitizen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setScanModalOpen(false); scanLockRef.current = false; }} />
+          <button 
+            type="button"
+            aria-label="Close scan confirmation"
+            className="absolute inset-0 w-full h-full bg-black/40 backdrop-blur-sm cursor-default border-none outline-none focus:outline-none" 
+            onClick={() => { setScanModalOpen(false); scanLockRef.current = false; }} 
+          />
           <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 z-10 animate-in zoom-in-95 duration-200">
             <p className="text-[10px] font-black tracking-widest text-[#FFB300] uppercase mb-4">Check-In Confirmation</p>
             <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl mb-6">
@@ -3086,7 +3523,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                 {scannedCitizen.registrationType && (
                   <p className="text-[11px] font-bold text-[#FFB300] mt-1">{scannedCitizen.registrationType.toUpperCase()}</p>
                 )}
-                {scannedCitizen.familySize && (
+                {!!scannedCitizen.familySize && (
                   <p className="text-xs text-gray-500">Family size: {scannedCitizen.familySize}</p>
                 )}
               </div>
@@ -3126,7 +3563,12 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
       {/* Check-Out Confirmation Modal */}
       {checkOutModalOpen && checkOutRecord && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setCheckOutModalOpen(false); scanLockRef.current = false; }} />
+          <button 
+            type="button"
+            aria-label="Close check out confirmation"
+            className="absolute inset-0 w-full h-full bg-black/40 backdrop-blur-sm cursor-default border-none outline-none focus:outline-none" 
+            onClick={() => { setCheckOutModalOpen(false); scanLockRef.current = false; }} 
+          />
           <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 z-10 animate-in zoom-in-95 duration-200">
             <p className="text-[10px] font-black tracking-widest text-[#2E7D32] uppercase mb-4">Check-Out Confirmation</p>
             <div className="flex items-center gap-4 p-4 bg-green-50 rounded-2xl mb-6">
@@ -3161,15 +3603,26 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
         </div>
       )}
 
-      {/* Receive Goods Modal */}
+      {/* Receive/Audit Goods Modal */}
       {isReceiveModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsReceiveModalOpen(false)}></div>
+          <button 
+            type="button"
+            aria-label="Close modal"
+            className="absolute inset-0 w-full h-full bg-black/40 backdrop-blur-sm animate-in fade-in duration-300 cursor-default border-none outline-none focus:outline-none" 
+            onClick={() => setIsReceiveModalOpen(false)}
+          />
           <div className="relative bg-white dark:bg-[#1a1c19] w-full max-w-2xl rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 duration-300">
             <div className="flex justify-between items-start mb-8">
               <div>
-                <h3 className="text-3xl font-black mb-2">New Shipment Intake</h3>
-                <p className="text-[#444743] text-sm font-medium">Scan or manually enter physical relief goods being received at this site.</p>
+                <h3 className="text-3xl font-black mb-2">
+                  {phase === "after" ? "Audit Remaining Stock" : "New Shipment Intake"}
+                </h3>
+                <p className="text-[#444743] text-sm font-medium">
+                  {phase === "after"
+                    ? "Select an item and enter the physical count of what is left at this site."
+                    : "Scan or manually enter physical relief goods being received at this site."}
+                </p>
               </div>
               <button onClick={() => setIsReceiveModalOpen(false)} className="material-symbols-outlined p-2 hover:bg-[#f4f4ef] rounded-full">close</button>
             </div>
@@ -3183,7 +3636,7 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
 
                <div className="space-y-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Inventory Item</label>
+                    <span className="block text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Inventory Item</span>
                     <CustomSelect
                       value={receiveGoodsState.itemId}
                       onChange={(val: any) => setReceiveGoodsState({ ...receiveGoodsState, itemId: val })}
@@ -3192,69 +3645,75 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Quantity Received</label>
+                    <span className="block text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">
+                      {phase === "after" ? "Physical Count (Remaining)" : "Quantity Received"}
+                    </span>
                     <input
                       className="w-full bg-[#f4f4ef] border-none rounded-xl h-12 px-4 font-bold"
                       placeholder="e.g. 50"
                       type="number"
-                      min="1"
+                      min="0"
                       value={receiveGoodsState.quantity}
                       onChange={(e) => setReceiveGoodsState({ ...receiveGoodsState, quantity: e.target.value })}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Arrival Terminal</label>
-                    <input 
-                      className="w-full bg-[#f4f4ef] border-none rounded-xl h-12 px-4 font-bold" 
-                      placeholder="e.g. North Dock 4"
-                      value={receiveGoodsState.arrivalTerminal}
-                      onChange={(e) => setReceiveGoodsState({ ...receiveGoodsState, arrivalTerminal: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Waybill Number</label>
-                    <input 
-                      className="w-full bg-[#f4f4ef] border-none rounded-xl h-12 px-4 font-bold" 
-                      placeholder="WB-9982-X"
-                      value={receiveGoodsState.waybillNumber}
-                      onChange={(e) => setReceiveGoodsState({ ...receiveGoodsState, waybillNumber: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Condition</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button 
-                        onClick={() => setReceiveGoodsState({ ...receiveGoodsState, condition: "Intact" })}
-                        className={`py-2 text-[10px] font-black uppercase rounded-lg transition-all ${
-                          receiveGoodsState.condition === "Intact"
-                            ? "bg-green-100 text-green-700 border-2 border-green-500"
-                            : "bg-[#f4f4ef] text-[#444743]"
-                        }`}
-                      >
-                        Intact
-                      </button>
-                      <button 
-                        onClick={() => setReceiveGoodsState({ ...receiveGoodsState, condition: "Minor" })}
-                        className={`py-2 text-[10px] font-black uppercase rounded-lg transition-all ${
-                          receiveGoodsState.condition === "Minor"
-                            ? "bg-yellow-100 text-yellow-700 border-2 border-yellow-500"
-                            : "bg-[#f4f4ef] text-[#444743]"
-                        }`}
-                      >
-                        Minor
-                      </button>
-                      <button 
-                        onClick={() => setReceiveGoodsState({ ...receiveGoodsState, condition: "Damaged" })}
-                        className={`py-2 text-[10px] font-black uppercase rounded-lg transition-all ${
-                          receiveGoodsState.condition === "Damaged"
-                            ? "bg-red-100 text-red-700 border-2 border-red-500"
-                            : "bg-[#f4f4ef] text-[#444743]"
-                        }`}
-                      >
-                        Damaged
-                      </button>
-                    </div>
-                  </div>
+                  {phase !== "after" && (
+                    <>
+                      <div className="space-y-1">
+                        <span className="block text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Arrival Terminal</span>
+                        <input 
+                          className="w-full bg-[#f4f4ef] border-none rounded-xl h-12 px-4 font-bold" 
+                          placeholder="e.g. North Dock 4"
+                          value={receiveGoodsState.arrivalTerminal}
+                          onChange={(e) => setReceiveGoodsState({ ...receiveGoodsState, arrivalTerminal: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="block text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Waybill Number</span>
+                        <input 
+                          className="w-full bg-[#f4f4ef] border-none rounded-xl h-12 px-4 font-bold" 
+                          placeholder="WB-9982-X"
+                          value={receiveGoodsState.waybillNumber}
+                          onChange={(e) => setReceiveGoodsState({ ...receiveGoodsState, waybillNumber: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="block text-[10px] font-black uppercase tracking-widest text-[#444743] ml-1">Condition</span>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button 
+                            onClick={() => setReceiveGoodsState({ ...receiveGoodsState, condition: "Intact" })}
+                            className={`py-2 text-[10px] font-black uppercase rounded-lg transition-all ${
+                              receiveGoodsState.condition === "Intact"
+                                ? "bg-green-100 text-green-700 border-2 border-green-500"
+                                : "bg-[#f4f4ef] text-[#444743]"
+                            }`}
+                          >
+                            Intact
+                          </button>
+                          <button 
+                            onClick={() => setReceiveGoodsState({ ...receiveGoodsState, condition: "Minor" })}
+                            className={`py-2 text-[10px] font-black uppercase rounded-lg transition-all ${
+                              receiveGoodsState.condition === "Minor"
+                                ? "bg-yellow-100 text-yellow-700 border-2 border-yellow-500"
+                                : "bg-[#f4f4ef] text-[#444743]"
+                            }`}
+                          >
+                            Minor
+                          </button>
+                          <button 
+                            onClick={() => setReceiveGoodsState({ ...receiveGoodsState, condition: "Damaged" })}
+                            className={`py-2 text-[10px] font-black uppercase rounded-lg transition-all ${
+                              receiveGoodsState.condition === "Damaged"
+                                ? "bg-red-100 text-red-700 border-2 border-red-500"
+                                : "bg-[#f4f4ef] text-[#444743]"
+                            }`}
+                          >
+                            Damaged
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
                </div>
             </div>
 
@@ -3275,8 +3734,151 @@ function toStructureDamageRecord(report: IncidentReport): StructureDamageRecord 
                  className="flex-[2] text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-lg hover:brightness-110 active:scale-95 transition-all disabled:opacity-50" 
                  style={{ background: phaseConfig.primaryColor }}
                >
-                 {isSubmittingReceiveGoods ? "Processing..." : "Log Physical Intake"}
+                 {isSubmittingReceiveGoods ? "Processing..." : (phase === "after" ? "Confirm Audit Count" : "Log Physical Intake")}
                </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isActivityModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <button 
+            type="button"
+            aria-label="Close activity log panel"
+            className="absolute inset-0 w-full h-full bg-black/40 backdrop-blur-sm animate-in fade-in duration-300 cursor-default border-none outline-none focus:outline-none" 
+            onClick={() => setIsActivityModalOpen(false)}
+          />
+          <div className="relative bg-white dark:bg-[#1a1c19] w-full max-w-3xl rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 duration-300 max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h3 className="text-3xl font-black mb-2">System Activity Log</h3>
+                <p className="text-[#444743] dark:text-[#a0a39f] text-sm font-medium">
+                  {phase === "before"
+                    ? "Operational preparations, inventory setups, and staging checks recorded on this site."
+                    : phase === "during"
+                      ? "Real-time records of citizen arrivals and active site incidents."
+                      : "Post-disaster safe check-outs, remaining inventory audits, and recovery actions."}
+                </p>
+              </div>
+              <button onClick={() => setIsActivityModalOpen(false)} className="material-symbols-outlined p-2 hover:bg-[#f4f4ef] rounded-full">close</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 pr-2">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#dadad5]/50 text-[#707a6c] font-black text-[10px] uppercase tracking-wider">
+                    <th className="pb-3">Activity / Details</th>
+                    <th className="pb-3">Logged Time</th>
+                    <th className="pb-3 text-center">Source</th>
+                    <th className="pb-3 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#dadad5]/30">
+                  {allAuditEntries.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors font-bold">
+                      <td className="py-4">
+                        <p className="text-[#1a1c19] dark:text-white text-base">{entry.title}</p>
+                        <p className="text-xs text-[#707a6c] font-mono mt-1">{entry.note}</p>
+                      </td>
+                      <td className="py-4 font-medium text-[#707a6c] text-xs whitespace-nowrap">{entry.timestamp}</td>
+                      <td className="py-4 text-center">
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded bg-[#eeeeea] dark:bg-[#232622]">
+                          {entry.source}
+                        </span>
+                      </td>
+                      <td className="py-4 text-right">
+                        <span className={`text-[10px] px-2.5 py-1 rounded font-black uppercase ${
+                          entry.status?.toLowerCase() === 'resolved' || entry.status?.toLowerCase() === 'checked_in' || entry.status?.toLowerCase() === 'processed' || entry.status?.toLowerCase() === 'checked-in'
+                            ? 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300'
+                            : entry.status?.toLowerCase() === 'checked-out'
+                              ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                        }`}>
+                          {entry.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {allAuditEntries.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-[#707a6c] text-sm">
+                        No activity records found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alerts Modal */}
+      {isAlertsModalOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#fcfdf6] dark:bg-[#1a1c19] w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-[#dadad5] dark:border-[#3b3b3b] animate-in slide-in-from-bottom-8 duration-300 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between p-6 border-b border-[#dadad5]/50 dark:border-[#3b3b3b]/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-orange-600 dark:text-orange-400">warning</span>
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-[#1a1c19] dark:text-white">High Alerts</h3>
+                  <p className="text-xs font-bold text-[#707a6c] uppercase tracking-widest mt-1">Active Site Incidents</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsAlertsModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[#444743] dark:text-[#c4c7c0]">close</span>
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-[#f4f4ef] dark:bg-[#232622]">
+              <div className="space-y-4">
+                {incidentReports
+                  .filter(r => r.severity?.toLowerCase().includes("high") || r.severity?.toLowerCase().includes("critical"))
+                  .map((alert) => (
+                  <div key={alert.id} className="bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-orange-200 dark:border-orange-900/30 shadow-sm relative overflow-hidden">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-orange-400 to-red-500"></div>
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 rounded-full mb-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+                          {alert.severity}
+                        </span>
+                        <h4 className="font-black text-[#1a1c19] dark:text-white text-base">{alert.title}</h4>
+                      </div>
+                      <span className="text-xs font-bold text-[#707a6c] whitespace-nowrap bg-[#f4f4ef] dark:bg-[#232622] px-2 py-1 rounded-lg">
+                        {new Date(alert.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    
+                    <p className="text-sm text-[#444743] dark:text-[#c4c7c0] mb-4 leading-relaxed">
+                      {alert.content || "No detailed description provided."}
+                    </p>
+                    
+                    <div className="flex items-center justify-between pt-3 border-t border-[#dadad5]/50 dark:border-[#3b3b3b]/50">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#707a6c]">
+                        <span className="material-symbols-outlined text-[14px]">location_on</span>
+                        <span>{alert.location || "Unknown Location"}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#707a6c]">
+                        <span className="material-symbols-outlined text-[14px]">person</span>
+                        <span>{alert.reportedBy?.split('@')[0] || "System"}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {incidentReports.filter(r => r.severity?.toLowerCase().includes("high") || r.severity?.toLowerCase().includes("critical")).length === 0 && (
+                  <div className="text-center py-12">
+                    <span className="material-symbols-outlined text-4xl text-[#707a6c] mb-3 opacity-50">check_circle</span>
+                    <p className="text-sm font-bold text-[#707a6c]">No high or critical alerts active right now.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

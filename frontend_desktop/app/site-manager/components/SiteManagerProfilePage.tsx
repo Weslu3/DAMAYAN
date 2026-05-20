@@ -5,6 +5,14 @@ import type { AuthSession } from "../../lib/types";
 import { saveSession } from "../../lib/session";
 import CustomSelect from "./CustomSelect";
 
+function formatAssignedZone(user?: AuthSession["user"] | null): string {
+  const parts = [user?.barangay, user?.municipality, user?.province]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+
+  return parts.length > 0 ? parts.join(", ") : "No assigned location";
+}
+
 // Client-safe Portal component to bypass parent stacking contexts
 function Portal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
@@ -93,17 +101,13 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
     fullName: "",
     email: "",
     phone: "",
-    geographicZone: "Central Visayas",
+    geographicZone: "No assigned location",
     employeeId: "SM-CV-2026-04",
     isOnDuty: true,
     receiveZoneAlerts: true,
   });
 
-  // Mocked Field Teams for Role-Based Access User Story
-  const [fieldTeams, setFieldTeams] = useState([
-    { id: 1, name: "Juan Dela Cruz", role: "Medical Responder" },
-    { id: 2, name: "Maria Santos", role: "Logistics Coordinator" },
-  ]);
+  const [fieldTeams, setFieldTeams] = useState<{ id: number; name: string; role: string }[]>([]);
 
   // Load profile data on mount
   useEffect(() => {
@@ -115,6 +119,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
         fullName: session.user.name || "",
         email: session.user.email || "",
         phone: session.user.phone || "",
+        geographicZone: formatAssignedZone(session.user),
       }));
     }
   }, [session]);
@@ -157,7 +162,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
       }));
 
       setIsEditing(false);
-      setSuccess("Profile updated successfully. Zone notifications will be sent to your device.");
+      setSuccess("Profile updated successfully. Assigned location stays synced with your account record.");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update profile";
       setError(message);
@@ -268,7 +273,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">First Name</label>
+              <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">First Name</span>
               <input 
                 value={profileData.firstName}
                 onChange={(e) => setProfileData({...profileData, firstName: e.target.value})}
@@ -278,7 +283,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Last Name</label>
+              <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Last Name</span>
               <input 
                 value={profileData.lastName}
                 onChange={(e) => setProfileData({...profileData, lastName: e.target.value})}
@@ -288,7 +293,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Email Address</label>
+              <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Email Address</span>
               <input 
                 value={profileData.email}
                 onChange={(e) => setProfileData({...profileData, email: e.target.value})}
@@ -298,7 +303,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Mobile Number</label>
+              <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Mobile Number</span>
               <input 
                 value={profileData.phone}
                 onChange={(e) => setProfileData({...profileData, phone: e.target.value})}
@@ -318,20 +323,19 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Assigned Geographic Zone</label>
-              <CustomSelect
-                value={profileData.geographicZone}
-                onChange={(val: any) => setProfileData({...profileData, geographicZone: val})}
-                disabled={!isEditing}
-                options={[
-                  { value: "Central Visayas", label: "Central Visayas" },
-                  { value: "National Capital Region", label: "National Capital Region (NCR)" },
-                  { value: "Davao Region", label: "Davao Region" },
-                  { value: "Northern Mindanao", label: "Northern Mindanao" },
-                ]}
-                placeholder="Select Zone"
-              />
-              <p className="text-xs text-[#5f6b5e] mt-2 ml-1">Updating your zone restricts your reports to that designated area.</p>
+              <span className="block text-[10px] font-black uppercase tracking-[0.15em] text-[#444743] dark:text-[#c4c7c0] ml-1">Assigned Geographic Zone</span>
+              <div className="rounded-2xl border-2 border-[#dadad5] dark:border-[#3b3b3b] bg-[#f4f4ef] dark:bg-[#2e312d] px-5 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="material-symbols-outlined text-lg mt-0.5" style={{ color: primaryColor }}>location_on</span>
+                  <div className="min-w-0">
+                    <p className="font-black text-sm text-[#1a1c19] dark:text-white break-words">{profileData.geographicZone}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-[#707a6c] mt-1">
+                      {session?.user?.barangay ? "Barangay scope" : session?.user?.municipality ? "Municipality scope" : "Account assignment"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-[#5f6b5e] mt-2 ml-1">This location comes from the same account assignment used by admin, dispatcher, and site manager views.</p>
             </div>
             
             <div className="space-y-6">
@@ -375,7 +379,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
           </div>
           
           <div className="space-y-4">
-            {fieldTeams.map((team) => (
+            {fieldTeams.length > 0 ? fieldTeams.map((team) => (
               <div key={team.id} className="flex items-center justify-between p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] bg-[#fdfefd] dark:bg-[#2a2d29] hover:border-gray-300 transition-colors">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center font-bold text-gray-500 dark:text-gray-400">
@@ -401,7 +405,12 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
                   />
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="p-5 rounded-2xl border border-dashed border-[#dadad5] dark:border-[#3b3b3b] bg-[#fdfefd] dark:bg-[#2a2d29] text-center">
+                <p className="font-bold text-[#1a1c19] dark:text-white">No field team records available</p>
+                <p className="text-xs text-[#5f6b5e] mt-1">This section will populate once team assignments are loaded from the database.</p>
+              </div>
+            )}
           </div>
           <p className="text-xs text-[#5f6b5e] mt-4 ml-1">Assigning specific roles ensures field teams perform tasks securely within their designated scope.</p>
         </div>
@@ -482,13 +491,13 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
           <div className="bg-white dark:bg-[#232622] rounded-[2.5rem] p-8 border border-[#dadad5] dark:border-[#3b3b3b] shadow-sm">
             <div className="flex items-center gap-3 mb-6 border-b border-[#dadad5] dark:border-[#3b3b3b] pb-4">
               <span className="material-symbols-outlined text-red-500">emergency</span>
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#444743] dark:text-[#a0a39f]">Emergency Contact</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#444743] dark:text-[#a0a39f]">Account Contact</h3>
             </div>
             <div className="space-y-3">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center gap-4">
                 <div>
-                  <p className="font-bold text-sm text-[#1a1c19] dark:text-white">Elena Reyes (Spouse)</p>
-                  <p className="text-xs text-[#707a6c]">+63 917 XXX XXXX</p>
+                  <p className="font-bold text-sm text-[#1a1c19] dark:text-white">{profileData.fullName || "Account holder"}</p>
+                  <p className="text-xs text-[#707a6c]">{profileData.phone || "No phone number on file"}</p>
                 </div>
                 <span className="material-symbols-outlined text-[#707a6c]">call</span>
               </div>
@@ -562,7 +571,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c] ml-1">New Password</label>
+                  <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c] ml-1">New Password</span>
                   <input 
                     type="password"
                     value={newPassword}
@@ -574,7 +583,7 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-wider text-[#707a6c] ml-1">Confirm Password</label>
+                  <span className="block text-[10px] font-black uppercase tracking-wider text-[#707a6c] ml-1">Confirm Password</span>
                   <input 
                     type="password"
                     value={confirmPassword}

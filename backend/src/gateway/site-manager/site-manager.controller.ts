@@ -45,7 +45,7 @@ import { ApiCenterService } from '../../apicenter/apicenter.service.js';
 export class SiteManagerController {
   constructor(
     @Inject(SiteManagerProxyService) private readonly siteManagerProxyService: SiteManagerProxyService,
-    private readonly apiCenterService: ApiCenterService,
+    @Inject(ApiCenterService) private readonly apiCenterService: ApiCenterService,
   ) {}
 
   @Get('geo/geocode')
