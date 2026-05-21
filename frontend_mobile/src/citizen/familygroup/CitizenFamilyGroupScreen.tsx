@@ -28,11 +28,14 @@ import { CitizenFamilyGroupScannerScreen } from "./CitizenFamilyGroupScannerScre
 
 interface CitizenFamilyGroupScreenProps {
   onBack: () => void;
+  personalQrCodeId?: string;
+  citizenDisplayName?: string;
 }
 
-export function CitizenFamilyGroupScreen({ onBack }: CitizenFamilyGroupScreenProps) {
+export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisplayName }: CitizenFamilyGroupScreenProps) {
   const [token, setToken] = useState<string | null>(null);
   const [group, setGroup] = useState<FamilyGroup | null>(null);
+  const isHead = group?.isHead !== false; // true when own group, false when member of another's
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [familyName, setFamilyName] = useState("");
@@ -40,6 +43,7 @@ export function CitizenFamilyGroupScreen({ onBack }: CitizenFamilyGroupScreenPro
   const [showScanner, setShowScanner] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"family" | "personal">("family");
 
   const loadGroup = useCallback(async (tok: string) => {
     try {
@@ -166,13 +170,14 @@ export function CitizenFamilyGroupScreen({ onBack }: CitizenFamilyGroupScreenPro
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={theme.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Family Group QR</Text>
-        {group && (
+        <Text style={styles.headerTitle}>Family & ID</Text>
+        {activeTab === "family" && group && isHead ? (
           <TouchableOpacity onPress={handleDeleteGroup} style={styles.deleteHeaderBtn}>
             <Ionicons name="trash-outline" size={20} color={theme.danger ?? "#C0392B"} />
           </TouchableOpacity>
+        ) : (
+          <View style={{ width: 40 }} />
         )}
-        {!group && <View style={{ width: 40 }} />}
       </View>
 
       {error ? (
@@ -207,7 +212,18 @@ export function CitizenFamilyGroupScreen({ onBack }: CitizenFamilyGroupScreenPro
             <Text style={styles.createBtnText}>CREATE FAMILY GROUP</Text>
           </TouchableOpacity>
         </View>
-      ) : (
+      )}
+
+      {activeTab === "family" && group && !isHead && (
+        <View style={styles.memberBadgeBanner}>
+          <Ionicons name="people-circle-outline" size={18} color="#2E7D32" />
+          <Text style={styles.memberBadgeText}>
+            You are a member of this group. Only the group creator can add or remove members.
+          </Text>
+        </View>
+      )}
+
+      {activeTab === "family" && !!group && (
         /* ── Group exists ── */
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* Shared QR Card */}
@@ -257,27 +273,47 @@ export function CitizenFamilyGroupScreen({ onBack }: CitizenFamilyGroupScreenPro
           <View style={styles.membersSection}>
             <View style={styles.membersSectionHeader}>
               <Text style={styles.membersSectionTitle}>
-                Members ({group.members.length})
+                Members ({group.members.length + 1})
               </Text>
-              <TouchableOpacity
-                style={styles.addMemberBtn}
-                onPress={() => setShowScanner(true)}
-                disabled={addingMember}
-              >
-                <Ionicons name="scan" size={18} color="#fff" />
-                <Text style={styles.addMemberBtnText}>SCAN & ADD</Text>
-              </TouchableOpacity>
+              {isHead && (
+                <TouchableOpacity
+                  style={styles.addMemberBtn}
+                  onPress={() => setShowScanner(true)}
+                  disabled={addingMember}
+                >
+                  <Ionicons name="scan" size={18} color="#fff" />
+                  <Text style={styles.addMemberBtnText}>SCAN & ADD</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Family head row — always first */}
+            <View style={[styles.memberCard, styles.memberCardHead]}>
+              <View style={[styles.memberAvatar, styles.memberAvatarHead]}>
+                <Text style={[styles.memberAvatarText, { color: "#fff" }]}>
+                  {(group.headName ?? "?")[0].toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.memberInfo}>
+                <Text style={styles.memberName}>{group.headName ?? "Family Head"}</Text>
+                {group.headQrCodeId && <Text style={styles.memberQr}>{group.headQrCodeId}</Text>}
+                <View style={styles.headBadge}>
+                  <Text style={styles.headBadgeText}>FAMILY HEAD</Text>
+                </View>
+              </View>
             </View>
 
             {group.members.length === 0 ? (
               <View style={styles.emptyMembersCard}>
                 <Ionicons name="person-add-outline" size={32} color={theme.textLight} style={{ marginBottom: 12 }} />
                 <Text style={styles.emptyMembersText}>
-                  No members added yet. Tap "SCAN & ADD" to scan a family member's QR code.
+                  {isHead
+                    ? "No members added yet. Tap \"SCAN & ADD\" to scan a family member's QR code."
+                    : "No other members have been added to this group yet."}
                 </Text>
               </View>
             ) : (
-              group.members.map((member, index) => (
+              group.members.map((member) => (
                 <View key={member.id} style={styles.memberCard}>
                   <View style={styles.memberAvatar}>
                     <Text style={styles.memberAvatarText}>
@@ -293,12 +329,14 @@ export function CitizenFamilyGroupScreen({ onBack }: CitizenFamilyGroupScreenPro
                       </View>
                     )}
                   </View>
-                  <TouchableOpacity
-                    onPress={() => handleRemoveMember(member.citizenQrCodeId, member.memberFullName ?? "this member")}
-                    style={styles.removeBtn}
-                  >
-                    <Ionicons name="close-circle" size={24} color={theme.textLight} />
-                  </TouchableOpacity>
+                  {isHead && (
+                    <TouchableOpacity
+                      onPress={() => handleRemoveMember(member.citizenQrCodeId, member.memberFullName ?? "this member")}
+                      style={styles.removeBtn}
+                    >
+                      <Ionicons name="close-circle" size={24} color={theme.textLight} />
+                    </TouchableOpacity>
+                  )}
                 </View>
               ))
             )}
@@ -636,6 +674,10 @@ const styles = StyleSheet.create({
     borderColor: theme.line,
     gap: 14,
   },
+  memberCardHead: {
+    borderColor: "#A5D6A7",
+    backgroundColor: "#F1F8E9",
+  },
   memberAvatar: {
     width: 48,
     height: 48,
@@ -644,10 +686,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  memberAvatarHead: {
+    backgroundColor: "#2E7D32",
+  },
   memberAvatarText: {
     ...fonts.black,
     fontSize: 20,
     color: "#2E7D32",
+  },
+  headBadge: {
+    marginTop: 4,
+    alignSelf: "flex-start",
+    backgroundColor: "#2E7D32",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  headBadgeText: {
+    ...fonts.black,
+    fontSize: 9,
+    color: "#fff",
+    letterSpacing: 0.8,
   },
   memberInfo: {
     flex: 1,
@@ -679,6 +738,23 @@ const styles = StyleSheet.create({
   },
   removeBtn: {
     padding: 4,
+  },
+  memberBadgeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#C8E6C9",
+  },
+  memberBadgeText: {
+    ...fonts.medium,
+    fontSize: 13,
+    color: "#2E7D32",
+    flex: 1,
+    lineHeight: 18,
   },
   // Modal styles
   modalOverlay: {

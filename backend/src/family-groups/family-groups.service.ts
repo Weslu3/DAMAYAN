@@ -38,7 +38,8 @@ export class FamilyGroupsService {
       .single();
 
     if (error) throw new BadRequestException(error.message);
-    return this.toGroup(data as FamilyGroupRow, []);
+    const headInfo = await this.getHeadCitizenInfo(dto.headUserId);
+    return this.toGroup(data as FamilyGroupRow, [], headInfo);
   }
 
   async getGroupByHeadUser(headUserId: string) {
@@ -54,8 +55,40 @@ export class FamilyGroupsService {
     if (error) throw new NotFoundException(error.message);
     if (!data) return null;
 
-    const members = await this.getMembersForGroup((data as FamilyGroupRow).id);
-    return this.toGroup(data as FamilyGroupRow, members);
+    const row = data as FamilyGroupRow;
+    const [members, headInfo] = await Promise.all([
+      this.getMembersForGroup(row.id),
+      this.getHeadCitizenInfo(row.head_user_id),
+    ]);
+    return this.toGroup(row, members, headInfo);
+  }
+
+  async getGroupByMemberUser(memberUserId: string) {
+    const supabase = this.supabaseService.getClient() as any;
+    const { data: memberRow } = await supabase
+      .from('family_group_members')
+      .select('family_group_id')
+      .eq('member_user_id', memberUserId)
+      .order('added_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!memberRow) return null;
+
+    const { data, error } = await supabase
+      .from('family_groups')
+      .select('*')
+      .eq('id', memberRow.family_group_id)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const row = data as FamilyGroupRow;
+    const [members, headInfo] = await Promise.all([
+      this.getMembersForGroup(row.id),
+      this.getHeadCitizenInfo(row.head_user_id),
+    ]);
+    return this.toGroup(row, members, headInfo);
   }
 
   async getGroupByQrCode(familyQrCodeId: string) {
@@ -69,8 +102,12 @@ export class FamilyGroupsService {
     if (error) throw new NotFoundException(error.message);
     if (!data) return null;
 
-    const members = await this.getMembersForGroup((data as FamilyGroupRow).id);
-    return this.toGroup(data as FamilyGroupRow, members);
+    const row = data as FamilyGroupRow;
+    const [members, headInfo] = await Promise.all([
+      this.getMembersForGroup(row.id),
+      this.getHeadCitizenInfo(row.head_user_id),
+    ]);
+    return this.toGroup(row, members, headInfo);
   }
 
   async addMember(dto: AddFamilyGroupMemberDto) {
@@ -160,11 +197,29 @@ export class FamilyGroupsService {
     return (data ?? []) as FamilyGroupMemberRow[];
   }
 
-  private toGroup(row: FamilyGroupRow, members: FamilyGroupMemberRow[]) {
+  private async getHeadCitizenInfo(headUserId: string): Promise<{ fullName: string | null; qrCodeId: string | null }> {
+    const supabase = this.supabaseService.getClient() as any;
+    const [{ data: citizen }, { data: profile }] = await Promise.all([
+      supabase.from('register_citizens').select('full_name, qr_code_id').eq('user_id', headUserId).maybeSingle(),
+      supabase.from('user_profiles').select('first_name, last_name').eq('auth_user_id', headUserId).maybeSingle(),
+    ]);
+    const fullName = citizen?.full_name?.trim()
+      || (profile ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() : null)
+      || null;
+    return { fullName, qrCodeId: citizen?.qr_code_id ?? null };
+  }
+
+  private toGroup(
+    row: FamilyGroupRow,
+    members: FamilyGroupMemberRow[],
+    headInfo?: { fullName: string | null; qrCodeId: string | null },
+  ) {
     return {
       id: row.id,
       familyQrCodeId: row.family_qr_code_id,
       headUserId: row.head_user_id,
+      headName: headInfo?.fullName ?? undefined,
+      headQrCodeId: headInfo?.qrCodeId ?? undefined,
       familyName: row.family_name ?? undefined,
       members: members.map((m) => this.toMember(m)),
       createdAt: new Date(row.created_at),

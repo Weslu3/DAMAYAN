@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
   TouchableOpacity,
   ActivityIndicator,
@@ -14,9 +15,10 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { theme, fonts } from "../../theme";
 import { styles } from "./CitizenDuringScreen.styles";
-import { submitIncidentReport } from "../../api";
+import { submitIncidentReport, getFamilyGroup } from "../../api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type DuringStep =
@@ -111,20 +113,35 @@ export function CitizenDuringScreen({
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ── Location state ─────────────────────────────────────────────────────────
+  const [locationMode, setLocationMode] = useState<"idle" | "loading" | "gps">("idle");
+  const [detectedAddress, setDetectedAddress] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [manualAddress, setManualAddress] = useState("");
+
+  // effectiveLocation: prefer manual input; fall back to GPS address or raw coords
+  const effectiveLocation = manualAddress.trim()
+    || (locationMode === "gps" ? (detectedAddress ?? (coords ? `${coords.latitude.toFixed(5)}° N, ${coords.longitude.toFixed(5)}° E` : "")) : "");
+
   const handleUploadAndSend = async () => {
     if (!session?.accessToken) {
       Alert.alert("Authentication Error", "You must be logged in to submit a report.");
       return;
     }
+    if (!effectiveLocation.trim()) {
+      Alert.alert("Location Required", "Please enter your location or use the GPS button before submitting.");
+      return;
+    }
 
     try {
       setIsSubmitting(true);
-      
+
+      const reportLocation = effectiveLocation.trim();
       const payload = {
         title: "Citizen SOS Report",
-        content: "Citizen needs immediate rescue. Location details: Brgy. 102, District 4 - Zone Red. Affected: 4 persons.",
+        content: `Citizen needs immediate rescue. Location: ${reportLocation}. Persons affected: ${personsAffected}.${coords ? ` GPS: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}.` : ""}`,
         severity: "high",
-        location: "Brgy. 102, District 4 - Zone Red",
+        location: reportLocation,
       };
 
       await submitIncidentReport(session.accessToken, payload);
@@ -142,6 +159,54 @@ export function CitizenDuringScreen({
     else if (initialStep === "decision") setStep("rescue_decision");
     else if (initialStep) setStep(initialStep as DuringStep);
   }, [initialStep]);
+
+  // ── GPS detect on demand ────────────────────────────────────────────────────
+  async function handleDetectGPS() {
+    setLocationMode("loading");
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Denied", "Location permission was not granted. Please type your address manually.");
+        setLocationMode("idle");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = pos.coords;
+      setCoords({ latitude, longitude });
+      try {
+        const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (place) {
+          const parts = [place.street, place.district, place.subregion, place.city].filter(Boolean);
+          const addr = parts.length > 0 ? parts.join(", ") : `${latitude.toFixed(5)}° N, ${longitude.toFixed(5)}° E`;
+          setDetectedAddress(addr);
+          setManualAddress(addr);
+        } else {
+          const raw = `${latitude.toFixed(5)}° N, ${longitude.toFixed(5)}° E`;
+          setDetectedAddress(raw);
+          setManualAddress(raw);
+        }
+      } catch {
+        const raw = `${latitude.toFixed(5)}° N, ${longitude.toFixed(5)}° E`;
+        setDetectedAddress(raw);
+        setManualAddress(raw);
+      }
+      setLocationMode("gps");
+    } catch {
+      Alert.alert("GPS Error", "Could not get your location. Please type your address manually.");
+      setLocationMode("idle");
+    }
+  }
+
+  // ── Load family group size to pre-fill personsAffected ─────────────────────
+  useEffect(() => {
+    if (!session?.accessToken) return;
+    getFamilyGroup(session.accessToken).then((group) => {
+      if (group) {
+        const total = group.members.length + 1; // members + head (current user)
+        setPersonsAffected(total);
+      }
+    }).catch(() => {});
+  }, [session?.accessToken]);
 
   async function handlePickPhoto() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -181,6 +246,29 @@ export function CitizenDuringScreen({
   function go(next: DuringStep) {
     setStep(next);
   }
+
+  const inlineStyles = {
+    locationInput: {
+      marginTop: 6,
+      fontSize: 14,
+      color: theme.text,
+      fontFamily: fonts.medium.fontFamily,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.line,
+      paddingBottom: 4,
+      minHeight: 36,
+    } as any,
+    locationToggleBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      backgroundColor: theme.primarySoft,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      marginLeft: 8,
+      flexShrink: 0,
+    },
+  };
 
   return (
     <View style={styles.shell}>
@@ -251,20 +339,52 @@ export function CitizenDuringScreen({
               Provide your current situation so dispatchers can prioritize and route a rescue team to you.
             </Text>
 
-            <View style={[styles.infoRow, { borderLeftColor: theme.danger }]}>
-              <Ionicons name="location" size={24} color={theme.danger} />
+            {/* Location — manual input with GPS auto-fill button */}
+            <View style={[styles.infoRow, { borderLeftColor: theme.danger, alignItems: "flex-start", paddingVertical: 14 }]}>
+              <Ionicons name="location" size={24} color={theme.danger} style={{ marginTop: 4 }} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoRowText}>Location Detected</Text>
-                <Text style={styles.infoRowSub}>Brgy. 102, District 4 — Zone Red</Text>
+                <Text style={styles.infoRowText}>Incident Location</Text>
+                <TextInput
+                  style={inlineStyles.locationInput}
+                  placeholder="Street, Barangay, Municipality…"
+                  placeholderTextColor={theme.textLight}
+                  value={manualAddress}
+                  onChangeText={(t) => { setManualAddress(t); if (locationMode === "gps") setLocationMode("idle"); }}
+                  multiline
+                />
+                {locationMode === "gps" && coords && (
+                  <Text style={[styles.infoRowSub, { marginTop: 4, fontSize: 11 }]}>
+                    GPS: {coords.latitude.toFixed(5)}° N, {coords.longitude.toFixed(5)}° E
+                  </Text>
+                )}
               </View>
-              <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+              <TouchableOpacity
+                style={[inlineStyles.locationToggleBtn, { marginTop: 2 }]}
+                onPress={handleDetectGPS}
+                disabled={locationMode === "loading"}
+              >
+                {locationMode === "loading"
+                  ? <ActivityIndicator size="small" color={theme.primary} />
+                  : <Ionicons name="locate" size={18} color={locationMode === "gps" ? theme.primary : theme.textLight} />
+                }
+              </TouchableOpacity>
             </View>
 
+            {/* Persons affected — pre-filled from family group */}
             <View style={[styles.infoRow, { borderLeftColor: theme.warning }]}>
               <Ionicons name="people" size={24} color={theme.warning} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoRowText}>Persons Affected: 4</Text>
-                <Text style={styles.infoRowSub}>2 adults, 1 child, 1 senior</Text>
+                <Text style={styles.infoRowText}>Persons Affected</Text>
+                <Text style={styles.infoRowSub}>Including yourself</Text>
+              </View>
+              <View style={styles.counterRow}>
+                <Pressable onPress={() => setPersonsAffected((n) => Math.max(1, n - 1))} style={styles.counterBtn}>
+                  <Text style={styles.counterBtnText}>−</Text>
+                </Pressable>
+                <Text style={styles.counterValue}>{personsAffected}</Text>
+                <Pressable onPress={() => setPersonsAffected((n) => n + 1)} style={styles.counterBtn}>
+                  <Text style={styles.counterBtnText}>+</Text>
+                </Pressable>
               </View>
             </View>
 
@@ -391,10 +511,23 @@ export function CitizenDuringScreen({
             <View style={[styles.infoRow, { borderLeftColor: theme.primary }]}>
               <Ionicons name="location" size={24} color={theme.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoRowText}>GPS Location Locked</Text>
-                <Text style={styles.infoRowSub}>14.5991° N, 120.9842° E</Text>
+                <Text style={styles.infoRowText}>
+                  {locationMode === "gps" ? "GPS Location Confirmed" : "Location"}
+                </Text>
+                <Text style={styles.infoRowSub} numberOfLines={2}>
+                  {effectiveLocation || "No location entered"}
+                </Text>
+                {locationMode === "gps" && coords && (
+                  <Text style={[styles.infoRowSub, { fontSize: 11 }]}>
+                    {coords.latitude.toFixed(5)}° N, {coords.longitude.toFixed(5)}° E
+                  </Text>
+                )}
               </View>
-              <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+              {effectiveLocation ? (
+                <Ionicons name="checkmark-circle" size={20} color={theme.primary} />
+              ) : (
+                <Ionicons name="alert-circle" size={20} color={theme.warning} />
+              )}
             </View>
 
             <Pressable

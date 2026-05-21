@@ -119,6 +119,23 @@ export function CitizenBeforeScreen({
         </TouchableOpacity>
       </View>
 
+      {/* Response Center Emergency Action */}
+      <TouchableOpacity style={localStyles.responseCenterCard} onPress={onOpenResponse} activeOpacity={0.85}>
+        <View style={localStyles.responseCenterLeft}>
+          <View style={localStyles.responseCenterIconWrap}>
+            <Ionicons name="alert-circle" size={28} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={localStyles.responseCenterLabel}>CALAMITY RESPONSE</Text>
+            <Text style={localStyles.responseCenterTitle}>Response Center</Text>
+            <Text style={localStyles.responseCenterSub}>Request rescue, report incidents, or self-evacuate</Text>
+          </View>
+        </View>
+        <View style={localStyles.responseCenterArrow}>
+          <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
+        </View>
+      </TouchableOpacity>
+
       <View style={localStyles.mainRow}>
         {/* Ready-Check Audit Section */}
         <View style={localStyles.auditSection}>
@@ -427,6 +444,15 @@ const getStyles = (theme: any) => StyleSheet.create({
   alertDesc: { fontSize: 14, ...fonts.medium, color: "rgba(255,255,255,0.9)", lineHeight: 20, marginBottom: 24 },
   viewPlanBtn: { backgroundColor: "#fff", height: 56, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   viewPlanText: { fontSize: 13, ...fonts.black, color: "#E65100", letterSpacing: 1 },
+
+  // Response Center Card
+  responseCenterCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#BA1A1A", borderRadius: 28, padding: 20, marginBottom: 24, shadowColor: "#BA1A1A", shadowOpacity: 0.3, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  responseCenterLeft: { flexDirection: "row", alignItems: "center", gap: 16, flex: 1 },
+  responseCenterIconWrap: { width: 52, height: 52, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  responseCenterLabel: { fontSize: 9, fontWeight: "900", color: "rgba(255,255,255,0.7)", letterSpacing: 1.5, marginBottom: 2 },
+  responseCenterTitle: { fontSize: 18, fontWeight: "900", color: "#fff", letterSpacing: -0.5 },
+  responseCenterSub: { fontSize: 11, color: "rgba(255,255,255,0.75)", marginTop: 2, lineHeight: 15 },
+  responseCenterArrow: { width: 36, height: 36, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
 
   // Registration Styles
   returnBtn: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 24 },
