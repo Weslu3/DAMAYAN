@@ -441,13 +441,23 @@ export default function DashboardTab({
     setIncidentSubmitError(null);
     setIncidentSubmitSuccess(null);
 
+    const normalizedSeverity = (() => {
+      const value = incidentFormState.severity.trim().toLowerCase();
+      if (value === "medium") return "moderate";
+      if (value === "severe") return "critical";
+      if (["low", "moderate", "high", "critical"].includes(value)) {
+        return value;
+      }
+      return "high";
+    })();
+
     try {
       await createIncidentReport(session.accessToken, {
         disasterId,
         reportedBy: session.user.id,
         title: incidentFormState.type,
         content: incidentFormState.description,
-        severity: incidentFormState.severity,
+        severity: normalizedSeverity,
         location: incidentFormState.location,
       });
 
@@ -1060,9 +1070,9 @@ export default function DashboardTab({
                     const activeColor = normalized.includes("critical")
                       ? "#ba1a1a"
                       : normalized.includes("high")
-                        ? "#FFB300"
+                        ? "#d97706"
                         : normalized.includes("moderate")
-                          ? "#81C784"
+                          ? "#FFB300"
                           : "#2E7D32";
                     return (
                       <button key={severity} onClick={() => setIncidentFormState({ ...incidentFormState, severity })} className="flex-1 py-3 text-[10px] font-black uppercase rounded-xl text-white shadow-md transition-all active:scale-95" style={{ background: selected ? activeColor : "#dadad5", color: selected ? "white" : "#444743" }}>
@@ -1121,13 +1131,13 @@ export default function DashboardTab({
               {inventoryData.map((item) => (
                 <div key={`inventory-card-${item.name}`} className="p-5 rounded-2xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b] group hover:scale-[1.02] transition-transform">
                   <div className="flex justify-between items-start mb-4">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-md" style={{ background: item.tone === "error" ? "#b91c1c" : item.tone === "warning" ? "#d97706" : phaseConfig.primaryColor }}>{item.name[0]}</div>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-md" style={{ background: item.tone === "error" ? "#b91c1c" : item.tone === "warning" ? "#d97706" : "#2E7D32" }}>{item.name[0]}</div>
                     <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded ${item.tone === "error" ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300" : item.tone === "warning" ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" : "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300"}`}>{item.status}</span>
                   </div>
                   <h4 className="font-bold text-sm mb-1">{item.name}</h4>
                   <p className="text-xs text-[#444743] dark:text-[#a0a39f] mb-4">{item.detail}</p>
                   <div className="w-full h-1.5 bg-[#dadad5] dark:bg-[#3b3b3b] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-1000" style={{ width: item.percent, background: item.tone === "error" ? "#b91c1c" : phaseConfig.primaryColor }}></div>
+                    <div className="h-full rounded-full transition-all duration-1000" style={{ width: item.percent, background: item.tone === "error" ? "#b91c1c" : item.tone === "warning" ? "#d97706" : "#2E7D32" }}></div>
                   </div>
                 </div>
               ))}
