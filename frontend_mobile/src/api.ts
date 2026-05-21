@@ -660,9 +660,12 @@ export interface FamilyGroup {
   id: string;
   familyQrCodeId: string;
   headUserId: string;
+  headName?: string;
+  headQrCodeId?: string;
   familyName?: string;
   members: FamilyGroupMember[];
   createdAt: string;
+  isHead?: boolean;
 }
 
 export async function getFamilyGroup(token: string): Promise<FamilyGroup | null> {

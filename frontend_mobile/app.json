@@ -10,7 +10,20 @@
       "**/*"
     ],
     "plugins": [
-      "expo-font"
-    ]
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Damayan needs your location to include it in your emergency incident report so rescue teams can find you.",
+          "locationWhenInUsePermission": "Damayan needs your location to include it in your emergency incident report so rescue teams can find you."
+        }
+      ]
+    ],
+    "android": {
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    }
   }
 }

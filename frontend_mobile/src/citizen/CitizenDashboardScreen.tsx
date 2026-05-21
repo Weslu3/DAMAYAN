@@ -217,7 +217,7 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
           />
         ) : isViewingFamilyGroup ? (
           <CitizenFamilyGroupScreen
-            onBack={() => setTargetStep("dashboard")}
+            onBack={() => { setTargetStep("dashboard"); setActiveNav("Overview"); }}
             personalQrCodeId={citizenProfile?.qrCodeId}
             citizenDisplayName={displayName !== 'Citizen' ? displayName : undefined}
           />
@@ -264,7 +264,7 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
             )}
             {phase === "during" && (
               <CitizenDuringScreen
-                onBack={() => setTargetStep("dashboard")}
+                onBack={() => { setPhaseOverride(null); setActiveNav("Overview"); setTargetStep("dashboard"); }}
                 initialStep={targetStep === "map" ? "map" : "decision"}
                 session={session}
                 authUser={authUser}

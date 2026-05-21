@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import {
   Image,
+  Platform,
   ScrollView,
+  StatusBar,
   Text,
   TextInput,
   View,
@@ -12,7 +14,6 @@ import {
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Screen } from "../components/UI";
 import { fonts } from "../theme";
 import { login, ApiError, forgotPassword } from "../api";
 import { saveSession } from "../session";
@@ -35,9 +36,6 @@ export function UnifiedLoginScreen({
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [emailFocused, setEmailFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
-
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotContact, setForgotContact] = useState("");
   const [forgotMethod, setForgotMethod] = useState<"EMAIL" | "SMS">("EMAIL");
@@ -98,7 +96,7 @@ export function UnifiedLoginScreen({
   };
 
   return (
-    <Screen style={{ backgroundColor: HERO_BG }}>
+    <View style={{ flex: 1, backgroundColor: HERO_BG, paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0 }}>
       {/* ── Decorative background shapes ─────────────── */}
       <View style={s.blobTopRight} pointerEvents="none" />
       <View style={s.blobBottomLeft} pointerEvents="none" />
@@ -137,8 +135,8 @@ export function UnifiedLoginScreen({
             {/* Email */}
             <View style={s.field}>
               <Text style={s.fieldLabel}>Email Address</Text>
-              <View style={[s.inputWrap, emailFocused && s.inputWrapFocused]}>
-                <Ionicons name="mail-outline" size={18} color={emailFocused ? ACCENT : "#8fa88f"} style={s.inputIcon} />
+              <View style={s.inputWrap}>
+                <Ionicons name="mail-outline" size={18} color="#8fa88f" style={s.inputIcon} />
                 <TextInput
                   value={email}
                   onChangeText={setEmail}
@@ -148,8 +146,6 @@ export function UnifiedLoginScreen({
                   autoCapitalize="none"
                   keyboardType="email-address"
                   autoComplete="email"
-                  onFocus={() => setEmailFocused(true)}
-                  onBlur={() => setEmailFocused(false)}
                 />
               </View>
             </View>
@@ -162,8 +158,8 @@ export function UnifiedLoginScreen({
                   <Text style={s.forgotLink}>Forgot password?</Text>
                 </TouchableOpacity>
               </View>
-              <View style={[s.inputWrap, passwordFocused && s.inputWrapFocused]}>
-                <Ionicons name="lock-closed-outline" size={18} color={passwordFocused ? ACCENT : "#8fa88f"} style={s.inputIcon} />
+              <View style={s.inputWrap}>
+                <Ionicons name="lock-closed-outline" size={18} color="#8fa88f" style={s.inputIcon} />
                 <TextInput
                   value={password}
                   onChangeText={setPassword}
@@ -172,8 +168,6 @@ export function UnifiedLoginScreen({
                   style={[s.input, { paddingRight: 52 }]}
                   secureTextEntry={!passwordVisible}
                   autoComplete="password"
-                  onFocus={() => setPasswordFocused(true)}
-                  onBlur={() => setPasswordFocused(false)}
                 />
                 <TouchableOpacity onPress={() => setPasswordVisible((v) => !v)} style={s.showBtn}>
                   <Text style={s.showBtnText}>{passwordVisible ? "Hide" : "Show"}</Text>
@@ -300,7 +294,7 @@ export function UnifiedLoginScreen({
           </View>
         </View>
       </Modal>
-    </Screen>
+    </View>
   );
 }
 
@@ -463,14 +457,6 @@ const s = StyleSheet.create({
     borderColor: "#dde5dd",
     paddingHorizontal: 14,
     height: 54,
-  },
-  inputWrapFocused: {
-    borderColor: ACCENT,
-    backgroundColor: "#fff",
-    shadowColor: ACCENT,
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
   },
   inputIcon: {
     marginRight: 10,

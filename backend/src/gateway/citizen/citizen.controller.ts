@@ -134,7 +134,11 @@ export class CitizenController {
   @Get('family-group')
   async getFamilyGroup(@Request() req: any) {
     const userId = req.user.sub;
-    return this.familyGroupsService.getGroupByHeadUser(userId);
+    const ownGroup = await this.familyGroupsService.getGroupByHeadUser(userId);
+    if (ownGroup) return { ...ownGroup, isHead: true };
+    const memberGroup = await this.familyGroupsService.getGroupByMemberUser(userId);
+    if (memberGroup) return { ...memberGroup, isHead: false };
+    return null;
   }
 
   @Post('family-group')
