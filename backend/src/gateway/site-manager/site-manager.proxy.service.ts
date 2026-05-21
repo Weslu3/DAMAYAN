@@ -69,6 +69,59 @@ interface AfterActionAssessmentContent {
   submittedAt?: string;
 }
 
+function parseAfterActionAssessmentContent(content: string): AfterActionAssessmentContent {
+  try {
+    return JSON.parse(content) as AfterActionAssessmentContent;
+  } catch {
+    const lines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const values = Object.fromEntries(
+      lines
+        .map((line) => {
+          const separatorIndex = line.indexOf(':');
+          if (separatorIndex < 0) return null;
+          const key = line.slice(0, separatorIndex).trim().toLowerCase();
+          const value = line.slice(separatorIndex + 1).trim();
+          return [key, value] as const;
+        })
+        .filter((entry): entry is readonly [string, string] => entry !== null),
+    );
+
+    return {
+      infraStatus: values['infrastructure status'] || values['infra status'] || '',
+      estimatedCost: Number(values['estimated financial damage (php)'] || values['estimated cost'] || 0),
+      reliefNeeded: Number(values['relief kits required'] || 0),
+      durationDays: Number(values['est. rebuilding duration (days)'] || values['duration days'] || 0),
+      shelterRating: (() => {
+        const ratingText = values['evacuation shelter performance rating'] || values['shelter rating'] || '';
+        const match = /\((\d+)\s*\/\s*5/.exec(ratingText);
+        return Number(match?.[1] ?? ratingText ?? 1);
+      })(),
+      successNotes: values['operational successes summary'] || '',
+      bottlenecks: values['challenges / staging bottlenecks'] || values['challenges and staging bottlenecks'] || '',
+      submittedBy: values['submitted by'],
+      submittedAt: values['submitted at'],
+    };
+  }
+}
+
+function formatAfterActionAssessmentContent(payload: AfterActionAssessmentContent) {
+  return [
+    `Infrastructure Status: ${payload.infraStatus}`,
+    `Estimated Financial Damage (PHP): ${payload.estimatedCost}`,
+    `Relief Kits Required: ${payload.reliefNeeded}`,
+    `Est. Rebuilding Duration (Days): ${payload.durationDays}`,
+    `Evacuation Shelter Performance Rating: ${payload.shelterRating} / 5`,
+    `Operational Successes Summary: ${payload.successNotes}`,
+    `Challenges / Staging Bottlenecks: ${payload.bottlenecks}`,
+    payload.submittedBy ? `Submitted By: ${payload.submittedBy}` : null,
+    payload.submittedAt ? `Submitted At: ${payload.submittedAt}` : null,
+  ].filter(Boolean).join('\n');
+}
+
 @Injectable()
 export class SiteManagerProxyService {
   constructor(
@@ -89,7 +142,7 @@ export class SiteManagerProxyService {
         .filter((report) => report.title === AFTER_ACTION_ASSESSMENT_TITLE)
         .map((report) => {
           try {
-            const content = JSON.parse(report.content) as AfterActionAssessmentContent;
+              const content = parseAfterActionAssessmentContent(report.content);
             return {
               id: report.id,
               disasterId: report.disasterId,
@@ -127,6 +180,7 @@ export class SiteManagerProxyService {
       submittedBy: payload.submittedBy,
       submittedAt: new Date().toISOString(),
     };
+    const storedContent = formatAfterActionAssessmentContent(content);
 
     return this.findIncidentReports(undefined, payload.disasterId).then(async (reports) => {
       const existing = (reports as IncidentReportRecord[]).find(
@@ -138,7 +192,7 @@ export class SiteManagerProxyService {
           this.operationsClient.send(INCIDENT_REPORT_PATTERNS.UPDATE, {
             id: existing.id,
             updateIncidentReportDto: {
-              content: JSON.stringify(content),
+              content: storedContent,
               status: 'reviewed',
             },
           }),
@@ -150,7 +204,7 @@ export class SiteManagerProxyService {
           disasterId: payload.disasterId,
           reportedBy: payload.submittedBy ?? 'System',
           title: AFTER_ACTION_ASSESSMENT_TITLE,
-          content: JSON.stringify(content),
+          content: storedContent,
           severity: 'moderate',
           location: AFTER_ACTION_ASSESSMENT_LOCATION,
           status: 'reviewed',
@@ -642,9 +696,9 @@ export class SiteManagerProxyService {
   }
 
   async closeOperations() {
-    const checkIns = (await firstValueFrom(
+    const checkIns = await firstValueFrom(
       this.operationsClient.send(CHECK_IN_PATTERNS.FIND_ALL, {}),
-    )) as Array<{ id: string; status?: string }>;
+    );
 
     const activeCheckIns = checkIns.filter((entry) => entry.status === 'checked-in');
     const checkoutResults = await Promise.allSettled(

@@ -13,7 +13,6 @@ interface SiteManagerRegionalMapProps {
   assignedMunicipality?: string;
   assignedBarangay?: string;
   incidentReports?: any[];
-  structureDamageRecords?: any[];
 }
 
 const PH_CENTER: [number, number] = [12.8797, 121.774];
@@ -49,14 +48,12 @@ export default function SiteManagerRegionalMap({
   assignedMunicipality,
   assignedBarangay,
   incidentReports = [],
-  structureDamageRecords = [],
 }: SiteManagerRegionalMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const leafletRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const incidentMarkersRef = useRef<any[]>([]);
-  const damageMarkersRef = useRef<any[]>([]);
   const geocodeCacheRef = useRef<Record<string, [number, number]>>({});
 
   // HUD state
@@ -137,10 +134,8 @@ export default function SiteManagerRegionalMap({
       leafletRef.current = L;
       drawMarkers();
       drawIncidentMarkers();
-      drawDamageMarkers();
       void geocodeMissingCenters();
       void geocodeIncidentLocations();
-      void geocodeDamageLocations();
     });
 
     return () => {
@@ -155,20 +150,16 @@ export default function SiteManagerRegionalMap({
   useEffect(() => {
     drawMarkers();
     drawIncidentMarkers();
-    drawDamageMarkers();
     void geocodeMissingCenters();
     void geocodeIncidentLocations();
-    void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centers, assignedCenterId, assignedMunicipality, assignedBarangay, showShelters, selectedFilter, searchQuery, phase, token]);
 
   useEffect(() => {
     drawIncidentMarkers();
-    drawDamageMarkers();
     void geocodeIncidentLocations();
-    void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, incidentReports, structureDamageRecords, token]);
+  }, [phase, incidentReports, token]);
 
   // Auto-center the map to the assigned location whenever it changes
   useEffect(() => {
@@ -249,11 +240,6 @@ export default function SiteManagerRegionalMap({
     return `<div class="incident-marker" style="position:relative;width:28px;height:28px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 0 12px ${color};"><span class="material-symbols-outlined" style="font-size:14px">warning</span></div>`;
   }
 
-  function damageMarkerHtml(severity: string): string {
-    const color = "#E65100";
-    return `<div style="position:relative;width:28px;height:28px;border-radius:10px;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,0.35)"><span class="material-symbols-outlined" style="font-size:14px">handyman</span></div>`;
-  }
-
   function getLocationQuery(rawLocation: string): string {
     const location = rawLocation.trim();
     if (!location) return "";
@@ -288,16 +274,6 @@ export default function SiteManagerRegionalMap({
     }
 
     drawIncidentMarkers();
-  }
-
-  async function geocodeDamageLocations() {
-    if (phase !== 'after' || !structureDamageRecords.length) return;
-
-    for (const record of structureDamageRecords) {
-      await geocodeCachedLocation(`damage:${record.id}`, record.address ?? "");
-    }
-
-    drawDamageMarkers();
   }
 
   function drawIncidentMarkers() {
@@ -343,56 +319,6 @@ export default function SiteManagerRegionalMap({
       );
 
       incidentMarkersRef.current.push(marker);
-    });
-  }
-
-  function drawDamageMarkers() {
-    const map = mapInstanceRef.current;
-    const L = leafletRef.current;
-    if (!map || !L) return;
-
-    damageMarkersRef.current.forEach((m) => map.removeLayer(m));
-    damageMarkersRef.current = [];
-
-    if (phase !== 'after' || !structureDamageRecords || structureDamageRecords.length === 0) return;
-
-    structureDamageRecords.forEach((record) => {
-      const coords = geocodeCacheRef.current[`damage:${record.id}`];
-      if (!coords) return;
-
-      const marker = L.marker(coords, {
-        icon: L.divIcon({
-          className: "",
-          html: damageMarkerHtml(record.severity),
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        }),
-      }).addTo(map);
-
-      marker.bindPopup(
-        `<div style="font-family:Public Sans,sans-serif;min-width:220px;padding:4px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <div style="width:32px;height:32px;border-radius:10px;background:#E65100;display:flex;align-items:center;justify-content:center;color:#fff">
-              <span class="material-symbols-outlined" style="font-size:16px">handyman</span>
-            </div>
-            <div>
-              <div style="font-weight:900;font-size:12px;color:#1a1c19">Damage Assessment</div>
-              <div style="font-size:9px;color:#707a6c;text-transform:uppercase;font-weight:800;letter-spacing:0.1em">Rehab Pin</div>
-            </div>
-          </div>
-          <div style="background:#fff3e0;padding:10px;border-radius:12px;margin-bottom:6px;border:1px solid #ffe0b2">
-            <p style="font-size:11px;color:#E65100;font-weight:700;margin-bottom:4px">Severity: ${record.severity}</p>
-            <p style="font-size:10px;color:#444743;font-weight:700">Resident: ${record.ownerName}</p>
-            <p style="font-size:9px;color:#707a6c">${record.address}</p>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#707a6c">
-            <span>Status: <b style="color:#2E7D32">${record.status}</b></span>
-            <span>Needs Aid: <b style="color:${record.needsAid ? '#E65100' : '#707a6c'}">${record.needsAid ? 'YES' : 'NO'}</b></span>
-          </div>
-        </div>`
-      );
-
-      damageMarkersRef.current.push(marker);
     });
   }
 
