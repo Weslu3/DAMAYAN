@@ -88,6 +88,10 @@ export default function DashboardTab({
   });
   const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
   const [incidentSubmitError, setIncidentSubmitError] = useState<string | null>(null);
+  const [incidentSubmitSuccess, setIncidentSubmitSuccess] = useState<string | null>(null);
+  const [operationsActionError, setOperationsActionError] = useState<string | null>(null);
+  const [operationsActionSuccess, setOperationsActionSuccess] = useState<string | null>(null);
+  const [isCloseOperationsArmed, setIsCloseOperationsArmed] = useState(false);
 
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [recoveryTab, setRecoveryTab] = useState<"assess" | "structure" | "plans" | "audit">("assess");
@@ -435,6 +439,7 @@ export default function DashboardTab({
 
     setIsSubmittingIncident(true);
     setIncidentSubmitError(null);
+    setIncidentSubmitSuccess(null);
 
     try {
       await createIncidentReport(session.accessToken, {
@@ -449,7 +454,7 @@ export default function DashboardTab({
       setIncidentFormState({ type: "", severity: "High", description: "", location: "" });
       const freshReports = await getIncidentReports(session.accessToken);
       onIncidentReportsRefreshed(freshReports);
-      alert("Incident report submitted successfully.");
+      setIncidentSubmitSuccess("Incident report submitted successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to submit incident report";
       setIncidentSubmitError(message);
@@ -461,18 +466,26 @@ export default function DashboardTab({
 
   const handleCloseOperations = async () => {
     if (!session?.accessToken) {
-      alert("Session expired. Please login again.");
+      setOperationsActionError("Session expired. Please login again.");
       return;
     }
-    if (!confirm("Are you sure you want to close operations? This cannot be undone.")) return;
+    setOperationsActionError(null);
+    setOperationsActionSuccess(null);
+
+    if (!isCloseOperationsArmed) {
+      setIsCloseOperationsArmed(true);
+      setOperationsActionError("Click 'Close Shelter Operations' again to confirm shelter lockdown. This action cannot be undone.");
+      return;
+    }
 
     setIsClosingOperations(true);
     try {
       await closeOperations(session.accessToken);
-      alert("Operations closed successfully. Site is now in lockdown.");
+      setOperationsActionSuccess("Operations closed successfully. Site is now in lockdown.");
+      setIsCloseOperationsArmed(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to close operations";
-      alert(`Error: ${message}`);
+      setOperationsActionError(message);
       console.error("Close operations error:", error);
     } finally {
       setIsClosingOperations(false);
@@ -481,16 +494,19 @@ export default function DashboardTab({
 
   const handleGenerateReport = async () => {
     if (!session?.accessToken) {
-      alert("Session expired. Please login again.");
+      setOperationsActionError("Session expired. Please login again.");
       return;
     }
+    setOperationsActionError(null);
+    setOperationsActionSuccess(null);
+    setIsCloseOperationsArmed(false);
     setIsGeneratingReport(true);
     try {
       await generateSiteReport(session.accessToken);
-      alert("Site summary report generated successfully.");
+      setOperationsActionSuccess("Site summary report generated successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate report";
-      alert(`Error: ${message}`);
+      setOperationsActionError(message);
       console.error("Generate report error:", error);
     } finally {
       setIsGeneratingReport(false);
@@ -615,9 +631,35 @@ export default function DashboardTab({
                   </button>
                   <button onClick={handleCloseOperations} disabled={isClosingOperations} className="w-full bg-red-700 hover:bg-red-800 text-white py-3 rounded-xl text-xs font-black uppercase tracking-wider active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50">
                     <span className="material-symbols-outlined text-sm">cancel</span>
-                    {isClosingOperations ? "Closing Shelter..." : "Close Shelter Operations"}
+                    {isClosingOperations ? "Closing Shelter..." : isCloseOperationsArmed ? "Confirm Close Shelter Operations" : "Close Shelter Operations"}
                   </button>
                 </div>
+
+                {operationsActionError && (
+                  <div className="rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm font-medium text-red-700 dark:text-red-400">
+                    {operationsActionError}
+                  </div>
+                )}
+
+                {operationsActionSuccess && (
+                  <div className="rounded-2xl border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/20 px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400">
+                    {operationsActionSuccess}
+                  </div>
+                )}
+
+                {isCloseOperationsArmed && !isClosingOperations && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => {
+                        setIsCloseOperationsArmed(false);
+                        setOperationsActionError(null);
+                      }}
+                      className="text-xs font-black uppercase tracking-wider text-[#444743] dark:text-[#a0a39f] hover:text-[#1a1c19] dark:hover:text-white"
+                    >
+                      Cancel Close-Out
+                    </button>
+                  </div>
+                )}
 
               </div>
             )}
@@ -1036,6 +1078,7 @@ export default function DashboardTab({
               </div>
             </div>
             {incidentSubmitError && <p className="text-red-600 text-sm mt-3">{incidentSubmitError}</p>}
+            {incidentSubmitSuccess && <p className="text-green-700 dark:text-green-400 text-sm mt-3 font-medium">{incidentSubmitSuccess}</p>}
             <button onClick={handleSubmitIncidentReport} disabled={isSubmittingIncident} className="mt-4 w-full bg-[#1a1c19] text-white py-4 rounded-2xl font-black uppercase tracking-[0.2em] text-xs shadow-lg hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed" style={{ background: "#1a1c19" }}>
               {isSubmittingIncident ? "Submitting..." : "Submit Incident Report"}
             </button>

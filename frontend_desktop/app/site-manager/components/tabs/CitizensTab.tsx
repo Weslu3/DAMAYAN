@@ -67,6 +67,7 @@ export default function CitizensTab({
   });
   const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  const [checkInSuccess, setCheckInSuccess] = useState<string | null>(null);
   const [scannedCitizen, setScannedCitizen] = useState<ScannedCitizen | null>(null);
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [selectedCenterId, setSelectedCenterId] = useState<string>("");
@@ -84,6 +85,7 @@ export default function CitizensTab({
     scanLockRef.current = true;
     setIsScanLookingUp(true);
     setCheckInError(null);
+    setCheckInSuccess(null);
     try {
       if (scanType === "check-in") {
         const citizen = await getCitizenByQrCode(session.accessToken, qrCodeId);
@@ -120,12 +122,14 @@ export default function CitizensTab({
     if (!session?.accessToken || !checkOutRecord) return;
     setIsSubmittingCheckOut(true);
     setCheckInError(null);
+    setCheckInSuccess(null);
     try {
       await checkOutById(session.accessToken, checkOutRecord.id);
       const freshCheckIns = await getRecentCheckIns(session.accessToken);
       onCheckInsRefreshed(freshCheckIns);
       setCheckOutModalOpen(false);
       setCheckOutRecord(null);
+      setCheckInSuccess(`Checked out ${checkOutRecord.fullName} successfully.`);
       scanLockRef.current = false;
     } catch (err) {
       setCheckInError(err instanceof Error ? err.message : "Check-out failed.");
@@ -141,6 +145,7 @@ export default function CitizensTab({
       return;
     }
     setIsSubmittingCheckIn(true);
+    setCheckInSuccess(null);
     try {
       await createManualCheckIn(session.accessToken, {
         evacueeNumber: scannedCitizen.qrCodeId || "",
@@ -155,6 +160,7 @@ export default function CitizensTab({
       setScannedCitizen(null);
       scanLockRef.current = false;
       setCheckInError(null);
+      setCheckInSuccess(`Checked in ${scannedCitizen.fullName || scannedCitizen.qrCodeId} successfully.`);
     } catch (err) {
       setCheckInError(err instanceof Error ? err.message : "Check-in failed.");
     } finally {
@@ -173,6 +179,7 @@ export default function CitizensTab({
     }
     setIsSubmittingCheckIn(true);
     setCheckInError(null);
+    setCheckInSuccess(null);
     try {
       await createManualCheckIn(session.accessToken, {
         evacueeNumber: manualCheckInState.citizenName,
@@ -185,7 +192,7 @@ export default function CitizensTab({
       setManualCheckInState({ citizenName: "", zone: "", groupSize: "" });
       const freshCheckIns = await getRecentCheckIns(session.accessToken);
       onCheckInsRefreshed(freshCheckIns);
-      alert("Check-in recorded successfully.");
+      setCheckInSuccess("Check-in recorded successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to submit check-in";
       setCheckInError(message);
@@ -207,6 +214,7 @@ export default function CitizensTab({
     }
     setIsSubmittingCheckIn(true);
     setCheckInError(null);
+    setCheckInSuccess(null);
     try {
       const qrCodeId = inputVal.startsWith("QR-") ? inputVal.replace("QR-", "") : inputVal;
       const record = await getCheckInByQrCode(session.accessToken, qrCodeId);
@@ -218,7 +226,7 @@ export default function CitizensTab({
       setManualCheckInState({ citizenName: "", zone: "", groupSize: "" });
       const freshCheckIns = await getRecentCheckIns(session.accessToken);
       onCheckInsRefreshed(freshCheckIns);
-      alert("Citizen checked out successfully.");
+      setCheckInSuccess("Citizen checked out successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to submit check-out";
       setCheckInError(message);
@@ -343,6 +351,7 @@ export default function CitizensTab({
           </div>
 
           {checkInError && <p className="text-red-600 text-sm">{checkInError}</p>}
+          {checkInSuccess && <p className="text-green-700 dark:text-green-400 text-sm font-medium">{checkInSuccess}</p>}
 
           <div className="mt-6 pt-5 border-t border-[#dadad5] dark:border-[#3b3b3b]">
             <h4 className="text-sm font-black uppercase tracking-wider mb-3">

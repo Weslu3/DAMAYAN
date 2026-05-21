@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import type { AuthSession, DashboardOverview, InventoryItem } from "../../../lib/types";
+import type { AuthSession, InventoryItem } from "../../../lib/types";
 import type { PhaseConfig } from "../utils/siteManagerUtils";
-import { getInventoryTone, buildInventoryTable } from "../utils/siteManagerUtils";
+import { buildInventoryTable } from "../utils/siteManagerUtils";
 import { getInventory, adjustInventoryItem, createInventoryBatch } from "../../../lib/api";
 import CustomSelect from "../CustomSelect";
 
@@ -39,6 +39,8 @@ export default function InventoryTab({
   const [newBatchError, setNewBatchError] = useState<string | null>(null);
   const [newBatchSuccess, setNewBatchSuccess] = useState<string | null>(null);
   const [isRefreshingInventory, setIsRefreshingInventory] = useState(false);
+  const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
+  const [inventoryActionSuccess, setInventoryActionSuccess] = useState<string | null>(null);
 
   const quantities = inventoryItems.map((item) => item.quantity);
   const sortedQuantities = quantities.slice().sort((a, b) => a - b);
@@ -159,18 +161,23 @@ export default function InventoryTab({
   const handleRefreshInventory = async () => {
     if (!session?.accessToken) return;
     setIsRefreshingInventory(true);
+    setInventoryActionError(null);
+    setInventoryActionSuccess(null);
     try {
       const freshInventory = await getInventory("site-manager", session.accessToken);
       onInventoryRefreshed(freshInventory);
-      alert("Inventory refreshed successfully.");
+      setInventoryActionSuccess("Inventory refreshed successfully.");
     } catch (error) {
       console.error("Refresh inventory error:", error);
+      setInventoryActionError(error instanceof Error ? error.message : "Failed to refresh inventory.");
     } finally {
       setIsRefreshingInventory(false);
     }
   };
 
   const handleExportCSV = () => {
+    setInventoryActionError(null);
+    setInventoryActionSuccess(null);
     try {
       const headers = ["Category", "Stock Level", "Incoming", "ETA", "Status"];
       const csvRows = inventoryTable.map(
@@ -188,9 +195,10 @@ export default function InventoryTab({
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setInventoryActionSuccess("Inventory CSV exported successfully.");
     } catch (err) {
       console.error("Failed to export CSV:", err);
-      alert("Failed to export CSV. Please try again.");
+      setInventoryActionError("Failed to export CSV. Please try again.");
     }
   };
 
@@ -225,6 +233,18 @@ export default function InventoryTab({
         <div className="flex justify-between items-center mb-8">
           <div>
             <h3 className="text-2xl font-black">
+
+        {inventoryActionError && (
+          <div className="mb-6 rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm font-medium text-red-700 dark:text-red-400">
+            {inventoryActionError}
+          </div>
+        )}
+
+        {inventoryActionSuccess && (
+          <div className="mb-6 rounded-2xl border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/20 px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400">
+            {inventoryActionSuccess}
+          </div>
+        )}
               {phase === "before" ? "Shelter Supplies" : phase === "during" ? "Relief Goods Movement" : "Inventory Management"}
             </h3>
             <p className="text-[#444743] text-sm mt-1">
