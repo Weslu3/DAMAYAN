@@ -84,14 +84,19 @@ export class ApiError extends Error {
   }
 }
 
+type ApiRequestInit = RequestInit & {
+  suppressErrorLog?: boolean;
+};
+
 async function request<T>(
   path: string,
-  init: RequestInit = {},
+  init: ApiRequestInit = {},
   token?: string,
 ): Promise<T> {
-  const headers = new Headers(init.headers ?? {});
+  const { suppressErrorLog = false, ...requestInit } = init;
+  const headers = new Headers(requestInit.headers ?? {});
 
-  if (!headers.has("Content-Type") && init.body) {
+  if (!headers.has("Content-Type") && requestInit.body) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -102,9 +107,9 @@ async function request<T>(
 
   let response: Response;
   try {
-    console.log(`[Api] Requesting ${path}`, { method: init.method || 'GET' });
+    console.log(`[Api] Requesting ${path}`, { method: requestInit.method || 'GET' });
     response = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
+      ...requestInit,
       headers,
     });
   } catch {
@@ -131,7 +136,7 @@ async function request<T>(
         ? (Array.isArray(payload.message) ? payload.message.join(", ") : String(payload.message))
         : `Request failed with status ${response.status}`;
     
-    if (response.status >= 500) {
+    if (response.status >= 500 && !suppressErrorLog) {
       console.error(`[Api] Error ${response.status}: ${message}`);
     } else {
       console.warn(`[Api] Warning ${response.status}: ${message}`);
@@ -320,7 +325,7 @@ export interface AfterActionAssessment {
 export async function geocodeAddress(token: string, address: string): Promise<GeoAddressResult> {
   return request<GeoAddressResult>(
     `/site-manager/geo/geocode?address=${encodeURIComponent(address)}`,
-    {},
+    { suppressErrorLog: true },
     token,
   );
 }

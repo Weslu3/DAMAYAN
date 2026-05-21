@@ -13,7 +13,6 @@ interface SiteManagerRegionalMapProps {
   assignedMunicipality?: string;
   assignedBarangay?: string;
   incidentReports?: any[];
-  structureDamageRecords?: any[];
 }
 
 const PH_CENTER: [number, number] = [12.8797, 121.774];
@@ -49,14 +48,12 @@ export default function SiteManagerRegionalMap({
   assignedMunicipality,
   assignedBarangay,
   incidentReports = [],
-  structureDamageRecords = [],
 }: SiteManagerRegionalMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const leafletRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const incidentMarkersRef = useRef<any[]>([]);
-  const damageMarkersRef = useRef<any[]>([]);
   const geocodeCacheRef = useRef<Record<string, [number, number]>>({});
 
   // HUD state
@@ -98,7 +95,7 @@ export default function SiteManagerRegionalMap({
           position: absolute;
           left: -4px; top: -4px; right: -4px; bottom: -4px;
           border-radius: 50%;
-          border: 3px solid #2196F3;
+          border: 3px solid #81C784;
           animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
         }
         .incident-marker {
@@ -137,10 +134,8 @@ export default function SiteManagerRegionalMap({
       leafletRef.current = L;
       drawMarkers();
       drawIncidentMarkers();
-      drawDamageMarkers();
       void geocodeMissingCenters();
       void geocodeIncidentLocations();
-      void geocodeDamageLocations();
     });
 
     return () => {
@@ -155,20 +150,16 @@ export default function SiteManagerRegionalMap({
   useEffect(() => {
     drawMarkers();
     drawIncidentMarkers();
-    drawDamageMarkers();
     void geocodeMissingCenters();
     void geocodeIncidentLocations();
-    void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centers, assignedCenterId, assignedMunicipality, assignedBarangay, showShelters, selectedFilter, searchQuery, phase, token]);
 
   useEffect(() => {
     drawIncidentMarkers();
-    drawDamageMarkers();
     void geocodeIncidentLocations();
-    void geocodeDamageLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, incidentReports, structureDamageRecords, token]);
+  }, [phase, incidentReports, token]);
 
   // Auto-center the map to the assigned location whenever it changes
   useEffect(() => {
@@ -222,7 +213,7 @@ export default function SiteManagerRegionalMap({
   }, [selectedFilter, searchQuery, phase]);
 
   function markerColor(center: CapacityCenter): string {
-    if (center.id === assignedCenterId) return "#2196F3";
+    if (center.id === assignedCenterId) return "#81C784";
     if (phase === 'before') {
       // Readiness based on available slots vs capacity
       const readinessPercent = center.capacity > 0 ? Math.round((center.availableSlots / center.capacity) * 100) : 0;
@@ -247,11 +238,6 @@ export default function SiteManagerRegionalMap({
     const isHigh = severity.toLowerCase() === 'high' || severity.toLowerCase() === 'severe' || severity.toLowerCase() === 'major';
     const color = isHigh ? "#ba1a1a" : "#FFB300";
     return `<div class="incident-marker" style="position:relative;width:28px;height:28px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 0 12px ${color};"><span class="material-symbols-outlined" style="font-size:14px">warning</span></div>`;
-  }
-
-  function damageMarkerHtml(severity: string): string {
-    const color = "#E65100";
-    return `<div style="position:relative;width:28px;height:28px;border-radius:10px;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,0.35)"><span class="material-symbols-outlined" style="font-size:14px">handyman</span></div>`;
   }
 
   function getLocationQuery(rawLocation: string): string {
@@ -288,16 +274,6 @@ export default function SiteManagerRegionalMap({
     }
 
     drawIncidentMarkers();
-  }
-
-  async function geocodeDamageLocations() {
-    if (phase !== 'after' || !structureDamageRecords.length) return;
-
-    for (const record of structureDamageRecords) {
-      await geocodeCachedLocation(`damage:${record.id}`, record.address ?? "");
-    }
-
-    drawDamageMarkers();
   }
 
   function drawIncidentMarkers() {
@@ -343,56 +319,6 @@ export default function SiteManagerRegionalMap({
       );
 
       incidentMarkersRef.current.push(marker);
-    });
-  }
-
-  function drawDamageMarkers() {
-    const map = mapInstanceRef.current;
-    const L = leafletRef.current;
-    if (!map || !L) return;
-
-    damageMarkersRef.current.forEach((m) => map.removeLayer(m));
-    damageMarkersRef.current = [];
-
-    if (phase !== 'after' || !structureDamageRecords || structureDamageRecords.length === 0) return;
-
-    structureDamageRecords.forEach((record) => {
-      const coords = geocodeCacheRef.current[`damage:${record.id}`];
-      if (!coords) return;
-
-      const marker = L.marker(coords, {
-        icon: L.divIcon({
-          className: "",
-          html: damageMarkerHtml(record.severity),
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        }),
-      }).addTo(map);
-
-      marker.bindPopup(
-        `<div style="font-family:Public Sans,sans-serif;min-width:220px;padding:4px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <div style="width:32px;height:32px;border-radius:10px;background:#E65100;display:flex;align-items:center;justify-content:center;color:#fff">
-              <span class="material-symbols-outlined" style="font-size:16px">handyman</span>
-            </div>
-            <div>
-              <div style="font-weight:900;font-size:12px;color:#1a1c19">Damage Assessment</div>
-              <div style="font-size:9px;color:#707a6c;text-transform:uppercase;font-weight:800;letter-spacing:0.1em">Rehab Pin</div>
-            </div>
-          </div>
-          <div style="background:#fff3e0;padding:10px;border-radius:12px;margin-bottom:6px;border:1px solid #ffe0b2">
-            <p style="font-size:11px;color:#E65100;font-weight:700;margin-bottom:4px">Severity: ${record.severity}</p>
-            <p style="font-size:10px;color:#444743;font-weight:700">Resident: ${record.ownerName}</p>
-            <p style="font-size:9px;color:#707a6c">${record.address}</p>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#707a6c">
-            <span>Status: <b style="color:#2E7D32">${record.status}</b></span>
-            <span>Needs Aid: <b style="color:${record.needsAid ? '#E65100' : '#707a6c'}">${record.needsAid ? 'YES' : 'NO'}</b></span>
-          </div>
-        </div>`
-      );
-
-      damageMarkersRef.current.push(marker);
     });
   }
 
@@ -469,7 +395,7 @@ export default function SiteManagerRegionalMap({
       }).addTo(map);
 
       const isAssigned = center.id === assignedCenterId;
-      const badge = isAssigned ? `<div style="background:#2196F3;color:#fff;padding:4px 10px;border-radius:8px;font-size:9px;font-weight:900;text-transform:uppercase;margin-bottom:10px;display:inline-flex;align-items:center;gap:4px;letter-spacing:0.05em"><span style="font-size:10px">&#9733;</span> My Assigned Shelter</div>` : '';
+      const badge = isAssigned ? `<div style="background:#81C784;color:#1a1c19;padding:4px 10px;border-radius:8px;font-size:9px;font-weight:900;text-transform:uppercase;margin-bottom:10px;display:inline-flex;align-items:center;gap:4px;letter-spacing:0.05em"><span style="font-size:10px">&#9733;</span> My Assigned Shelter</div>` : '';
       
       let utilColor = center.utilizationRate >= 90 ? "#ba1a1a" : center.utilizationRate >= 70 ? "#FFB300" : "#2E7D32";
       let utilLabel = "Utilization";
@@ -558,7 +484,7 @@ export default function SiteManagerRegionalMap({
   }
 
   const phaseLabel = phase === 'before' ? 'Pre-Deployment Readiness' : phase === 'during' ? 'Active Emergency Response' : 'Post-Disaster Recovery';
-  const phaseColor = phase === 'before' ? '#0d631b' : phase === 'during' ? '#ba1a1a' : '#2196F3';
+  const phaseColor = phase === 'before' ? '#2E7D32' : phase === 'during' ? '#FFB300' : '#2E7D32';
 
   return (
     <div className={`flex flex-col gap-4 w-full ${isFullscreen ? 'fixed inset-0 z-[200] p-6 bg-white dark:bg-[#1a1c19]' : ''}`} style={isFullscreen ? {} : { height: typeof height === 'number' ? `${height}px` : height }}>
@@ -579,10 +505,10 @@ export default function SiteManagerRegionalMap({
 
         {/* Your Zone badge */}
         {assignedMunicipality && (
-          <div className="bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-xl rounded-2xl px-4 py-2.5 border border-[#2196F3]/40 shadow-xl flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: "#2196F3" }} />
+          <div className="bg-white/90 dark:bg-[#1a1c19]/90 backdrop-blur-xl rounded-2xl px-4 py-2.5 border border-[#81C784]/50 shadow-xl flex items-center gap-2.5">
+            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: "#81C784" }} />
             <div className="flex-1 min-w-0">
-              <p className="text-[8px] font-black uppercase tracking-[0.15em] text-[#2196F3]">Your Zone</p>
+              <p className="text-[8px] font-black uppercase tracking-[0.15em] text-[#2E7D32]">Your Zone</p>
               <p className="text-[10px] font-black text-[#1a1c19] dark:text-white truncate">
                 {assignedBarangay ? `${assignedBarangay}, ` : ""}{assignedMunicipality}
               </p>
@@ -610,9 +536,9 @@ export default function SiteManagerRegionalMap({
                     map.flyTo(fallback, 13, { animate: true, duration: 1 });
                   });
               }}
-              className="w-6 h-6 rounded-lg bg-[#2196F3]/10 hover:bg-[#2196F3]/20 flex items-center justify-center transition-colors flex-shrink-0"
+              className="w-6 h-6 rounded-lg bg-[#81C784]/25 hover:bg-[#81C784]/40 flex items-center justify-center transition-colors flex-shrink-0"
             >
-              <span className="material-symbols-outlined text-[#2196F3]" style={{ fontSize: 14 }}>my_location</span>
+              <span className="material-symbols-outlined text-[#2E7D32]" style={{ fontSize: 14 }}>my_location</span>
             </button>
           </div>
         )}
@@ -668,7 +594,7 @@ export default function SiteManagerRegionalMap({
         <button
           onClick={() => setShowLegend(!showLegend)}
           className={`w-10 h-10 backdrop-blur-xl rounded-xl border shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all ${
-            showLegend ? "bg-blue-500 text-white border-blue-600" : "bg-white/90 dark:bg-[#1a1c19]/90 border-white/30 text-[#707a6c]"
+            showLegend ? "bg-[#2E7D32] text-white border-[#1B5E20]" : "bg-white/90 dark:bg-[#1a1c19]/90 border-white/30 text-[#707a6c]"
           }`}
           title="Toggle Legend"
         >
@@ -691,7 +617,7 @@ export default function SiteManagerRegionalMap({
               [
                 { color: "#2E7D32", label: "Deactivated / Closed" },
                 { color: "#FFB300", label: "Active Checking Out" },
-                { color: "#2196F3", label: "Assigned to You" },
+                { color: "#81C784", label: "Assigned to You" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2.5">
                   <div className="w-3 h-3 rounded-full border-2 border-white shadow-sm" style={{ background: item.color }} />
@@ -703,7 +629,7 @@ export default function SiteManagerRegionalMap({
                 { color: "#2E7D32", label: "Safe Readiness (>= 60%)" },
                 { color: "#FFB300", label: "Moderate Readiness (30-59%)" },
                 { color: "#ba1a1a", label: "Critical Readiness (< 30%)" },
-                { color: "#2196F3", label: "Assigned to You" },
+                { color: "#81C784", label: "Assigned to You" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2.5">
                   <div className="w-3 h-3 rounded-full border-2 border-white shadow-sm" style={{ background: item.color }} />
@@ -715,7 +641,7 @@ export default function SiteManagerRegionalMap({
                 { color: "#2E7D32", label: "Safe (< 70%)" },
                 { color: "#FFB300", label: "Moderate (70-89%)" },
                 { color: "#ba1a1a", label: "Critical (90%+)" },
-                { color: "#2196F3", label: "Assigned to You" },
+                { color: "#81C784", label: "Assigned to You" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2.5">
                   <div className="w-3 h-3 rounded-full border-2 border-white shadow-sm" style={{ background: item.color }} />

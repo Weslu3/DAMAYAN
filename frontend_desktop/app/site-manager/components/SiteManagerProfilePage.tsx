@@ -468,10 +468,10 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
           <div className="space-y-4">
             {[
               { icon: "login", text: "Logged in from desktop", time: "2 min ago", color: "#2E7D32" },
-              { icon: "edit_document", text: "Updated inventory batch #WB-4421", time: "1h ago", color: "#2196F3" },
+              { icon: "edit_document", text: "Updated inventory batch #WB-4421", time: "1h ago", color: "#81C784" },
               { icon: "person_add", text: "Checked in evacuee family (4 pax)", time: "3h ago", color: "#FFB300" },
-              { icon: "assignment_turned_in", text: "Submitted site damage assessment", time: "Yesterday", color: "#9C27B0" },
-              { icon: "download", text: "Exported auditing CSV report", time: "2 days ago", color: "#607D8B" },
+              { icon: "assignment_turned_in", text: "Submitted site damage assessment", time: "Yesterday", color: "#2E7D32" },
+              { icon: "download", text: "Exported auditing CSV report", time: "2 days ago", color: "#FFB300" },
             ].map((item, i) => (
               <div key={i} className="flex items-start gap-3 group">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: item.color + "15" }}>
@@ -512,8 +512,8 @@ export default function SiteManagerProfilePage({ onBack, primaryColor, session, 
             <div className="space-y-3">
               {[
                 { name: "Disaster Risk Reduction Management", date: "Valid until Dec 2026", color: "#2E7D32" },
-                { name: "Basic First Aid & CPR", date: "Valid until Aug 2026", color: "#2196F3" },
-                { name: "Incident Command System (ICS)", date: "Valid until Mar 2027", color: "#9C27B0" },
+                { name: "Basic First Aid & CPR", date: "Valid until Aug 2026", color: "#81C784" },
+                { name: "Incident Command System (ICS)", date: "Valid until Mar 2027", color: "#FFB300" },
               ].map((cert, i) => (
                 <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-[#f4f4ef] dark:bg-[#1a1c19] border border-[#dadad5] dark:border-[#3b3b3b]">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: cert.color + "15" }}>
