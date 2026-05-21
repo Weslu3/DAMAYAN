@@ -19,9 +19,7 @@ import {
   getPendingApprovals,
   approvePendingUser,
   rejectPendingUser,
-  getSystemHealth,
   type AdminApprovalRecord,
-  type AdminSystemHealthRecord,
 } from "../lib/api";
 import { subscribeToLiveAlerts, type LiveAlertRecord } from "../lib/supabase";
 import type { AuthSession, DashboardOverview, DisasterEvent as BackendDisasterEvent } from "../lib/types";
@@ -36,7 +34,6 @@ type AdminPage =
   | "after_calamity"
   | "disaster_monitoring"
   | "early_warning"
-  | "system_health"
   | "profile";
 
 type AccountStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -56,8 +53,6 @@ type WarningStep =
   | "deescalate"
   | "notify_passed";
 type CalamityState = "none" | "before" | "during" | "after";
-type ServiceStatus = "OPERATIONAL" | "DEGRADED" | "DOWN";
-
 interface FamilyMember {
   name: string;
   relation: string;
@@ -114,14 +109,6 @@ interface WarningConfig {
   message: string;
   useSMS: boolean;
   usePush: boolean;
-}
-
-interface ServiceHealth {
-  name: string;
-  status: ServiceStatus;
-  latency: string;
-  uptime: string;
-  note?: string;
 }
 
 interface AdminProfile {
@@ -322,11 +309,10 @@ function AdminLoginPage({ onLogin }: { onLogin: () => void }) {
     { icon: "groups", label: "Family Records", desc: "View and manage registered family groups" },
     { icon: "crisis_alert", label: "Disaster Monitoring", desc: "Live feeds, forecasts, risk areas" },
     { icon: "campaign", label: "Early Warning", desc: "Configure and broadcast alerts" },
-    { icon: "monitor_heart", label: "System Health", desc: "Monitor all platform services" },
   ];
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", background: "#0b0e1f", fontFamily: "Public Sans, sans-serif" }}>
+    <div style={{ minHeight: "100vh", display: "flex", background: "#0b0e1f", fontFamily: "sans-serif" }}>
       {/* Left brand panel */}
       <div style={{
         width: "42%",
@@ -392,7 +378,7 @@ function AdminLoginPage({ onLogin }: { onLogin: () => void }) {
               <p style={{ color: "#6b7494", fontSize: "0.88rem", lineHeight: 1.7, marginBottom: "1.5rem" }}>
                 Your Government ID has been submitted. An existing administrator will review and approve your account. You will be notified via email.
               </p>
-              <button onClick={() => { setWaitingVerification(false); setMode("login"); }} style={{ padding: "0.75rem 1.5rem", background: "#f5f6f8", border: "1.5px solid #e8eaed", borderRadius: "0.65rem", fontWeight: 700, cursor: "pointer", fontSize: "0.88rem", fontFamily: "Public Sans, sans-serif" }}>
+              <button onClick={() => { setWaitingVerification(false); setMode("login"); }} style={{ padding: "0.75rem 1.5rem", background: "#f5f6f8", border: "1.5px solid #e8eaed", borderRadius: "0.65rem", fontWeight: 700, cursor: "pointer", fontSize: "0.88rem", fontFamily: "sans-serif" }}>
                  Back to Login
               </button>
             </div>
@@ -432,7 +418,7 @@ function AdminLoginPage({ onLogin }: { onLogin: () => void }) {
                     </button>
                   </>
                 )}
-                <button onClick={() => { setForgotMode(false); setOtpSent(false); }} style={{ background: "none", border: "none", color: "#6b7494", fontSize: "0.82rem", cursor: "pointer", fontFamily: "Public Sans, sans-serif", padding: 0, fontWeight: 600, textAlign: "left" }}>
+                <button onClick={() => { setForgotMode(false); setOtpSent(false); }} style={{ background: "none", border: "none", color: "#6b7494", fontSize: "0.82rem", cursor: "pointer", fontFamily: "sans-serif", padding: 0, fontWeight: 600, textAlign: "left" }}>
                    Back to Login
                 </button>
               </div>
@@ -442,7 +428,7 @@ function AdminLoginPage({ onLogin }: { onLogin: () => void }) {
               {/* Tab switch */}
               <div style={{ display: "flex", background: "#f5f6f8", borderRadius: "0.75rem", padding: "3px", marginBottom: "1.5rem" }}>
                 {(["login", "register"] as const).map((m) => (
-                  <button key={m} onClick={() => setMode(m)} style={{ flex: 1, padding: "0.6rem", border: "none", borderRadius: "0.55rem", background: mode === m ? "#fff" : "transparent", fontWeight: mode === m ? 800 : 500, fontSize: "0.82rem", cursor: "pointer", color: mode === m ? "#1a1c2e" : "#6b7494", boxShadow: mode === m ? "0 2px 6px rgba(0,0,0,0.07)" : "none", fontFamily: "Public Sans, sans-serif", transition: "all 0.15s" }}>
+                  <button key={m} onClick={() => setMode(m)} style={{ flex: 1, padding: "0.6rem", border: "none", borderRadius: "0.55rem", background: mode === m ? "#fff" : "transparent", fontWeight: mode === m ? 800 : 500, fontSize: "0.82rem", cursor: "pointer", color: mode === m ? "#1a1c2e" : "#6b7494", boxShadow: mode === m ? "0 2px 6px rgba(0,0,0,0.07)" : "none", fontFamily: "sans-serif", transition: "all 0.15s" }}>
                     {m === "login" ? "Login" : "Register"}
                   </button>
                 ))}
@@ -471,7 +457,7 @@ function AdminLoginPage({ onLogin }: { onLogin: () => void }) {
                     <div className="admin-form-group">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.45rem" }}>
                         <label className="admin-form-label" style={{ marginBottom: 0 }}>Password</label>
-                        <button onClick={() => setForgotMode(true)} style={{ background: "none", border: "none", color: "#2563eb", fontSize: "0.75rem", cursor: "pointer", fontWeight: 700, fontFamily: "Public Sans, sans-serif", padding: 0 }}>
+                        <button onClick={() => setForgotMode(true)} style={{ background: "none", border: "none", color: "#2563eb", fontSize: "0.75rem", cursor: "pointer", fontWeight: 700, fontFamily: "sans-serif", padding: 0 }}>
                           Forgot password?
                         </button>
                       </div>
@@ -558,7 +544,8 @@ function OverviewPage({
   setPage: (p: AdminPage) => void;
   overview: DashboardOverview | null;
 }) {
-  const pending = accounts.filter((a) => a.status === "PENDING").length;
+  const pendingAccounts = accounts.filter((a) => a.status === "PENDING");
+  const pending = pendingAccounts.length;
   const activeDisasters = disasters.filter((d) => d.phase !== "AFTER").length;
 
   return (
@@ -602,9 +589,9 @@ function OverviewPage({
       </div>
 
       <div className="admin-grid-56">
-        {/* Disaster events */}
-        <div>
-          <div className="admin-card" style={{ marginBottom: "1rem" }}>
+        {/* Disaster events + approvals */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+          <div className="admin-card">
             <div className="admin-card-header">
               <div className="admin-card-title"> Active Disaster Events</div>
               <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={() => setPage("disaster_monitoring")}>View All</button>
@@ -654,6 +641,64 @@ function OverviewPage({
             </div>
           </div>
 
+          {/* Pending accounts */}
+          {pending > 0 && (
+            <div className="admin-card">
+              <div className="admin-card-header">
+                <div className="admin-card-title"> Pending Approvals</div>
+                <button className="admin-btn admin-btn-accent admin-btn-sm" onClick={() => setPage("approvals")}>Review All</button>
+              </div>
+              <div className="admin-card-body" style={{ padding: "0.75rem" }}>
+                {pendingAccounts
+                  .slice(0, 4)
+                  .map((a) => (
+                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.65rem 0.75rem", borderRadius: "0.65rem", marginBottom: "0.4rem", background: "var(--admin-surface-low)" }}>
+                      <div style={{ width: "2rem", height: "2rem", borderRadius: "0.5rem", background: "linear-gradient(135deg, var(--admin-accent-mid), var(--admin-accent))", display: "grid", placeItems: "center", color: "#fff", fontWeight: 800, fontSize: "0.75rem", flexShrink: 0 }}>
+                        {a.name[0]}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: "0.82rem" }}>{a.name}</div>
+                        <div style={{ fontSize: "0.7rem", color: "var(--admin-text-soft)" }}>{a.role}  {a.area}</div>
+                      </div>
+                      <span className="admin-badge amber">{a.submitted}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Quick actions + activity */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="admin-card">
+            <div className="admin-card-header"><div className="admin-card-title"> Quick Actions</div></div>
+            <div className="admin-card-body">
+              {[
+                { label: "Review Account Approvals", icon: "how_to_reg", count: pending, color: "var(--admin-orange)", page: "approvals" as AdminPage },
+                { label: "People & Records", icon: "people", count: null, color: "var(--admin-blue)", page: "people_records" as AdminPage },
+                { label: "After Calamity", icon: "assignment_turned_in", count: null, color: "var(--admin-violet)", page: "after_calamity" as AdminPage },
+                { label: "Monitor Disasters", icon: "crisis_alert", count: activeDisasters, color: "var(--admin-red)", page: "disaster_monitoring" as AdminPage },
+                { label: "Configure Early Warning", icon: "broadcast_on_home", count: null, color: "var(--admin-violet)", page: "early_warning" as AdminPage },
+              ].map((qa) => (
+                <div
+                  key={qa.label}
+                  onClick={() => setPage(qa.page)}
+                  style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.8rem 0.9rem", background: "var(--admin-surface-low)", borderRadius: "0.65rem", marginBottom: "0.5rem", cursor: "pointer", transition: "background 0.15s" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--admin-surface-muted)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "var(--admin-surface-low)")}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "1rem" }}>{qa.icon}</span>
+                  <span style={{ flex: 1, fontWeight: 700, fontSize: "0.82rem" }}>{qa.label}</span>
+                  {qa.count != null && qa.count > 0 ? (
+                    <span style={{ background: qa.color, color: "#fff", fontSize: "0.62rem", fontWeight: 800, padding: "2px 8px", borderRadius: "999px" }}>{qa.count}</span>
+                  ) : (
+                    <span style={{ color: "var(--admin-text-soft)", fontSize: "0.82rem" }}></span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Activity log */}
           {activityLog.length > 0 && (
             <div className="admin-card">
@@ -677,66 +722,6 @@ function OverviewPage({
                     </div>
                   ))}
                 </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Quick actions + Pending */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <div className="admin-card">
-            <div className="admin-card-header"><div className="admin-card-title"> Quick Actions</div></div>
-            <div className="admin-card-body">
-              {[
-                { label: "Review Account Approvals", icon: "how_to_reg", count: pending, color: "var(--admin-orange)", page: "approvals" as AdminPage },
-                { label: "People & Records", icon: "people", count: null, color: "var(--admin-blue)", page: "people_records" as AdminPage },
-                { label: "After Calamity", icon: "assignment_turned_in", count: null, color: "var(--admin-violet)", page: "after_calamity" as AdminPage },
-                { label: "Monitor Disasters", icon: "crisis_alert", count: activeDisasters, color: "var(--admin-red)", page: "disaster_monitoring" as AdminPage },
-                { label: "Configure Early Warning", icon: "broadcast_on_home", count: null, color: "var(--admin-violet)", page: "early_warning" as AdminPage },
-                { label: "System Health", icon: "monitor_heart", count: null, color: "var(--admin-green)", page: "system_health" as AdminPage },
-              ].map((qa) => (
-                <div
-                  key={qa.label}
-                  onClick={() => setPage(qa.page)}
-                  style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.8rem 0.9rem", background: "var(--admin-surface-low)", borderRadius: "0.65rem", marginBottom: "0.5rem", cursor: "pointer", transition: "background 0.15s" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--admin-surface-muted)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "var(--admin-surface-low)")}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: "1rem" }}>{qa.icon}</span>
-                  <span style={{ flex: 1, fontWeight: 700, fontSize: "0.82rem" }}>{qa.label}</span>
-                  {qa.count != null && qa.count > 0 ? (
-                    <span style={{ background: qa.color, color: "#fff", fontSize: "0.62rem", fontWeight: 800, padding: "2px 8px", borderRadius: "999px" }}>{qa.count}</span>
-                  ) : (
-                    <span style={{ color: "var(--admin-text-soft)", fontSize: "0.82rem" }}></span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Pending accounts */}
-          {pending > 0 && (
-            <div className="admin-card">
-              <div className="admin-card-header">
-                <div className="admin-card-title"> Pending Approvals</div>
-                <button className="admin-btn admin-btn-accent admin-btn-sm" onClick={() => setPage("approvals")}>Review All</button>
-              </div>
-              <div className="admin-card-body" style={{ padding: "0.75rem" }}>
-                {accounts
-                  .filter((a) => a.status === "PENDING")
-                  .slice(0, 3)
-                  .map((a) => (
-                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.65rem 0.75rem", borderRadius: "0.65rem", marginBottom: "0.4rem", background: "var(--admin-surface-low)" }}>
-                      <div style={{ width: "2rem", height: "2rem", borderRadius: "0.5rem", background: "linear-gradient(135deg, var(--admin-accent-mid), var(--admin-accent))", display: "grid", placeItems: "center", color: "#fff", fontWeight: 800, fontSize: "0.75rem", flexShrink: 0 }}>
-                        {a.name[0]}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: "0.82rem" }}>{a.name}</div>
-                        <div style={{ fontSize: "0.7rem", color: "var(--admin-text-soft)" }}>{a.role}  {a.area}</div>
-                      </div>
-                      <span className="admin-badge amber">{a.submitted}</span>
-                    </div>
-                  ))}
               </div>
             </div>
           )}
@@ -767,6 +752,9 @@ function ApprovalsPage({
   dataStatus: "live" | "unavailable";
 }) {
   const [tab, setTab] = useState<"pending" | "approved" | "rejected">("pending");
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<"az" | "za" | "newest" | "oldest">("az");
   const [rejectTarget, setRejectTarget] = useState<PendingAccount | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [docsTarget, setDocsTarget] = useState<PendingAccount | null>(null);
@@ -775,6 +763,33 @@ function ApprovalsPage({
   const pending = accounts.filter((a) => a.status === "PENDING");
   const approved = accounts.filter((a) => a.status === "APPROVED");
   const rejected = accounts.filter((a) => a.status === "REJECTED");
+  const roleOptions = Array.from(new Set(accounts.map((a) => a.role))).sort((a, b) => a.localeCompare(b));
+
+  const parseSubmitted = (value: string) => {
+    const timestamp = new Date(value).getTime();
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+  };
+
+  const filterAndSortAccounts = (list: PendingAccount[]) => {
+    const needle = search.trim().toLowerCase();
+
+    return list
+      .filter((a) => roleFilter === "all" || a.role === roleFilter)
+      .filter((a) => {
+        if (!needle) return true;
+        return [a.name, a.role, a.area, a.email, a.id].some((field) => field.toLowerCase().includes(needle));
+      })
+      .sort((a, b) => {
+        if (sortBy === "za") return b.name.localeCompare(a.name);
+        if (sortBy === "newest") return parseSubmitted(b.submitted) - parseSubmitted(a.submitted);
+        if (sortBy === "oldest") return parseSubmitted(a.submitted) - parseSubmitted(b.submitted);
+        return a.name.localeCompare(b.name);
+      });
+  };
+
+  const visiblePending = filterAndSortAccounts(pending);
+  const visibleApproved = filterAndSortAccounts(approved);
+  const visibleRejected = filterAndSortAccounts(rejected);
 
   const handleReject = () => {
     if (!rejectTarget || !rejectReason.trim()) return;
@@ -890,16 +905,43 @@ function ApprovalsPage({
         </button>
       </div>
 
+      <div className="admin-filter-bar">
+        <div className="admin-filter-search">
+          <span className="material-symbols-outlined">search</span>
+          <input
+            className="admin-form-input"
+            placeholder="Search by name, role, area, email, or ID"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select className="admin-form-select admin-filter-select" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+          <option value="all">All roles</option>
+          {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+        </select>
+        <select className="admin-form-select admin-filter-select" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+          <option value="az">Name A-Z</option>
+          <option value="za">Name Z-A</option>
+          <option value="newest">Newest submitted</option>
+          <option value="oldest">Oldest submitted</option>
+        </select>
+        {(search || roleFilter !== "all" || sortBy !== "az") && (
+          <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={() => { setSearch(""); setRoleFilter("all"); setSortBy("az"); }}>
+            Clear
+          </button>
+        )}
+      </div>
+
       {tab === "pending" && (
-        pending.length === 0 ? (
+        visiblePending.length === 0 ? (
           <div className="admin-card" style={{ padding: "3rem", textAlign: "center", color: "var(--admin-text-soft)" }}>
             <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}></div>
-            <div style={{ fontWeight: 700, fontSize: "1rem" }}>All caught up  no pending applications.</div>
+            <div style={{ fontWeight: 700, fontSize: "1rem" }}>{pending.length === 0 ? "All caught up  no pending applications." : "No pending applications match the filters."}</div>
           </div>
-        ) : pending.map((a) => renderAccount(a, true))
+        ) : visiblePending.map((a) => renderAccount(a, true))
       )}
-      {tab === "approved" && (approved.length === 0 ? <div className="admin-card" style={{ padding: "2rem", textAlign: "center", color: "var(--admin-text-soft)" }}>No approved accounts yet.</div> : approved.map((a) => renderAccount(a, false)))}
-      {tab === "rejected" && (rejected.length === 0 ? <div className="admin-card" style={{ padding: "2rem", textAlign: "center", color: "var(--admin-text-soft)" }}>No rejected accounts.</div> : rejected.map((a) => renderAccount(a, false)))}
+      {tab === "approved" && (visibleApproved.length === 0 ? <div className="admin-card" style={{ padding: "2rem", textAlign: "center", color: "var(--admin-text-soft)" }}>{approved.length === 0 ? "No approved accounts yet." : "No approved accounts match the filters."}</div> : visibleApproved.map((a) => renderAccount(a, false)))}
+      {tab === "rejected" && (visibleRejected.length === 0 ? <div className="admin-card" style={{ padding: "2rem", textAlign: "center", color: "var(--admin-text-soft)" }}>{rejected.length === 0 ? "No rejected accounts." : "No rejected accounts match the filters."}</div> : visibleRejected.map((a) => renderAccount(a, false)))}
 
       {/* View Docs Modal */}
       {docsTarget && (
@@ -992,26 +1034,40 @@ function ApprovalsPage({
 function PeopleRecordsPage({ accounts }: { accounts: PendingAccount[] }) {
   const [tab, setTab] = useState<"individual" | "family">("individual");
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [areaFilter, setAreaFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<"az" | "za" | "role" | "area" | "household">("az");
   const [selectedAccount, setSelectedAccount] = useState<PendingAccount | null>(null);
 
   const allApproved = accounts.filter((a) => a.status === "APPROVED");
   const familyAccounts = accounts.filter(
     (a) => a.status === "APPROVED" && a.familyMembers && a.familyMembers.length > 0
   );
+  const roleOptions = Array.from(new Set(allApproved.map((a) => a.role))).sort((a, b) => a.localeCompare(b));
+  const areaOptions = Array.from(new Set(allApproved.map((a) => a.area).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
-  const filteredIndividual = allApproved.filter(
-    (a) =>
-      a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.area.toLowerCase().includes(search.toLowerCase()) ||
-      a.role.toLowerCase().includes(search.toLowerCase()) ||
-      a.id.toLowerCase().includes(search.toLowerCase())
-  );
+  const applyPeopleFilters = (list: PendingAccount[]) => {
+    const needle = search.trim().toLowerCase();
 
-  const filteredFamily = familyAccounts.filter(
-    (a) =>
-      a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.area.toLowerCase().includes(search.toLowerCase())
-  );
+    return list
+      .filter((a) => roleFilter === "all" || a.role === roleFilter)
+      .filter((a) => areaFilter === "all" || a.area === areaFilter)
+      .filter((a) => {
+        if (!needle) return true;
+        const memberNames = a.familyMembers?.map((m) => m.name).join(" ") ?? "";
+        return [a.name, a.role, a.area, a.email, a.id, memberNames].some((field) => field.toLowerCase().includes(needle));
+      })
+      .sort((a, b) => {
+        if (sortBy === "za") return b.name.localeCompare(a.name);
+        if (sortBy === "role") return a.role.localeCompare(b.role) || a.name.localeCompare(b.name);
+        if (sortBy === "area") return a.area.localeCompare(b.area) || a.name.localeCompare(b.name);
+        if (sortBy === "household") return ((b.familyMembers?.length ?? 0) + 1) - ((a.familyMembers?.length ?? 0) + 1);
+        return a.name.localeCompare(b.name);
+      });
+  };
+
+  const filteredIndividual = applyPeopleFilters(allApproved);
+  const filteredFamily = applyPeopleFilters(familyAccounts);
 
   const roleColor: Record<string, string> = {
     Dispatcher: "blue",
@@ -1040,13 +1096,13 @@ function PeopleRecordsPage({ accounts }: { accounts: PendingAccount[] }) {
         ] as { id: "individual" | "family"; icon: string; label: string }[]).map((t) => (
           <button
             key={t.id}
-            onClick={() => { setTab(t.id); setSearch(""); }}
+            onClick={() => { setTab(t.id); setSearch(""); setSortBy("az"); }}
             style={{
               display: "flex", alignItems: "center", gap: "0.45rem",
               padding: "0.5rem 1.1rem",
               border: "none", borderRadius: "0.45rem", cursor: "pointer",
               fontSize: "0.82rem", fontWeight: 800,
-              fontFamily: "Public Sans, sans-serif",
+              fontFamily: "sans-serif",
               background: tab === t.id ? "var(--admin-accent)" : "transparent",
               color: tab === t.id ? "#fff" : "var(--admin-text-soft)",
               transition: "all 0.15s",
@@ -1058,16 +1114,36 @@ function PeopleRecordsPage({ accounts }: { accounts: PendingAccount[] }) {
         ))}
       </div>
 
-      {/* Search */}
-      <div style={{ position: "relative", marginBottom: "1.25rem", maxWidth: "380px" }}>
-        <span className="material-symbols-outlined" style={{ position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", fontSize: "1rem", color: "var(--admin-text-soft)" }}>search</span>
-        <input
-          className="admin-form-input"
-          placeholder={tab === "individual" ? "Search by name, role, area, or ID" : "Search by name or area"}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ paddingLeft: "2.25rem" }}
-        />
+      <div className="admin-filter-bar">
+        <div className="admin-filter-search">
+          <span className="material-symbols-outlined">search</span>
+          <input
+            className="admin-form-input"
+            placeholder={tab === "individual" ? "Search by name, role, area, email, or ID" : "Search by head, member, area, or ID"}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select className="admin-form-select admin-filter-select" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+          <option value="all">All roles</option>
+          {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+        </select>
+        <select className="admin-form-select admin-filter-select" value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
+          <option value="all">All areas</option>
+          {areaOptions.map((area) => <option key={area} value={area}>{area}</option>)}
+        </select>
+        <select className="admin-form-select admin-filter-select" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+          <option value="az">Name A-Z</option>
+          <option value="za">Name Z-A</option>
+          <option value="role">Role</option>
+          <option value="area">Area</option>
+          {tab === "family" && <option value="household">Household size</option>}
+        </select>
+        {(search || roleFilter !== "all" || areaFilter !== "all" || sortBy !== "az") && (
+          <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={() => { setSearch(""); setRoleFilter("all"); setAreaFilter("all"); setSortBy("az"); }}>
+            Clear
+          </button>
+        )}
       </div>
 
       {/*  Individual Records Tab  */}
@@ -2778,7 +2854,7 @@ function EarlyWarningPage({
                     display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem",
                     padding: "1.25rem", border: "1.5px solid var(--admin-red-border)",
                     borderRadius: "0.85rem", cursor: "pointer", background: "var(--admin-red-bg)",
-                    color: "var(--admin-red)", fontFamily: "Public Sans, sans-serif",
+                    color: "var(--admin-red)", fontFamily: "sans-serif",
                     fontWeight: 800, fontSize: "0.88rem", transition: "all 0.15s",
                   }}
                 >
@@ -2791,7 +2867,7 @@ function EarlyWarningPage({
                     display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem",
                     padding: "1.25rem", border: "1.5px solid var(--admin-green-border)",
                     borderRadius: "0.85rem", cursor: "pointer", background: "var(--admin-green-bg)",
-                    color: "var(--admin-green)", fontFamily: "Public Sans, sans-serif",
+                    color: "var(--admin-green)", fontFamily: "sans-serif",
                     fontWeight: 800, fontSize: "0.88rem", transition: "all 0.15s",
                   }}
                 >
@@ -2858,7 +2934,7 @@ function EarlyWarningPage({
                             background: sel ? "var(--admin-accent-light)" : "var(--admin-surface)",
                             color: sel ? "var(--admin-accent)" : "var(--admin-text-soft)",
                             fontSize: "0.75rem", fontWeight: sel ? 800 : 600,
-                            cursor: "pointer", fontFamily: "Public Sans, sans-serif",
+                            cursor: "pointer", fontFamily: "sans-serif",
                             transition: "all 0.15s",
                             display: "flex", alignItems: "center", gap: "0.3rem",
                           }}
@@ -3189,128 +3265,6 @@ function EarlyWarningPage({
 }
 
 // 
-//  SYSTEM HEALTH
-// 
-function SystemHealthPage({
-  showToast,
-  services,
-  refreshing,
-  onRefresh,
-}: {
-  showToast: (type: ToastItem["type"], title: string, sub?: string) => void;
-  services: ServiceHealth[];
-  refreshing: boolean;
-  onRefresh: () => Promise<boolean>;
-}) {
-  const degraded = services.filter((s) => s.status !== "OPERATIONAL");
-
-  const handleRecheck = () => {
-    void onRefresh().then((ok) => {
-      if (!ok) {
-        showToast("error", "Health Recheck Failed", "Could not reach backend health endpoint");
-        return;
-      }
-      showToast("success", "Health Rechecked", "Service statuses were refreshed from backend");
-    });
-  };
-
-  return (
-    <div className="admin-page">
-      <div className="admin-page-head">
-        <div>
-          <h2>System Health Monitor</h2>
-          <p>Live status of all DAMAYAN platform services and components</p>
-        </div>
-        <div className="admin-head-actions">
-          <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={handleRecheck} disabled={refreshing}>
-            {refreshing ? "Checking..." : "Recheck Health"}
-          </button>
-          {degraded.length === 0
-            ? <span className="admin-badge green"> All Systems Operational</span>
-            : <span className="admin-badge amber"> {degraded.length} Service(s) Degraded</span>
-          }
-        </div>
-      </div>
-
-      {degraded.length > 0 && (
-        <div className="admin-alert warning" style={{ marginBottom: "1.25rem" }}>
-          <span className="admin-alert-icon material-symbols-outlined">warning</span>
-          <div>
-            <strong>{degraded.length} service(s) are not fully operational:</strong>{" "}
-            {degraded.map((s) => s.name).join(", ")}.
-            Engineering team has been notified.
-            <button className="admin-btn admin-btn-danger admin-btn-xs" style={{ marginLeft: "0.75rem" }} onClick={() => showToast("warning", "Issue Escalated", "Engineering team notified via PagerDuty")}>
-              Escalate Issue
-            </button>
-          </div>
-        </div>
-      )}
-
-      {services.length === 0 && (
-        <div className="admin-alert warning" style={{ marginBottom: "1.25rem" }}>
-          <span className="admin-alert-icon material-symbols-outlined">warning</span>
-          <div>System health endpoint is unavailable. Showing live backend state only.</div>
-        </div>
-      )}
-
-      <div className="admin-stats-row admin-stats-4">
-        <div className="admin-stat green"><div className="admin-stat-label">Operational</div><div className="admin-stat-value">{services.filter((s) => s.status === "OPERATIONAL").length}</div></div>
-        <div className="admin-stat amber"><div className="admin-stat-label">Degraded</div><div className="admin-stat-value">{services.filter((s) => s.status === "DEGRADED").length}</div></div>
-        <div className="admin-stat red"><div className="admin-stat-label">Down</div><div className="admin-stat-value">{services.filter((s) => s.status === "DOWN").length}</div></div>
-        <div className="admin-stat blue"><div className="admin-stat-label">Total Services</div><div className="admin-stat-value">{services.length}</div></div>
-      </div>
-
-      <div className="admin-card">
-        <div className="admin-card-header">
-          <div className="admin-card-title">Service Status</div>
-        </div>
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Service</th>
-                <th>Status</th>
-                <th>Latency</th>
-                <th>Uptime (30d)</th>
-                <th>Notes</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {services.map((svc) => (
-                <tr key={svc.name}>
-                  <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <div className={`admin-health-dot ${svc.status === "OPERATIONAL" ? "ok" : svc.status === "DEGRADED" ? "degraded" : "down"}`} />
-                      <span style={{ fontWeight: 700, fontSize: "0.82rem" }}>{svc.name}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`admin-badge ${svc.status === "OPERATIONAL" ? "green" : svc.status === "DEGRADED" ? "amber" : "red"}`}>
-                      {svc.status === "OPERATIONAL" ? " Operational" : svc.status === "DEGRADED" ? " Degraded" : " Down"}
-                    </span>
-                  </td>
-                  <td><span className="admin-mono">{svc.latency}</span></td>
-                  <td><span style={{ fontWeight: 700, color: parseFloat(svc.uptime) > 99.5 ? "var(--admin-green)" : "var(--admin-amber)" }}>{svc.uptime}</span></td>
-                  <td style={{ fontSize: "0.75rem", color: "var(--admin-text-soft)", maxWidth: "14rem" }}>{svc.note || ""}</td>
-                  <td>
-                    {svc.status !== "OPERATIONAL" && (
-                      <button className="admin-btn admin-btn-success admin-btn-xs" onClick={handleRecheck} disabled={refreshing}>
-                        {refreshing ? "Checking..." : "Recheck"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// 
 //  PROFILE PAGE
 // 
 function ProfilePage({ profile, onSave, showToast }: { profile: AdminProfile; onSave: (p: AdminProfile) => Promise<boolean>; showToast: (type: ToastItem["type"], title: string, sub?: string) => void }) {
@@ -3457,24 +3411,6 @@ function mapApprovalToAccount(record: AdminApprovalRecord): PendingAccount {
   };
 }
 
-function normalizeHealthStatus(status?: string): ServiceStatus {
-  const normalized = String(status ?? "").toUpperCase();
-  if (normalized === "OPERATIONAL" || normalized === "DEGRADED" || normalized === "DOWN") {
-    return normalized;
-  }
-  return "DOWN";
-}
-
-function mapSystemHealthRecord(svc: AdminSystemHealthRecord): ServiceHealth {
-  return {
-    name: svc.name,
-    status: normalizeHealthStatus(svc.status),
-    latency: svc.latency ?? `${svc.latencyMs ?? 0}ms`,
-    uptime: svc.uptime ?? "",
-    note: svc.note,
-  };
-}
-
 // 
 //  ROOT ADMIN PORTAL
 // 
@@ -3496,8 +3432,6 @@ export default function AdminPortal() {
   });
   const [activityLog, setActivityLog] = useState<{ time: string; type: string; msg: string; col: string }[]>([]);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [systemHealth, setSystemHealth] = useState<ServiceHealth[]>([]);
-  const [healthRefreshing, setHealthRefreshing] = useState(false);
   const [initialHydrating, setInitialHydrating] = useState(true);
   const [approvalsDataStatus, setApprovalsDataStatus] = useState<"live" | "unavailable">("unavailable");
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -3511,30 +3445,6 @@ export default function AdminPortal() {
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const toastRef = useRef(0);
-
-  const refreshSystemHealth = useCallback(async (tokenOverride?: string) => {
-    const token = tokenOverride ?? loadSession()?.accessToken;
-    if (!token) {
-      setSystemHealth([]);
-      return false;
-    }
-
-    setHealthRefreshing(true);
-    try {
-      const health = await getSystemHealth(token);
-      if (health.length > 0) {
-        setSystemHealth(health.map(mapSystemHealthRecord));
-      } else {
-        setSystemHealth([]);
-      }
-      return true;
-    } catch {
-      setSystemHealth([]);
-      return false;
-    } finally {
-      setHealthRefreshing(false);
-    }
-  }, []);
 
   useEffect(() => {
     const stored = loadSession();
@@ -3638,12 +3548,11 @@ export default function AdminPortal() {
         disasterPromise,
         qrPromise,
         approvalsPromise,
-        refreshSystemHealth(token),
       ]);
       setInitialHydrating(false);
     }
     void hydrate();
-  }, [router, refreshSystemHealth]);
+  }, [router]);
 
   const showToast = useCallback((type: ToastItem["type"], title: string, sub?: string) => {
     const id = ++toastRef.current;
@@ -3849,7 +3758,6 @@ export default function AdminPortal() {
     after_calamity: { title: "After Calamity", sub: "Post-disaster response, relief deployment and reporting" },
     disaster_monitoring: { title: "Disaster Monitoring", sub: "Live feeds, event tracking, forecast analysis" },
     early_warning: { title: "Early Warning System", sub: "Configure and broadcast calamity warnings" },
-    system_health: { title: "System Health", sub: "Platform service status and uptime" },
     profile: { title: "My Profile", sub: "Account settings and password management" },
   };
 
@@ -3876,7 +3784,6 @@ export default function AdminPortal() {
             { id: "after_calamity", icon: "assignment_turned_in", label: "After Calamity" },
             { id: "disaster_monitoring", icon: "crisis_alert", label: "Disaster Monitor" },
             { id: "early_warning", icon: "broadcast_on_home", label: "Early Warning" },
-            { id: "system_health", icon: "monitor_heart", label: "System Health" },
           ] as { id: AdminPage; icon: string; label: string; badge?: number }[]).map((item) => (
             <button
               key={item.id}
@@ -4025,14 +3932,6 @@ export default function AdminPortal() {
               authToken={session?.accessToken}
             />
           )}
-          {page === "system_health" && (
-            <SystemHealthPage
-              showToast={showToast}
-              services={systemHealth}
-              refreshing={healthRefreshing}
-              onRefresh={refreshSystemHealth}
-            />
-          )}
           {page === "profile" && (
             <ProfilePage profile={profile} onSave={handleProfileSave} showToast={showToast} />
           )}
@@ -4070,4 +3969,3 @@ export default function AdminPortal() {
     </div>
   );
 }
-
