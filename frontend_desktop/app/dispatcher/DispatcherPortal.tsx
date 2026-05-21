@@ -11,8 +11,6 @@ import {
   SituationType,
   UnitType,
   MOCK_DISPATCHER,
-  MOCK_UNITS,
-  MOCK_INCIDENTS,
   MOCK_TEAMS,
   priorityClass,
   statusClass,
@@ -28,9 +26,13 @@ import {
   shortenId,
 } from "./data";
 import LiveMap, { MapMode } from "./LiveMap";
-import { getDispatcherIncidents, updateIncidentReport } from "../lib/api";
+import {
+  getDispatcherIncidents,
+  getDispatcherVolunteers,
+  updateIncidentReport,
+} from "../lib/api";
 import { loadSession } from "../lib/session";
-import { IncidentReport } from "../lib/types";
+import { IncidentReport, Organization } from "../lib/types";
 import { Icon, IconName } from "./components/ui/Icon";
 
 function volunteerIconName(type: UnitType): IconName {
@@ -175,6 +177,42 @@ function useToast() {
     setTimeout(() => setMsg(null), 2800);
   };
   return { msg, show };
+}
+
+function formatDateForInput(dateLike: string) {
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function mapOrganizationToUnitType(type?: string): UnitType {
+  const t = String(type ?? "").toLowerCase();
+  if (/(medical|medic|hospital|health|clinic|ambulance)/.test(t)) return "MEDIC";
+  if (/(logistic|transport|supply|relief)/.test(t)) return "LOGISTICS";
+  return "FIELD";
+}
+
+function mapOrganizationToUnit(org: Organization): Unit {
+  const unitType = mapOrganizationToUnitType(org.type);
+  return {
+    id: org.id,
+    type: unitType,
+    name: org.name,
+    station: org.contactEmail || "Volunteer Organization",
+    status: org.verified ? "Available" : "Offline",
+    lat: 14.6042,
+    lng: 120.9822,
+    personnel: 0,
+    distance: "-",
+    eta: "-",
+    teamLeader: "N/A",
+    contact: org.contactPhone || org.contactEmail || "N/A",
+    plateNumber: "N/A",
+    lastActive: "Synced",
+  };
 }
 
 // Helper: map units to teams
@@ -3264,7 +3302,8 @@ function IncidentsPage({
       !i.location.toLowerCase().includes(searchLoc.toLowerCase())
     )
       return false;
-    if (dateFilter && i.dateReported !== dateFilter) return false;
+    if (dateFilter && formatDateForInput(i.dateReported) !== dateFilter)
+      return false;
     if (priFilter !== "All" && i.priority !== priFilter) return false;
     return true;
   });
@@ -3292,59 +3331,74 @@ function IncidentsPage({
     }
   }, [filteredSorted.length, selInc?.id]);
 
+  const incidentStats = [
+    {
+      label: "In Progress",
+      value: inProgress.length,
+      color: "var(--d-primary)",
+      bgColor: "var(--d-primary-light)",
+      icon: "activity" as IconName,
+      desc: "Ongoing responses",
+    },
+    {
+      label: "Completed",
+      value: completed.length,
+      color: "var(--d-blue)",
+      bgColor: "var(--d-blue-bg)",
+      icon: "check" as IconName,
+      desc: "Resolved incidents",
+    },
+    {
+      label: "Invalid",
+      value: invalid.length,
+      color: "var(--d-text-sub)",
+      bgColor: "var(--d-surface-mid)",
+      icon: "close" as IconName,
+      desc: "Closed as invalid",
+    },
+    {
+      label: "Critical",
+      value: filtered.filter((i) => i.priority === "CRITICAL").length,
+      color: "var(--d-red)",
+      bgColor: "var(--d-red-bg)",
+      icon: "warning" as IconName,
+      desc: "Needs immediate action",
+    },
+    {
+      label: "High",
+      value: filtered.filter((i) => i.priority === "HIGH").length,
+      color: "var(--d-amber)",
+      bgColor: "var(--d-amber-bg)",
+      icon: "ticket" as IconName,
+      desc: "Priority queue",
+    },
+  ];
+
   return (
-    <div className="dp-incidents-modern-page dp-fade-in">
-      <div className="dp-incidents-modern-stats">
-        <div className="dp-count-box" style={{ background: "var(--d-primary-light)" }}>
-          <div className="num" style={{ color: "var(--d-primary)" }}>
-            {inProgress.length}
+    <div className="dp-rescue-monitoring-page dp-incidents-tab-page dp-fade-in">
+      <div className="dp-stats-row dp-stats-row-5col">
+        {incidentStats.map((s) => (
+          <div key={s.label} className="dp-stat">
+            <div
+              className="dp-stat-icon-wrap"
+              style={{ color: s.color, backgroundColor: s.bgColor }}
+            >
+              <Icon name={s.icon} size={18} />
+            </div>
+            <div className="dp-stat-label">{s.label}</div>
+            <div className="dp-stat-value" style={{ color: s.color }}>
+              {s.value}
+            </div>
+            <div className="dp-stat-sub">{s.desc}</div>
           </div>
-          <div className="lbl" style={{ color: "var(--d-primary)" }}>In Progress</div>
-        </div>
-        <div className="dp-count-box" style={{ background: "rgba(21,101,192,0.08)" }}>
-          <div className="num" style={{ color: "var(--d-blue)" }}>
-            {completed.length}
-          </div>
-          <div className="lbl" style={{ color: "var(--d-blue)" }}>Completed</div>
-        </div>
-        <div className="dp-count-box" style={{ background: "var(--d-surface-mid)" }}>
-          <div className="num" style={{ color: "var(--d-text-sub)" }}>
-            {invalid.length}
-          </div>
-          <div className="lbl" style={{ color: "var(--d-text-sub)" }}>Invalid</div>
-        </div>
-        <div className="dp-rescue-situation-card">
-          <div className="dp-rescue-situation-label">Critical</div>
-          <div className="dp-rescue-situation-count" style={{ color: "var(--d-red)" }}>
-            {filtered.filter((i) => i.priority === "CRITICAL").length}
-          </div>
-        </div>
-        <div className="dp-rescue-situation-card">
-          <div className="dp-rescue-situation-label">High</div>
-          <div className="dp-rescue-situation-count" style={{ color: "var(--d-amber)" }}>
-            {filtered.filter((i) => i.priority === "HIGH").length}
-          </div>
-        </div>
+        ))}
       </div>
 
-      <div className="dp-incidents-modern-content">
+      <div className="dp-rescue-content-grid dp-incidents-shared-content">
       {/* ── Left: ticket detail (main) ── */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          border: "1px solid var(--d-border)",
-          borderRadius: 16,
-          background: "#fff",
-          boxShadow: "0 10px 26px rgba(23, 31, 20, 0.08)",
-        }}
-      >
+      <div className="dp-incidents-detail-panel">
         {selInc ? (
-          <div
-            style={{ flex: 1, overflowY: "auto", background: "var(--d-bg)" }}
-          >
+          <div className="dp-incidents-detail-scroll">
             <div className="dp-incident-overview">
               <div className="dp-incident-overview-top">
                 <div className="dp-incident-overview-id">{shortenId(selInc.id)}</div>
@@ -3381,15 +3435,7 @@ function IncidentsPage({
             />
           </div>
         ) : filteredSorted.length === 0 ? (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "var(--d-bg)",
-            }}
-          >
+          <div className="dp-incidents-detail-empty">
             <div className="dp-empty">
               <div className="dp-empty-title">No incidents match filters</div>
               <div className="dp-empty-sub">
@@ -3398,15 +3444,7 @@ function IncidentsPage({
             </div>
           </div>
         ) : (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "var(--d-bg)",
-            }}
-          >
+          <div className="dp-incidents-detail-empty">
             <div className="dp-empty">
               <div className="dp-empty-title">Select an incident</div>
               <div className="dp-empty-sub">
@@ -3418,7 +3456,7 @@ function IncidentsPage({
       </div>
 
       {/* ── Right: filters + list ── */}
-      <div className="dp-incidents-list" style={{ width: 420 }}>
+      <div className="dp-incidents-list">
         <div className="dp-incidents-panel-head">
           <div className="dp-incidents-panel-title">Incident Queue</div>
           <div className="dp-incidents-panel-sub">
@@ -3426,46 +3464,6 @@ function IncidentsPage({
           </div>
         </div>
         <div className="dp-incidents-filters">
-          {/* Counts row */}
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            {[
-              {
-                label: "In Progress",
-                count: inProgress.length,
-                color: "var(--d-primary)",
-                bg: "var(--d-primary-light)",
-              },
-              {
-                label: "Completed",
-                count: completed.length,
-                color: "var(--d-blue)",
-                bg: "rgba(21,101,192,0.08)",
-              },
-              {
-                label: "Invalid",
-                count: invalid.length,
-                color: "var(--d-text-sub)",
-                bg: "var(--d-surface-mid)",
-              },
-            ].map((s) => (
-              <div
-                key={s.label}
-                className="dp-count-box"
-                style={{ background: s.bg }}
-              >
-                <div className="num" style={{ color: s.color }}>
-                  {s.count}
-                </div>
-                <div
-                  className="lbl"
-                  style={{ color: s.color, fontSize: "0.65rem" }}
-                >
-                  {s.label}
-                </div>
-              </div>
-            ))}
-          </div>
-
           {/* Search fields */}
           <div className="dp-search-box">
             <span className="dp-search-icon">#</span>
@@ -5206,7 +5204,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [page, setPage] = useState<NavPage>("dashboard");
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [units, setUnits] = useState<Unit[]>(MOCK_UNITS);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [dropdown, setDropdown] = useState(false);
   const [broadcastModal, setBroadcastModal] = useState(false);
   const [liveActivityModal, setLiveActivityModal] = useState(false);
@@ -5240,7 +5238,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       const name =
         u.name ||
         `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
-        "Daniel Santos";
+        "Dispatcher User";
       setDispUser({
         name,
         initials,
@@ -5256,9 +5254,13 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     syncProfile();
     const session = loadSession();
     if (session?.accessToken) {
-      getDispatcherIncidents(session.accessToken)
-        .then((data) => {
-          setIncidents(data.map(mapBackendToFrontendIncident));
+      Promise.all([
+        getDispatcherIncidents(session.accessToken),
+        getDispatcherVolunteers(session.accessToken),
+      ])
+        .then(([incidentData, volunteerData]) => {
+          setIncidents(incidentData.map(mapBackendToFrontendIncident));
+          setUnits(volunteerData.map(mapOrganizationToUnit));
         })
         .catch((err) => {
           console.error("Failed to fetch incidents:", err);
@@ -5434,7 +5436,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               </span>
             </div>
             <div className="dp-status-cluster">
-              {dispUser?.cluster || MOCK_DISPATCHER.cluster}
+              {dispUser?.cluster || "Assigned cluster unavailable"}
             </div>
             <button
               className={`dp-status-toggle ${status === "active" ? "set-inactive" : "set-active"}`}
@@ -5487,19 +5489,19 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         {/* Topbar */}
         <header className="dp-topbar">
           <div className="dp-topbar-left">
-            <span
-              className={`dp-phase-badge ${status === "active" ? "active" : "inactive"}`}
-            >
-              {status === "active"
-                ? "● Active Response"
-                : "○ Inactive / Off Duty"}
-            </span>
-            <span className="dp-topbar-title">
-              Sampaloc Command Center —{" "}
-              {dispUser?.cluster || MOCK_DISPATCHER.cluster}
-            </span>
+            <span className="dp-topbar-brand">DAMAYAN</span>
+            <span className="dp-topbar-divider" aria-hidden="true">|</span>
+            <span className="dp-topbar-crumb">PORTAL</span>
+            <span className="dp-topbar-chevron" aria-hidden="true">›</span>
+            <span className="dp-topbar-crumb current">{page.toUpperCase()}</span>
           </div>
           <div className="dp-topbar-right">
+            <span
+              className={`dp-phase-badge ${status === "active" ? "active" : "inactive"}`}
+              title={`${dispUser?.station || "Command Center"} - ${dispUser?.cluster || "Assigned Cluster"}`}
+            >
+              {status === "active" ? "ACTIVE RESPONSE" : "OFF DUTY"}
+            </span>
             <span className="dp-clock">{clock}</span>
             <button
               className="dp-broadcast-btn"
@@ -5533,16 +5535,16 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 className="dp-avatar-btn"
                 onClick={() => setDropdown((d) => !d)}
               >
-                {dispUser?.initials || "DS"}
+                {dispUser?.initials || "??"}
               </div>
               {dropdown && (
                 <div className="dp-avatar-dropdown">
                   <div className="dp-avatar-dropdown-header">
                     <div className="dp-avatar-dropdown-name">
-                      {dispUser?.name || MOCK_DISPATCHER.name}
+                      {dispUser?.name || "Dispatcher User"}
                     </div>
                     <div className="dp-avatar-dropdown-role">
-                      {dispUser?.rank || MOCK_DISPATCHER.rank}
+                      {dispUser?.rank || "Dispatcher"}
                     </div>
                   </div>
                   <button
