@@ -75,38 +75,37 @@ export class AuthService {
 
     const supabase = this.supabaseService.getClient() as any;
     const formattedPhone = signupDto.phone ? this.formatPhoneForStorage(signupDto.phone) : '';
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+
+    // Use admin.createUser instead of auth.signUp to prevent the Supabase client from
+    // loading the new user's session into memory, which would cause subsequent
+    // user_profiles inserts to run under the user's JWT (failing RLS) instead of
+    // the service role (which bypasses RLS).
+    const { data: adminCreateData, error: signUpError } = await supabase.auth.admin.createUser({
       email: signupDto.email,
       password: signupDto.password,
-      options: {
-        data: {
-          first_name: signupDto.firstName,
-          last_name: signupDto.lastName,
-          role: requestedRole,
-          government_id_file_name: signupDto.governmentIdFileName ?? null,
-        },
+      email_confirm: true,
+      user_metadata: {
+        first_name: signupDto.firstName,
+        last_name: signupDto.lastName,
+        role: requestedRole,
+        government_id_file_name: signupDto.governmentIdFileName ?? null,
       },
     });
 
     if (signUpError) {
-      if (signUpError.message.toLowerCase().includes('already registered')) {
+      if (
+        signUpError.message.toLowerCase().includes('already registered') ||
+        signUpError.message.toLowerCase().includes('already exists') ||
+        signUpError.message.toLowerCase().includes('email address has already been registered')
+      ) {
         throw new ConflictException('User with this email already exists');
       }
       throw new BadRequestException(signUpError.message);
     }
 
-    const authUser = signUpData.user;
+    const authUser = adminCreateData.user;
     if (!authUser) {
       throw new BadRequestException('Unable to create auth user');
-    }
-
-    console.log('--- SUPABASE SIGNUP RESPONSE USER ---');
-    console.dir(authUser, { depth: null });
-    console.log('---------------------------------------');
-
-    // Supabase returns an empty identities array if the user already exists (to prevent email enumeration)
-    if (authUser.identities && authUser.identities.length === 0) {
-      throw new ConflictException('User with this email already exists');
     }
 
     const { error: profileError } = await supabase

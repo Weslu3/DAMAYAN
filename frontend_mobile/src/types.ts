@@ -137,21 +137,14 @@ export interface Organization {
   contactPhone?: string;
 }
 
-export type PortalRole = "admin" | "dispatcher" | "site_manager" | "citizen";
+export type PortalRole = "site_manager" | "citizen";
 
 export type AppRoute =
-  | "role-selector"
-  | "admin-login"
-  | "admin-dashboard"
-  | "dispatcher-login"
-  | "dispatcher-before"
-  | "dispatcher-during"
-  | "site-manager-login"
+  | "login"
   | "site-manager-signup"
   | "site-manager-before"
   | "site-manager-during"
   | "site-manager-dashboard"
-  | "citizen-login"
   | "citizen-signup"
   | "citizen-dashboard"
   | "citizen-before"

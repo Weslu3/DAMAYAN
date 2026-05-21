@@ -112,6 +112,8 @@ export function CitizenDuringScreen({
   const [isIndividual, setIsIndividual] = useState<boolean | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [locationPinned, setLocationPinned] = useState(false);
+  const [personsAffected, setPersonsAffected] = useState(1);
 
   // ── Location state ─────────────────────────────────────────────────────────
   const [locationMode, setLocationMode] = useState<"idle" | "loading" | "gps">("idle");
@@ -618,11 +620,48 @@ export function CitizenDuringScreen({
               <Text style={[styles.stepTag, { color: theme.primary }]}>Safe Zone Map</Text>
               <Text style={styles.stepTitle}>Nearby Shelters</Text>
             </View>
-            <View style={styles.mapMock}>
+
+            <Text style={styles.mapInstruction}>
+              {locationPinned
+                ? "Location pinned. You can reposition by tapping again."
+                : "Tap on the map to drop your location pin so rescuers can find you."}
+            </Text>
+
+            <Pressable onPress={() => setLocationPinned(true)} style={styles.mapMock}>
               <PulsatingDot color={theme.primary} />
+              {locationPinned && (
+                <View style={styles.pinIndicator}>
+                  <Ionicons name="location" size={22} color={theme.danger} />
+                  <Text style={styles.pinIndicatorText}>Your Location</Text>
+                </View>
+              )}
               <View style={styles.mapEtaBadge}>
                 <Ionicons name="shield-checkmark" size={16} color={theme.primary} />
                 <Text style={styles.mapEtaText}>Zone A: ACTIVE</Text>
+              </View>
+            </Pressable>
+
+            {/* Persons Affected Counter */}
+            <View style={[styles.infoRow, { borderLeftColor: theme.warning }]}>
+              <Ionicons name="people" size={24} color={theme.warning} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoRowText}>Persons Affected</Text>
+                <Text style={styles.infoRowSub}>Including yourself</Text>
+              </View>
+              <View style={styles.counterRow}>
+                <Pressable
+                  onPress={() => setPersonsAffected((n) => Math.max(1, n - 1))}
+                  style={styles.counterBtn}
+                >
+                  <Text style={styles.counterBtnText}>−</Text>
+                </Pressable>
+                <Text style={styles.counterValue}>{personsAffected}</Text>
+                <Pressable
+                  onPress={() => setPersonsAffected((n) => n + 1)}
+                  style={styles.counterBtn}
+                >
+                  <Text style={styles.counterBtnText}>+</Text>
+                </Pressable>
               </View>
             </View>
 
@@ -640,11 +679,19 @@ export function CitizenDuringScreen({
             ))}
 
             <Pressable
-              style={[styles.ctaButton, { backgroundColor: theme.primary }]}
+              style={[styles.ctaButton, { backgroundColor: theme.danger }]}
+              onPress={() => go("report_incident")}
+            >
+              <Ionicons name="hand-left" size={24} color="#fff" />
+              <Text style={styles.ctaButtonText}>Request Rescue</Text>
+            </Pressable>
+
+            <Pressable
+              style={[styles.ctaButton, { backgroundColor: theme.primary, marginTop: 10 }]}
               onPress={() => go("navigate_evacuation")}
             >
               <Ionicons name="navigate" size={24} color="#fff" />
-              <Text style={styles.ctaButtonText}>Navigate Now</Text>
+              <Text style={styles.ctaButtonText}>Navigate to Shelter</Text>
             </Pressable>
           </View>
         )}

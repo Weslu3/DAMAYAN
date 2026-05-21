@@ -180,6 +180,24 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
         )}
       </View>
 
+      {/* Tab Toggle */}
+      <View style={styles.tabRow}>
+        <TouchableOpacity
+          style={[styles.tabBtn, activeTab === "family" && styles.tabBtnActive]}
+          onPress={() => setActiveTab("family")}
+        >
+          <Ionicons name={activeTab === "family" ? "people" : "people-outline"} size={16} color={activeTab === "family" ? "#fff" : theme.textLight} />
+          <Text style={[styles.tabBtnText, activeTab === "family" && styles.tabBtnTextActive]}>FAMILY QR</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabBtn, activeTab === "personal" && styles.tabBtnActive]}
+          onPress={() => setActiveTab("personal")}
+        >
+          <Ionicons name={activeTab === "personal" ? "qr-code" : "qr-code-outline"} size={16} color={activeTab === "personal" ? "#fff" : theme.textLight} />
+          <Text style={[styles.tabBtnText, activeTab === "personal" && styles.tabBtnTextActive]}>MY QR</Text>
+        </TouchableOpacity>
+      </View>
+
       {error ? (
         <View style={styles.errorBanner}>
           <Text style={styles.errorBannerText}>{error}</Text>
@@ -196,7 +214,41 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
         </View>
       )}
 
-      {!group ? (
+      {/* Personal QR Tab */}
+      {activeTab === "personal" && (
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {personalQrCodeId ? (
+            <View style={styles.personalQrCard}>
+              <View style={styles.qrCardBadge}>
+                <View style={styles.qrBadgeDot} />
+                <Text style={styles.qrBadgeText}>YOUR DIGITAL ID</Text>
+              </View>
+              {citizenDisplayName && (
+                <Text style={styles.familyNameText}>{citizenDisplayName}</Text>
+              )}
+              <Text style={styles.qrSubtitle}>Show this QR at evacuation centers for personal check-in</Text>
+              <View style={styles.qrWrapper}>
+                <QRCode value={personalQrCodeId} size={200} backgroundColor="#fff" color="#000" />
+              </View>
+              <Text style={styles.qrCodeId}>{personalQrCodeId}</Text>
+              <Text style={styles.qrHint}>Keep this accessible during emergencies</Text>
+            </View>
+          ) : (
+            <View style={styles.centered}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="qr-code-outline" size={48} color={theme.primary} />
+              </View>
+              <Text style={styles.emptyTitle}>No QR ID Yet</Text>
+              <Text style={styles.emptyDesc}>
+                Complete your registration to receive a personal Digital ID QR code for evacuation check-in.
+              </Text>
+            </View>
+          )}
+          <View style={{ height: 60 }} />
+        </ScrollView>
+      )}
+
+      {activeTab === "family" && !group && (
         /* ── No group yet ── */
         <View style={styles.centered}>
           <View style={styles.emptyIcon}>
@@ -222,6 +274,7 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
           </Text>
         </View>
       )}
+
 
       {activeTab === "family" && !!group && (
         /* ── Group exists ── */
@@ -347,6 +400,7 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
       )}
 
       {/* Create Family Group Modal */}
+
       <Modal visible={showCreateModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -500,6 +554,53 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#fff",
     letterSpacing: 1,
+  },
+  tabRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.line,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: theme.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.line,
+  },
+  tabBtnActive: {
+    backgroundColor: "#004D40",
+    borderColor: "#004D40",
+  },
+  tabBtnText: {
+    ...fonts.black,
+    fontSize: 11,
+    color: theme.textLight,
+    letterSpacing: 1,
+  },
+  tabBtnTextActive: {
+    color: "#fff",
+  },
+  personalQrCard: {
+    backgroundColor: "#fff",
+    borderRadius: 36,
+    padding: 28,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: theme.line,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+    marginBottom: 24,
   },
   scroll: { flex: 1 },
   scrollContent: { padding: 24, paddingBottom: 60 },

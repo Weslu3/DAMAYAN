@@ -56,9 +56,8 @@ export function CitizenFamilyGroupScannerScreen({
     const raw = event.data?.trim();
     if (!raw) return;
 
-    // Block scanning another family group QR — only individual QRs start with DMY-
-    const qrCode = raw.startsWith("QR-") ? raw.replace("QR-", "") : raw;
-    if (qrCode.startsWith("FAM-")) {
+    // Block scanning a family group QR — only individual citizen QRs should be added
+    if (raw.startsWith("FAM-")) {
       setError("Cannot add a family group QR as a member. Please scan an individual citizen QR.");
       setStatus("error");
       return;
@@ -71,7 +70,7 @@ export function CitizenFamilyGroupScannerScreen({
       const session = await loadSession();
       if (!session?.accessToken) throw new Error("Session expired.");
 
-      const citizen = await lookupCitizenByQr(session.accessToken, qrCode);
+      const citizen = await lookupCitizenByQr(session.accessToken, raw);
       if (!citizen || !citizen.qrCodeId) {
         throw new Error("No registered citizen found for this QR code. Make sure the person has completed individual registration.");
       }

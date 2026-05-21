@@ -6,53 +6,35 @@ import { roleColors, theme, fonts } from "../theme";
 import { AppRoute, PortalRole } from "../types";
 import { styles } from "./RoleSelectorScreen.styles";
 
-const roles: { 
-  id: PortalRole; 
-  label: string; 
-  sub: string; 
-  desc: string; 
+const roles: {
+  id: PortalRole;
+  label: string;
+  sub: string;
+  desc: string;
   color: string;
   image: string;
 }[] = [
-  { 
-    id: "citizen", 
-    label: "Affected Citizen", 
+  {
+    id: "citizen",
+    label: "Affected Citizen",
     sub: "PUBLIC PORTAL",
     desc: "Register for relief, receive critical alerts, access your Digital ID, and track recovery aid status.",
     color: roleColors.citizen,
     image: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80",
   },
-  { 
-    id: "site_manager", 
-    label: "Site Manager", 
+  {
+    id: "site_manager",
+    label: "Site Manager",
     sub: "OPERATIONS PORTAL",
     desc: "Manage shelter intake, track resource inventory, and oversee local distribution logs.",
     color: roleColors.site_manager,
     image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=150&q=80",
   },
-  { 
-    id: "dispatcher", 
-    label: "Dispatcher", 
-    sub: "COMMAND PORTAL",
-    desc: "Coordinate emergency rescue teams, prioritize incident tickets, and manage field assets.",
-    color: roleColors.dispatcher,
-    image: "https://images.unsplash.com/photo-1516321497487-e288fb19713f?auto=format&fit=crop&w=150&q=80",
-  },
-  { 
-    id: "admin", 
-    label: "Administrator", 
-    sub: "SYSTEM PORTAL",
-    desc: "System-wide governance, user verification, platform health monitoring, and analytics reporting.",
-    color: roleColors.admin,
-    image: "https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?auto=format&fit=crop&w=150&q=80",
-  },
 ];
 
 const routeMap: Record<PortalRole, AppRoute> = {
-  admin: "admin-login",
-  dispatcher: "dispatcher-login",
-  site_manager: "site-manager-login",
-  citizen: "citizen-login",
+  site_manager: "login",
+  citizen: "login",
 };
 
 function RoleCard({ role, onNavigate }: { role: typeof roles[0], onNavigate: (route: AppRoute) => void }) {
@@ -114,7 +96,7 @@ export function RoleSelectorScreen({ onNavigate }: { onNavigate: (route: AppRout
 
             <View style={styles.statsRow}>
               {[
-                { val: "4", lab: "Portals" },
+                { val: "2", lab: "Portals" },
                 { val: "24/7", lab: "Active" },
                 { val: "Sync", lab: "Real-time" },
               ].map((stat, i) => (
