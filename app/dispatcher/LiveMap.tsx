@@ -45,31 +45,6 @@ export default function LiveMap({ mode, incidents, units, filterType="All", sele
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{ attribution:"© OpenStreetMap contributors", maxZoom:19 }).addTo(map);
 
       // ── Search bar ──
-      const wrap = L.DomUtil.create("div","");
-      wrap.style.cssText = "display:flex;align-items:center;gap:6px;background:#fff;border:1px solid rgba(191,182,162,0.6);border-radius:8px;padding:5px 10px;box-shadow:0 2px 10px rgba(28,22,17,0.1);font-family:'Public Sans',sans-serif";
-      const inp = document.createElement("input");
-      inp.placeholder = "Search Philippines...";
-      inp.style.cssText = "border:none;outline:none;font:inherit;font-size:12px;color:#1c1a17;background:transparent;width:185px";
-      const ico = document.createElement("span");
-      ico.textContent="S"; ico.style.fontSize="11px"; ico.style.fontWeight="900"; ico.style.color="var(--d-text-sub)";
-      wrap.appendChild(ico); wrap.appendChild(inp);
-      L.DomEvent.disableClickPropagation(wrap);
-      L.DomEvent.disableScrollPropagation(wrap);
-      inp.addEventListener("keydown", async (e:any) => {
-        if (e.key!=="Enter") return;
-        const q = inp.value.trim(); if (!q) return;
-        try {
-          const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q+", Philippines")}&format=json&limit=1&countrycodes=ph`);
-          const d = await r.json();
-          if (d.length) {
-            map.setView([parseFloat(d[0].lat), parseFloat(d[0].lon)], 15);
-            const m = L.marker([parseFloat(d[0].lat),parseFloat(d[0].lon)]).addTo(map).bindPopup(`<b>${q}</b><br/><small style="color:#5a5245">${d[0].display_name.substring(0,80)}</small>`).openPopup();
-            setTimeout(()=>map.removeLayer(m),7000);
-          } else { alert(`"${q}" not found in the Philippines.`); }
-        } catch { alert("Search failed. Check your connection."); }
-      });
-      const SC = L.Control.extend({ options:{position:"topright"}, onAdd:()=>wrap });
-      new SC().addTo(map);
 
       mapR.current=map; LR.current=L;
       draw(L, map);
@@ -152,3 +127,4 @@ export default function LiveMap({ mode, incidents, units, filterType="All", sele
     </div>
   );
 }
+

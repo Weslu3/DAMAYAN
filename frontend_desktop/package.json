@@ -15,8 +15,8 @@
     "@yudiel/react-qr-scanner": "^2.6.0",
     "autoprefixer": "latest",
     "leaflet": "^1.9.4",
-    "next": "latest",
-    "postcss": "latest",
+    "next": "^16.2.6",
+    "postcss": "8.5.12",
     "react": "latest",
     "react-dom": "latest",
     "react-qr-code": "^2.0.21",
@@ -27,5 +27,8 @@
     "@types/node": "^20",
     "@types/react": "18.3.28",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "postcss": "8.5.12"
   }
 }

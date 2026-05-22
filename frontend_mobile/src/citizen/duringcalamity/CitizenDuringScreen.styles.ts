@@ -459,6 +459,60 @@ export const styles = StyleSheet.create({
     color: theme.primary,
   },
 
+  // ─── Map instruction & pin ─────────────────────────────────────────────────
+  mapInstruction: {
+    fontSize: 13,
+    ...fonts.medium,
+    color: theme.textMuted,
+    textAlign: "center",
+    lineHeight: 19,
+    paddingHorizontal: 8,
+  },
+  pinIndicator: {
+    position: "absolute",
+    top: 16,
+    left: "50%",
+    transform: [{ translateX: -50 }],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  pinIndicatorText: {
+    fontSize: 12,
+    ...fonts.bold,
+    color: theme.danger,
+  },
+  counterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  counterBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: theme.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  counterBtnText: {
+    fontSize: 18,
+    ...fonts.black,
+    color: theme.text,
+    lineHeight: 22,
+  },
+  counterValue: {
+    fontSize: 18,
+    ...fonts.black,
+    color: theme.text,
+    minWidth: 24,
+    textAlign: "center",
+  },
+
   // ─── Radar (existing) ──────────────────────────────────────────────────────
   radarRing: {
     width: 32,

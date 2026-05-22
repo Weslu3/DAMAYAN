@@ -1264,6 +1264,27 @@
   border-top: 2px solid rgba(194,68,10,0.2);
 }
 
+.dp-ticket-card {
+  background: var(--d-surface);
+  border: 1px solid var(--d-border);
+  border-radius: 12px;
+}
+
+.dp-ticket-card-header {
+  padding: 0.9rem 1rem;
+}
+
+.dp-ticket-card-body {
+  padding: 1rem;
+}
+
+.dp-ticket-subcard {
+  background: var(--d-surface-low);
+  border: 1px solid var(--d-border);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
 .dp-ticket-detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.2rem; }
 
 .dp-ticket-section-label {
@@ -1628,6 +1649,89 @@
 .dp-rescue-detail-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; padding: 1.2rem; }
 .dp-rescue-detail-col  { display: flex; flex-direction: column; gap: 0; }
 
+/* Resource-map-like UI treatment for Rescue Monitoring only */
+.dp-rescue-monitoring-page {
+  background: linear-gradient(180deg, #eef2ec 0%, #e7ece5 100%);
+  padding: 0.9rem;
+  gap: 0.9rem;
+}
+
+.dp-rescue-monitoring-page .dp-incidents-list {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 20px;
+  background: rgba(250, 250, 245, 0.84);
+  box-shadow: 0 12px 24px rgba(26, 28, 25, 0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+
+.dp-rescue-monitoring-page .dp-incidents-filters {
+  background: transparent;
+  border-bottom: 1px solid rgba(120, 130, 116, 0.2);
+}
+
+.dp-rescue-monitoring-page .dp-incidents-map {
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 24px;
+  box-shadow: 0 14px 32px rgba(28, 32, 28, 0.12);
+  background: linear-gradient(160deg, #cad2c3 0%, #e8ece3 55%, #d8ddd1 100%);
+  overflow: hidden;
+  position: relative;
+}
+
+.dp-rescue-monitoring-page .dp-map-header {
+  margin: 0;
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  z-index: 5;
+  padding: 0.7rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(250, 250, 245, 0.82);
+  box-shadow: 0 10px 20px rgba(26, 28, 25, 0.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dp-rescue-monitoring-page .dp-map-header-title {
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #1f271f;
+}
+
+.dp-rescue-monitoring-page .dp-rescue-legend-item {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5f695e;
+}
+
+.dp-rescue-monitoring-page .dp-map-phase-badge { display: flex; gap: 0.6rem; align-items: center; }
+.dp-rescue-monitoring-page .dp-map-phase-dot { width: 10px; height: 10px; border-radius: 999px; background: #ba1a1a; box-shadow: 0 0 0 8px rgba(186, 26, 26, 0.12); }
+.dp-rescue-monitoring-page .dp-map-phase-eyebrow { font-size: 0.58rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; color: #6b7568; }
+.dp-rescue-monitoring-page .dp-map-floating-controls { margin-left: auto; display: flex; gap: 0.45rem; }
+.dp-rescue-monitoring-page .dp-map-icon-btn {
+  width: 34px; height: 34px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.85); display: grid; place-items: center; cursor: pointer; color: #2d352d;
+}
+.dp-rescue-monitoring-page .dp-map-icon-btn .material-symbols-outlined { font-size: 18px; }
+.dp-rescue-monitoring-page .dp-map-legend-panel {
+  position: absolute; left: 14px; bottom: 14px; z-index: 5; min-width: 220px;
+  border-radius: 16px; border: 1px solid rgba(255,255,255,0.45); padding: 0.65rem 0.75rem;
+  background: rgba(250, 250, 245, 0.84); box-shadow: 0 10px 20px rgba(26,28,25,0.08);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.dp-rescue-monitoring-page .dp-map-legend-panel-head {
+  font-size: 0.58rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em;
+  color: #6b7568; margin-bottom: 0.45rem;
+}
+
 /* ─── After Calamity Page ───────────────────────────────────────────────────── */
 .dp-page-inner { padding: 1.5rem; }
 .dp-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
@@ -1635,3 +1739,111 @@
 .dp-section-sub { font-size: 0.82rem; color: var(--d-text-sub); margin: 0; }
 .dp-grid-cols { display: grid; }
 .dp-alert-blue { background: var(--d-blue-bg); color: var(--d-blue); border-color: rgba(21,101,192,0.2); }
+
+/* Dispatcher dashboard simplification */
+.dp-stats-row-4col {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.dp-card-spacious {
+  padding: 1.15rem;
+}
+
+.dp-queue-row {
+  grid-template-columns: 0.9fr 1.2fr 1.8fr 0.8fr 0.9fr 1.2fr;
+  align-items: center;
+  column-gap: 0.9rem;
+  padding: 0.9rem 0.2rem;
+}
+
+.dp-queue-row-head {
+  border-bottom: 1px solid var(--d-border);
+  background: var(--d-surface-low);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--d-text-sub);
+  border-radius: 8px;
+  padding-inline: 0.75rem;
+}
+
+.dp-inline-actions {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.dp-dash-grid-6040 {
+  grid-template-columns: 1.5fr 1fr;
+  gap: 1rem;
+}
+
+.dp-priority-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.dp-priority-item {
+  border: 1px solid var(--d-border);
+  border-radius: var(--d-radius-sm);
+  background: var(--d-surface-low);
+  padding: 0.75rem 0.8rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.dp-priority-item-title {
+  font-weight: 800;
+  font-size: 0.84rem;
+  color: var(--d-text);
+}
+
+.dp-priority-item-sub {
+  font-size: 0.76rem;
+  color: var(--d-text-muted);
+  margin-top: 0.2rem;
+}
+
+.dp-responder-breakdown {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.dp-responder-row {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.dp-responder-topline {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--d-text-muted);
+  font-weight: 700;
+}
+
+.dp-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--d-surface-mid);
+  overflow: hidden;
+}
+
+.dp-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+@media (max-width: 1200px) {
+  .dp-stats-row-4col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dp-dash-grid-6040 { grid-template-columns: 1fr; }
+  .dp-queue-row { grid-template-columns: 1fr; gap: 0.5rem; }
+  .dp-queue-row-head { display: none; }
+  .dp-inline-actions { justify-content: flex-start; }
+}

@@ -10,6 +10,85 @@ import {
   citizenStyles,
 } from "../../shared";
 
+type AuditItem = { id: string; title: string; icon: string; shortDesc: string; details: string; steps: string[]; completed: boolean };
+
+const DEFAULT_AUDIT_ITEMS: AuditItem[] = [
+  {
+    id: "1",
+    title: "Register Your Emergency ID",
+    icon: "qr-code-outline",
+    shortDesc: "Get your Damayan Digital ID for shelter check-in",
+    details: "Your Damayan Digital ID is your lifeline during a disaster. It enables rapid shelter check-in, medical tracking, and direct relief claims without paperwork or queues.",
+    steps: [
+      "Tap 'Register' on your dashboard",
+      "Fill in your personal details accurately",
+      "Receive your unique QR code instantly",
+      "Screenshot or print it for offline access",
+    ],
+    completed: false,
+  },
+  {
+    id: "2",
+    title: "Pack Your 72-Hour Go-Bag",
+    icon: "bag-handle-outline",
+    shortDesc: "Water, food, medicine, flashlight, power bank, documents",
+    details: "A 72-hour go-bag keeps you self-sufficient for the first 3 days of a disaster, when outside help may not yet be available. Prepare it now and store it near your exit.",
+    steps: [
+      "1 gallon of water per person per day (3-day supply)",
+      "Non-perishable food: canned goods, energy bars, biscuits",
+      "7-day supply of prescription medications",
+      "Flashlight + extra batteries + fully charged power bank",
+      "Copies of IDs, birth certificates, and insurance papers",
+    ],
+    completed: false,
+  },
+  {
+    id: "3",
+    title: "Know Your Evacuation Route",
+    icon: "navigate-outline",
+    shortDesc: "Find your nearest shelter and plan 2 routes",
+    details: "Knowing your route before disaster strikes can save precious time. Roads may be blocked, so always have a primary and backup path to your designated evacuation center.",
+    steps: [
+      "Ask your barangay hall for the designated shelter",
+      "Plan a primary route and a backup route",
+      "Walk or drive both routes at least once",
+      "Note major landmarks, bridges, and flood-prone areas",
+      "Ensure all household members know the route",
+    ],
+    completed: false,
+  },
+  {
+    id: "4",
+    title: "Save Emergency Hotlines",
+    icon: "call-outline",
+    shortDesc: "Red Cross 143, Police 117, Fire 911, NDRRMC",
+    details: "Cell calls often work even when internet is down. Save these numbers to your phone contacts now so you can call for help immediately when it matters most.",
+    steps: [
+      "Barangay Emergency Hotline (get from local hall)",
+      "Philippine Red Cross: 143",
+      "National Police Emergency: 117",
+      "Bureau of Fire Protection: 911",
+      "NDRRMC Operations Center: (02) 8911-5061",
+    ],
+    completed: false,
+  },
+  {
+    id: "5",
+    title: "Brief Your Household",
+    icon: "people-outline",
+    shortDesc: "Set a meeting point if you get separated",
+    details: "Everyone in your household should know the plan. Agree on meeting points and a communication strategy before disaster strikes, not during it.",
+    steps: [
+      "Choose a meeting point near your home (e.g., a neighbor's gate)",
+      "Choose a second meeting point farther away (e.g., a barangay hall)",
+      "Designate one out-of-area contact everyone can reach",
+      "Make sure children know the plan and the shelter address",
+      "Practice the plan with the whole household at least once",
+    ],
+    completed: false,
+  },
+];
+
 export function CitizenBeforeScreen({
   onBack,
   onOpenResponse,
@@ -47,107 +126,135 @@ export function CitizenBeforeScreen({
   const currentTheme = isDarkMode ? darkTheme : lightTheme;
   const localStyles = getStyles(currentTheme);
 
-  // Ready-Check State
-  const [auditItems, setAuditItems] = useState([
-    { id: "1", title: "Update Emergency Contact List", completed: true },
-    { id: "2", title: "Restock 72-Hour Survival Kit", completed: true },
-    { id: "3", title: "Verify Evacuation Route", completed: false },
-    { id: "4", title: "Register Household Members", completed: false },
-  ]);
+  // ── Ready-Check Audit ──────────────────────────────────────────────────────
+  const [auditItems, setAuditItems] = useState<AuditItem[]>(DEFAULT_AUDIT_ITEMS);
+  const [auditDismissed, setAuditDismissed] = useState(false);
+  const [selectedAuditItem, setSelectedAuditItem] = useState<AuditItem | null>(null);
 
-  // Load persistent audit checklist state from AsyncStorage
+  const auditKey = (suffix: string) =>
+    authUser?.id ? `damayan.citizen.${suffix}.${authUser.id}` : `damayan.citizen.${suffix}`;
+
   useEffect(() => {
-    const loadAuditItems = async () => {
+    const load = async () => {
       try {
-        const key = authUser?.id 
-          ? `damayan.citizen.audit_items.${authUser.id}` 
-          : "damayan.citizen.audit_items";
-        const stored = await AsyncStorage.getItem(key);
-        if (stored) {
-          setAuditItems(JSON.parse(stored));
-        } else {
-          // If no custom stored checklist yet, fallback to default checklist
-          setAuditItems([
-            { id: "1", title: "Update Emergency Contact List", completed: true },
-            { id: "2", title: "Restock 72-Hour Survival Kit", completed: true },
-            { id: "3", title: "Verify Evacuation Route", completed: false },
-            { id: "4", title: "Register Household Members", completed: false },
-          ]);
+        const [storedItems, storedDismissed] = await Promise.all([
+          AsyncStorage.getItem(auditKey("audit_items")),
+          AsyncStorage.getItem(auditKey("audit_dismissed")),
+        ]);
+        if (storedDismissed === "true") { setAuditDismissed(true); return; }
+        if (storedItems) {
+          // Merge stored completion state into current DEFAULT structure so stale/old
+          // format data (missing steps/icon fields) can never corrupt the modal render.
+          const stored: Array<{ id: string; completed?: boolean }> = JSON.parse(storedItems);
+          const completionMap = new Map(stored.map(i => [i.id, !!i.completed]));
+          setAuditItems(DEFAULT_AUDIT_ITEMS.map(item => ({
+            ...item,
+            completed: completionMap.has(item.id) ? completionMap.get(item.id)! : item.completed,
+          })));
         }
       } catch (e) {
-        console.error("Failed to load audit items:", e);
+        console.error("Failed to load audit state:", e);
       }
     };
-    loadAuditItems();
+    load();
   }, [authUser?.id]);
 
-  // Save persistent audit checklist state to AsyncStorage
-  const toggleAuditItem = async (itemId: string) => {
-    const updated = auditItems.map(i => i.id === itemId ? { ...i, completed: !i.completed } : i);
+  const markItemDone = async (itemId: string) => {
+    const updated = auditItems.map(i => i.id === itemId ? { ...i, completed: true } : i);
     setAuditItems(updated);
+    setSelectedAuditItem(null);
     try {
-      const key = authUser?.id 
-        ? `damayan.citizen.audit_items.${authUser.id}` 
-        : "damayan.citizen.audit_items";
-      await AsyncStorage.setItem(key, JSON.stringify(updated));
+      await AsyncStorage.setItem(auditKey("audit_items"), JSON.stringify(updated));
     } catch (e) {
-      console.error("Failed to save audit items:", e);
+      console.error("Failed to save audit item:", e);
+    }
+  };
+
+  const dismissAudit = async () => {
+    setAuditDismissed(true);
+    try {
+      await AsyncStorage.setItem(auditKey("audit_dismissed"), "true");
+    } catch (e) {
+      console.error("Failed to save audit dismissed:", e);
     }
   };
 
   const completedCount = auditItems.filter(i => i.completed).length;
-  const progressPercent = (completedCount / auditItems.length) * 100;
+  const progressPercent = Math.round((completedCount / auditItems.length) * 100);
+  const allDone = completedCount === auditItems.length;
 
   const renderDashboard = () => (
     <ScrollView style={localStyles.container} contentContainerStyle={localStyles.scrollContent} showsVerticalScrollIndicator={false}>
       {/* Top Safety Banner */}
       <View style={localStyles.heroBanner}>
-        <View style={localStyles.heroContent}>
-           <View style={localStyles.heroBadge}>
-              <View style={localStyles.pulseDot} />
-              <Text style={localStyles.heroBadgeText}>PREPARED • {completedCount}/{auditItems.length} READY</Text>
-           </View>
-           <Text style={localStyles.heroTitle}>Safety Dashboard</Text>
-           <Text style={localStyles.heroSub}>Complete your audit before the next advisory.</Text>
+        <View style={localStyles.heroBadge}>
+          <View style={localStyles.pulseDot} />
+          <Text style={localStyles.heroBadgeText}>
+            {auditDismissed ? "FULLY PREPARED" : `PREPARED • ${completedCount}/${auditItems.length} DONE`}
+          </Text>
         </View>
-        <TouchableOpacity 
-          style={localStyles.simulateBtn}
-          onPress={onOpenResponse}
-        >
-           <Ionicons name="warning" size={16} color="#D32F2F" style={{ marginRight: 8 }} />
-           <Text style={localStyles.simulateBtnText}>SIMULATE EMERGENCY</Text>
-        </TouchableOpacity>
+        <Text style={localStyles.heroTitle}>Safety Dashboard</Text>
+        <Text style={localStyles.heroSub}>Complete your audit before the next advisory.</Text>
       </View>
 
       <View style={localStyles.mainRow}>
         {/* Ready-Check Audit Section */}
-        <View style={localStyles.auditSection}>
-           <View style={localStyles.sectionHeaderRow}>
-              <Text style={localStyles.sectionTitle}>Ready-Check Audit</Text>
-              <Text style={localStyles.progressText}>{progressPercent}% COMPLETE</Text>
-           </View>
-
-           <View style={localStyles.progressTrack}>
-              <View style={[localStyles.progressFill, { width: `${progressPercent}%` }]} />
-           </View>
-
-           <View style={localStyles.auditGrid}>
-              {auditItems.map((item) => (
-                <TouchableOpacity 
-                  key={item.id} 
-                  style={[localStyles.auditCard, item.completed && localStyles.auditCardCompleted]}
-                  onPress={() => toggleAuditItem(item.id)}
-                >
-                   <View style={[localStyles.checkbox, item.completed && localStyles.checkboxChecked]}>
-                      {item.completed && <Ionicons name="checkmark" size={16} color="#fff" />}
-                   </View>
-                   <Text style={[localStyles.auditItemTitle, item.completed && localStyles.auditItemTitleCompleted]}>
-                     {item.title}
-                   </Text>
+        {!auditDismissed && (
+          <View style={localStyles.auditSection}>
+            {allDone ? (
+              /* All tasks complete — show dismiss card */
+              <View style={localStyles.auditCompleteCard}>
+                <View style={localStyles.auditCompleteIconWrap}>
+                  <Ionicons name="shield-checkmark" size={40} color="#2E7D32" />
+                </View>
+                <Text style={localStyles.auditCompleteTitle}>You're Prepared!</Text>
+                <Text style={localStyles.auditCompleteSub}>
+                  All {auditItems.length} preparedness tasks are done. You're ready for an emergency.
+                </Text>
+                <TouchableOpacity style={localStyles.auditDismissBtn} onPress={dismissAudit}>
+                  <Text style={localStyles.auditDismissBtnText}>Dismiss Checklist</Text>
                 </TouchableOpacity>
-              ))}
-           </View>
-        </View>
+              </View>
+            ) : (
+              <>
+                <View style={localStyles.sectionHeaderRow}>
+                  <Text style={localStyles.sectionTitle}>Ready-Check Audit</Text>
+                  <Text style={localStyles.progressText}>{progressPercent}% DONE</Text>
+                </View>
+                <View style={localStyles.progressTrack}>
+                  <View style={[localStyles.progressFill, { width: `${progressPercent}%` }]} />
+                </View>
+                <View style={localStyles.auditGrid}>
+                  {auditItems.map((item) => (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[localStyles.auditCard, item.completed && localStyles.auditCardCompleted]}
+                      onPress={() => !item.completed && setSelectedAuditItem(item)}
+                    >
+                      <View style={[localStyles.checkbox, item.completed && localStyles.checkboxChecked]}>
+                        {item.completed
+                          ? <Ionicons name="checkmark" size={16} color="#fff" />
+                          : <Ionicons name={item.icon as any} size={16} color="#2E7D32" />
+                        }
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[localStyles.auditItemTitle, item.completed && localStyles.auditItemTitleCompleted]}>
+                          {item.title}
+                        </Text>
+                        {!item.completed && (
+                          <Text style={localStyles.auditItemSub} numberOfLines={1}>{item.shortDesc}</Text>
+                        )}
+                      </View>
+                      {!item.completed && (
+                        <Ionicons name="chevron-forward" size={16} color="#81C784" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+          </View>
+        )}
 
         {/* Side Column */}
         <View style={localStyles.sideColumn}>
@@ -260,6 +367,49 @@ export function CitizenBeforeScreen({
   return (
     <View style={{ flex: 1 }}>
       {step === "registration" ? renderRegistration() : renderDashboard()}
+
+      {/* Audit Item Detail Modal */}
+      <Modal visible={selectedAuditItem !== null} transparent animationType="slide" onRequestClose={() => setSelectedAuditItem(null)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" }}>
+          <View style={localStyles.auditModal}>
+            {selectedAuditItem != null && (
+              <>
+                {/* Fixed header — never scrolls away */}
+                <View style={localStyles.auditModalHeader}>
+                  <View style={localStyles.auditModalIconWrap}>
+                    <Ionicons name={(selectedAuditItem.icon ?? "checkmark-circle-outline") as any} size={28} color="#2E7D32" />
+                  </View>
+                  <TouchableOpacity onPress={() => setSelectedAuditItem(null)} style={localStyles.auditModalClose}>
+                    <Ionicons name="close" size={20} color={currentTheme.textLight || "#7e887e"} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Scrollable body */}
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                  <Text style={localStyles.auditModalTitle}>{selectedAuditItem.title}</Text>
+                  <Text style={localStyles.auditModalDetails}>{selectedAuditItem.details}</Text>
+                  <Text style={localStyles.auditModalStepsLabel}>WHAT TO DO</Text>
+                  {(selectedAuditItem.steps ?? []).map((s, i) => (
+                    <View key={i} style={localStyles.auditModalStep}>
+                      <View style={localStyles.auditModalStepNum}>
+                        <Text style={localStyles.auditModalStepNumText}>{i + 1}</Text>
+                      </View>
+                      <Text style={localStyles.auditModalStepText}>{s}</Text>
+                    </View>
+                  ))}
+                  <TouchableOpacity
+                    style={localStyles.auditModalDoneBtn}
+                    onPress={() => markItemDone(selectedAuditItem.id)}
+                  >
+                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                    <Text style={localStyles.auditModalDoneBtnText}>Mark as Complete</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* 🛡️ Premium Typhoon Safety Plan Modal */}
       <Modal visible={safetyPlanOpen} transparent animationType="slide" onRequestClose={() => setSafetyPlanOpen(false)}>
@@ -388,15 +538,12 @@ const getStyles = (theme: any) => StyleSheet.create({
   scrollContent: { padding: 24, paddingBottom: 120 },
   
   // Dashboard Styles
-  heroBanner: { backgroundColor: "#2E7D32", borderRadius: 40, padding: 32, flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
-  heroContent: { flex: 1 },
-  heroBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.2)", alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, marginBottom: 16 },
+  heroBanner: { backgroundColor: "#2E7D32", borderRadius: 32, padding: 28, marginBottom: 24 },
+  heroBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.2)", alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, marginBottom: 14 },
   pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#81C784", marginRight: 8 },
   heroBadgeText: { color: "#fff", fontSize: 10, ...fonts.black, letterSpacing: 1 },
-  heroTitle: { fontSize: 36, ...fonts.black, color: "#fff", letterSpacing: -1.5 },
-  heroSub: { fontSize: 16, ...fonts.medium, color: "rgba(255,255,255,0.8)", marginTop: 4 },
-  simulateBtn: { backgroundColor: "#fff", paddingHorizontal: 20, paddingVertical: 14, borderRadius: 16, flexDirection: "row", alignItems: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10 },
-  simulateBtnText: { fontSize: 12, ...fonts.black, color: "#1A1C1A", letterSpacing: 0.5 },
+  heroTitle: { fontSize: 30, ...fonts.black, color: "#fff", letterSpacing: -1 },
+  heroSub: { fontSize: 14, ...fonts.medium, color: "rgba(255,255,255,0.8)", marginTop: 4 },
   mainRow: { flexDirection: "row", flexWrap: "wrap", gap: 24 },
   auditSection: { flex: 2, minWidth: 350, backgroundColor: "#fff", borderRadius: 40, padding: 32, borderWidth: 1, borderColor: theme.line },
   sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
@@ -404,13 +551,35 @@ const getStyles = (theme: any) => StyleSheet.create({
   progressText: { fontSize: 12, ...fonts.black, color: "#2E7D32", letterSpacing: 1 },
   progressTrack: { height: 12, backgroundColor: "#E8F5E9", borderRadius: 6, marginBottom: 32, overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: "#81C784", borderRadius: 6 },
-  auditGrid: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
-  auditCard: { width: "48%", minWidth: 160, backgroundColor: theme.surfaceAlt, padding: 20, borderRadius: 24, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: "transparent" },
-  auditCardCompleted: { backgroundColor: "#F1F8E9" },
-  checkbox: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: theme.line, alignItems: "center", justifyContent: "center" },
+  auditGrid: { gap: 10 },
+  auditCard: { backgroundColor: theme.surfaceAlt, padding: 16, borderRadius: 20, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: theme.line },
+  auditCardCompleted: { backgroundColor: "#F1F8E9", borderColor: "#C8E6C9" },
+  checkbox: { width: 36, height: 36, borderRadius: 12, borderWidth: 1.5, borderColor: "#C8E6C9", backgroundColor: "#E8F5E9", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   checkboxChecked: { backgroundColor: "#2E7D32", borderColor: "#2E7D32" },
-  auditItemTitle: { flex: 1, fontSize: 14, ...fonts.bold, color: theme.textMuted },
+  auditItemTitle: { fontSize: 14, ...fonts.bold, color: theme.text },
   auditItemTitleCompleted: { color: theme.textLight, textDecorationLine: "line-through" },
+  auditItemSub: { fontSize: 11, ...fonts.medium, color: theme.textLight, marginTop: 2 },
+  // All-done dismiss card
+  auditCompleteCard: { alignItems: "center", paddingVertical: 32, gap: 12 },
+  auditCompleteIconWrap: { width: 80, height: 80, borderRadius: 28, backgroundColor: "#E8F5E9", alignItems: "center", justifyContent: "center" },
+  auditCompleteTitle: { fontSize: 22, ...fonts.black, color: theme.text, letterSpacing: -0.5 },
+  auditCompleteSub: { fontSize: 14, ...fonts.medium, color: theme.textMuted, textAlign: "center", lineHeight: 20, paddingHorizontal: 8 },
+  auditDismissBtn: { marginTop: 8, paddingHorizontal: 28, paddingVertical: 14, borderRadius: 20, backgroundColor: "#2E7D32", shadowColor: "#2E7D32", shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  auditDismissBtnText: { fontSize: 14, ...fonts.black, color: "#fff", letterSpacing: 0.5 },
+  // Audit item modal
+  auditModal: { backgroundColor: theme.bg || "#fff", borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 28, paddingBottom: 44, maxHeight: "80%", borderTopWidth: 1, borderColor: "rgba(0,0,0,0.05)" },
+  auditModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  auditModalIconWrap: { width: 52, height: 52, borderRadius: 18, backgroundColor: "#E8F5E9", alignItems: "center", justifyContent: "center" },
+  auditModalClose: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.04)", alignItems: "center", justifyContent: "center" },
+  auditModalTitle: { fontSize: 22, ...fonts.black, color: theme.text || "#1A1C1A", letterSpacing: -0.5, marginBottom: 10 },
+  auditModalDetails: { fontSize: 14, ...fonts.medium, color: theme.textMuted || "#4d544d", lineHeight: 21, marginBottom: 20 },
+  auditModalStepsLabel: { fontSize: 10, ...fonts.black, color: theme.textLight || "#7e887e", letterSpacing: 1.5, marginBottom: 12 },
+  auditModalStep: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 12 },
+  auditModalStepNum: { width: 26, height: 26, borderRadius: 8, backgroundColor: "#E8F5E9", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 },
+  auditModalStepNumText: { fontSize: 12, ...fonts.black, color: "#2E7D32" },
+  auditModalStepText: { flex: 1, fontSize: 14, ...fonts.bold, color: theme.textMuted || "#4d544d", lineHeight: 21 },
+  auditModalDoneBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 24, height: 58, borderRadius: 20, backgroundColor: "#2E7D32", shadowColor: "#2E7D32", shadowOpacity: 0.3, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  auditModalDoneBtnText: { fontSize: 15, ...fonts.black, color: "#fff", letterSpacing: 0.5 },
   sideColumn: { flex: 1, minWidth: 300, gap: 24 },
   identityCard: { backgroundColor: "#fff", borderRadius: 32, padding: 24, borderWidth: 1, borderColor: theme.line },
   sideLabel: { fontSize: 10, ...fonts.black, color: theme.textLight, letterSpacing: 1.5, marginBottom: 20 },

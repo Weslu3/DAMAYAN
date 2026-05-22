@@ -4,12 +4,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service.js';
 import { SupabaseModule } from '../supabase/supabase.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
+import { InAppNotificationsModule } from '../in-app-notifications/in-app-notifications.module.js';
 
 @Module({
   imports: [
     ConfigModule,
     SupabaseModule,
     NotificationsModule,
+    InAppNotificationsModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({

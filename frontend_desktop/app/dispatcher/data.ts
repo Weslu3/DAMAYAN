@@ -1,7 +1,7 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
-export type NavPage = "dashboard" | "resource-map" | "rescue-monitoring" | "incidents" | "resources" | "profile";
+export type NavPage = "dashboard" | "resource-map" | "rescue-monitoring" | "incidents" | "resources" | "ask-volunteers" | "profile";
 export type UnitStatus = "Available" | "On Route" | "On Scene" | "Offline";
-export type UnitType = "FIRE" | "AMB" | "POL";
+export type UnitType = "FIELD" | "MEDIC" | "LOGISTICS";
 export type IncidentPriority = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 export type IncidentStatus = "New" | "Waiting" | "Dispatched" | "In Progress" | "Resolved" | "Invalid";
 export type SituationType = "Under Control" | "Escalating" | "Critical";
@@ -30,6 +30,7 @@ export interface Unit {
 
 export interface Incident {
   id: string; type: string; category: UnitType | "Other";
+  disasterId?: string;
   reporter: string; reporterPhone: string;
   address: string; barangay: string; city: string; location: string;
   lat: number; lng: number;
@@ -47,6 +48,25 @@ export interface Team {
   members: number; vehicles: number;
   station: string; contact: string; leader: string;
   status: TeamStatus; equipment: string[]; coverage: string;
+  assignedArea?: string; // For pre-positioning
+}
+
+export interface BarangayDemographics {
+  name: string;
+  population: number;
+  density: number; // people/sqkm
+  elderly: number;
+  infants: number;
+  riskLevel: "Low" | "Medium" | "High";
+  coordinates: [number, number];
+}
+
+export interface PreparednessReport {
+  id: string;
+  title: string;
+  date: string;
+  status: "Draft" | "Published";
+  summary: string;
 }
 
 // ─── Mock Dispatcher ──────────────────────────────────────────────────────────
@@ -59,26 +79,48 @@ export const MOCK_DISPATCHER: DispatcherProfile = {
   totalDispatches: 1_284, resolvedToday: 7,
 };
 
+export const MOCK_BARANGAY_DATA: BarangayDemographics[] = [
+  { name: "Brgy. 390", population: 5200, density: 45000, elderly: 450, infants: 120, riskLevel: "High", coordinates: [14.6105, 120.9982] },
+  { name: "Brgy. 485", population: 3800, density: 32000, elderly: 280, infants: 85, riskLevel: "Medium", coordinates: [14.6130, 120.9943] },
+  { name: "Brgy. 522", population: 6100, density: 51000, elderly: 510, infants: 145, riskLevel: "High", coordinates: [14.6053, 120.9901] },
+  { name: "Brgy. 412", population: 4200, density: 38000, elderly: 320, infants: 90, riskLevel: "Medium", coordinates: [14.6015, 121.0018] },
+  { name: "Brgy. Dona Imelda", population: 8500, density: 28000, elderly: 620, infants: 180, riskLevel: "Medium", coordinates: [14.6072, 121.0038] },
+];
+
+export const MOCK_REPORTS: PreparednessReport[] = [
+  { id: "REP-001", title: "Q3 Flood Readiness Assessment", date: "2026-03-20", status: "Published", summary: "Assessment of drainage systems and evacuation route accessibility in Sampaloc." },
+  { id: "REP-002", title: "Fire Safety Audit - District 4", date: "2026-04-05", status: "Published", summary: "Annual audit of fire hydrant locations and community volunteer training status." },
+  { id: "REP-003", title: "Coastal Surge Preparedness", date: "2026-05-10", status: "Draft", summary: "Drafting response plans for potential storm surges affecting low-lying clusters." },
+];
+
 // ─── Mock Units ───────────────────────────────────────────────────────────────
 export const MOCK_UNITS: Unit[] = [
-  { id: "FIRE-01", type: "FIRE", name: "Fire Unit Alpha-1", station: "Sampaloc Fire Station", status: "Available", lat: 14.6130, lng: 120.9912, personnel: 6, distance: "1.1 km", eta: "3 mins", teamLeader: "Capt. Jose Reyes", contact: "+63 912 001 0001", plateNumber: "BFP-1001", lastActive: "08:12 AM" },
-  { id: "FIRE-07", type: "FIRE", name: "Fire Unit Bravo-7", station: "QC Fire District", status: "Available", lat: 14.6051, lng: 121.0021, personnel: 7, distance: "900 m", eta: "2 mins", teamLeader: "Capt. Miguel Santos", contact: "+63 912 001 0007", plateNumber: "BFP-1007", lastActive: "08:05 AM" },
-  { id: "FIRE-03", type: "FIRE", name: "Fire Unit Charlie-3", station: "Sta. Mesa Station", status: "On Scene", lat: 14.5997, lng: 120.9985, personnel: 5, distance: "2.3 km", eta: "On scene", teamLeader: "Lt. Ramon Cruz", contact: "+63 912 001 0003", plateNumber: "BFP-1003", lastActive: "07:58 AM" },
-  { id: "FIRE-05", type: "FIRE", name: "Fire Unit Delta-5", station: "Manila Central Station", status: "On Route", lat: 14.5920, lng: 120.9800, personnel: 6, distance: "3.1 km", eta: "8 mins", teamLeader: "Lt. Pedro Dela Cruz", contact: "+63 912 001 0005", plateNumber: "BFP-1005", lastActive: "08:21 AM" },
-  { id: "AMB-03", type: "AMB", name: "Ambulance Bravo-3", station: "UERM Hospital", status: "Available", lat: 14.6083, lng: 121.0104, personnel: 3, distance: "1.2 km", eta: "5 mins", teamLeader: "Paramedic Grace Robles", contact: "+63 912 002 0003", plateNumber: "MMDA-A03", lastActive: "08:15 AM" },
-  { id: "AMB-01", type: "AMB", name: "Ambulance Alpha-1", station: "San Lazaro Hospital", status: "On Route", lat: 14.6020, lng: 120.9870, personnel: 3, distance: "1.8 km", eta: "7 mins", teamLeader: "Nurse Ana Dela Cruz", contact: "+63 912 002 0001", plateNumber: "MMDA-A01", lastActive: "08:19 AM" },
-  { id: "AMB-05", type: "AMB", name: "Ambulance Charlie-5", station: "PGH", status: "On Scene", lat: 14.5878, lng: 120.9856, personnel: 4, distance: "3.0 km", eta: "On scene", teamLeader: "Dr. Maria Santos", contact: "+63 912 002 0005", plateNumber: "MMDA-A05", lastActive: "07:50 AM" },
-  { id: "AMB-07", type: "AMB", name: "Ambulance Delta-7", station: "Ospital ng Maynila", status: "Available", lat: 14.5960, lng: 120.9770, personnel: 3, distance: "2.2 km", eta: "6 mins", teamLeader: "Paramedic Carlo Bautista", contact: "+63 912 002 0007", plateNumber: "MMDA-A07", lastActive: "08:00 AM" },
-  { id: "POL-01", type: "POL", name: "Police Unit Alpha-1", station: "Brgy. 102 Station", status: "Available", lat: 14.6170, lng: 120.9830, personnel: 4, distance: "1.5 km", eta: "4 mins", teamLeader: "SPO1 Roberto Ramos", contact: "+63 912 003 0001", plateNumber: "PNP-P001", lastActive: "08:08 AM" },
-  { id: "POL-04", type: "POL", name: "Police Unit Bravo-4", station: "Sta. Mesa Station", status: "On Route", lat: 14.6040, lng: 121.0060, personnel: 4, distance: "800 m", eta: "2 mins", teamLeader: "SPO2 Carlos Lim", contact: "+63 912 003 0004", plateNumber: "PNP-P004", lastActive: "08:22 AM" },
-  { id: "POL-07", type: "POL", name: "Police Unit Charlie-7", station: "Quiapo Station", status: "Offline", lat: 14.5970, lng: 120.9810, personnel: 3, distance: "—", eta: "—", teamLeader: "SPO1 Eduardo Garcia", contact: "+63 912 003 0007", plateNumber: "PNP-P007", lastActive: "06:30 AM" },
-  { id: "POL-09", type: "POL", name: "Police Unit Delta-9", station: "Tondo Station", status: "Available", lat: 14.6250, lng: 120.9690, personnel: 5, distance: "2.8 km", eta: "7 mins", teamLeader: "PO3 Leo Manalo", contact: "+63 912 003 0009", plateNumber: "PNP-P009", lastActive: "08:18 AM" },
+  {
+    id: "FIELD-10", type: "FIELD", name: "Field Volunteer Echo-1", station: "Sampaloc Command Center",
+    status: "Available", lat: 14.6098, lng: 120.9974, personnel: 6, distance: "0.8 km", eta: "00:06",
+    teamLeader: "Rafael Cruz", contact: "+63 917 210 4410", plateNumber: "Volunteer", lastActive: "2 min ago",
+  },
+  {
+    id: "MEDIC-03", type: "MEDIC", name: "Medic Volunteer Alpha", station: "UST Health Post",
+    status: "Available", lat: 14.6117, lng: 120.9918, personnel: 4, distance: "1.1 km", eta: "00:08",
+    teamLeader: "Dr. Lina Reyes", contact: "+63 917 210 4411", plateNumber: "Volunteer", lastActive: "Just now",
+  },
+  {
+    id: "LOG-04", type: "LOGISTICS", name: "Logistics Volunteer Delta", station: "Lacson Supply Hub",
+    status: "On Route", lat: 14.6048, lng: 120.9931, personnel: 5, distance: "1.6 km", eta: "00:12",
+    teamLeader: "Noel Garcia", contact: "+63 917 210 4412", plateNumber: "Volunteer", lastActive: "5 min ago",
+  },
+  {
+    id: "FIELD-12", type: "FIELD", name: "Field Volunteer Bravo", station: "Dapitan Staging Area",
+    status: "Available", lat: 14.6134, lng: 120.9949, personnel: 7, distance: "1.3 km", eta: "00:09",
+    teamLeader: "Mika Santos", contact: "+63 917 210 4413", plateNumber: "Volunteer", lastActive: "4 min ago",
+  },
 ];
 
 // ─── Mock Incidents ───────────────────────────────────────────────────────────
 export const MOCK_INCIDENTS: Incident[] = [
   {
-    id: "INC-0145", type: "Structure Fire", category: "FIRE",
+    id: "INC-0145", type: "Structure Fire", category: "FIELD",
     reporter: "Brgy. Watch Team", reporterPhone: "+63 917 111 0001",
     address: "1113 Aurora Blvd, cor. Gilmore Ave", barangay: "Brgy. Dona Imelda", city: "Quezon City", location: "Aurora Blvd",
     lat: 14.6072, lng: 121.0038, timeReported: "9:41 AM", dateReported: "2026-04-14",
@@ -87,7 +129,7 @@ export const MOCK_INCIDENTS: Incident[] = [
     notes: "", timeActive: 1,
   },
   {
-    id: "INC-0146", type: "Structure Fire", category: "FIRE",
+    id: "INC-0146", type: "Structure Fire", category: "FIELD",
     reporter: "Anonymous Caller", reporterPhone: "+63 917 111 0002",
     address: "45 Pnoval St., near Bustillos", barangay: "Brgy. 390", city: "Sampaloc, Manila", location: "Pnoval St.",
     lat: 14.6105, lng: 120.9982, timeReported: "9:42 AM", dateReported: "2026-04-14",
@@ -105,7 +147,7 @@ export const MOCK_INCIDENTS: Incident[] = [
     notes: "", timeActive: 2,
   },
   {
-    id: "INC-0148", type: "Medical Emergency", category: "AMB",
+    id: "INC-0148", type: "Medical Emergency", category: "MEDIC",
     reporter: "Maria Santos", reporterPhone: "+63 917 111 0004",
     address: "872 Lacson Avenue, Sampaloc", barangay: "Brgy. 522", city: "Sampaloc, Manila", location: "Lacson Avenue",
     lat: 14.6053, lng: 120.9901, timeReported: "9:44 AM", dateReported: "2026-04-14",
@@ -115,7 +157,7 @@ export const MOCK_INCIDENTS: Incident[] = [
     dispatchedAt: "9:45 AM",
   },
   {
-    id: "INC-0149", type: "Road Accident", category: "POL",
+    id: "INC-0149", type: "Road Accident", category: "LOGISTICS",
     reporter: "Bystander", reporterPhone: "+63 917 111 0005",
     address: "Cayco St. near Jhocson College", barangay: "Brgy. 412", city: "Sampaloc, Manila", location: "Cayco St.",
     lat: 14.6015, lng: 121.0018, timeReported: "9:35 AM", dateReported: "2026-04-14",
@@ -125,7 +167,7 @@ export const MOCK_INCIDENTS: Incident[] = [
     dispatchedAt: "9:37 AM",
   },
   {
-    id: "INC-0150", type: "Road Accident", category: "POL",
+    id: "INC-0150", type: "Road Accident", category: "LOGISTICS",
     reporter: "Juan dela Cruz", reporterPhone: "+63 917 111 0006",
     address: "Aurora Blvd. near Katipunan LRT", barangay: "Brgy. Loyola Heights", city: "Quezon City", location: "Aurora Blvd.",
     lat: 14.5985, lng: 121.0082, timeReported: "9:28 AM", dateReported: "2026-04-14",
@@ -135,7 +177,7 @@ export const MOCK_INCIDENTS: Incident[] = [
     dispatchedAt: "9:30 AM",
   },
   {
-    id: "INC-0151", type: "Medical Emergency", category: "AMB",
+    id: "INC-0151", type: "Medical Emergency", category: "MEDIC",
     reporter: "Barangay Health Center", reporterPhone: "+63 917 111 0007",
     address: "Brgy. San Felipe, San Felipe Neri", barangay: "Brgy. San Felipe Neri", city: "Mandaluyong", location: "Brgy. San Felipe",
     lat: 14.6150, lng: 121.0070, timeReported: "9:21 AM", dateReported: "2026-04-14",
@@ -145,7 +187,7 @@ export const MOCK_INCIDENTS: Incident[] = [
     dispatchedAt: "9:23 AM",
   },
   {
-    id: "INC-0138", type: "Structure Fire", category: "FIRE",
+    id: "INC-0138", type: "Structure Fire", category: "FIELD",
     reporter: "Tondo Fire Station", reporterPhone: "+63 912 000 0001",
     address: "Flores St., Tondo", barangay: "Brgy. 105", city: "Tondo, Manila", location: "Flores St.",
     lat: 14.6187, lng: 120.9660, timeReported: "7:15 AM", dateReported: "2026-04-14",
@@ -155,7 +197,7 @@ export const MOCK_INCIDENTS: Incident[] = [
     dispatchedAt: "7:18 AM", resolvedAt: "8:23 AM",
   },
   {
-    id: "INC-0139", type: "Medical Emergency", category: "AMB",
+    id: "INC-0139", type: "Medical Emergency", category: "MEDIC",
     reporter: "Barangay Tanod", reporterPhone: "+63 917 222 0001",
     address: "167 Dagupan St., Tondo", barangay: "Brgy. 124", city: "Tondo, Manila", location: "Dagupan St.",
     lat: 14.6210, lng: 120.9640, timeReported: "7:40 AM", dateReported: "2026-04-14",
@@ -168,12 +210,24 @@ export const MOCK_INCIDENTS: Incident[] = [
 
 // ─── Mock Teams ───────────────────────────────────────────────────────────────
 export const MOCK_TEAMS: Team[] = [
-  { id: "TEAM-FIRE-A", name: "Fire Response Team Alpha", type: "FIRE", members: 18, vehicles: 3, station: "Sampaloc Fire Station, Manila", contact: "+63 2 711 0001", leader: "Chief Insp. Roberto Valdez", status: "Ready", equipment: ["Fire Truck", "Ladder Truck", "Rescue Van", "Hydraulic Tools", "Breathing Apparatus"], coverage: "Districts 1–4, Sampaloc" },
-  { id: "TEAM-FIRE-B", name: "Fire Response Team Bravo", type: "FIRE", members: 14, vehicles: 2, station: "QC Fire District HQ", contact: "+63 2 711 0002", leader: "FO3 Arnel Marcelo", status: "Deployed", equipment: ["Fire Truck", "Rescue Van", "Thermal Camera", "Rope Rescue Kit"], coverage: "Quezon City North" },
-  { id: "TEAM-AMB-A", name: "Emergency Medical Team Alpha", type: "AMB", members: 12, vehicles: 4, station: "UERM Hospital, Aurora Blvd.", contact: "+63 2 715 9000", leader: "Dr. Patricia Reyes", status: "Ready", equipment: ["Ambulance ×4", "AED Units", "Trauma Kits", "Oxygen Tanks"], coverage: "Quezon City & New Manila" },
-  { id: "TEAM-AMB-B", name: "Emergency Medical Team Bravo", type: "AMB", members: 9, vehicles: 3, station: "Philippine General Hospital", contact: "+63 2 554 8400", leader: "Dr. Carlos Bautista", status: "Deployed", equipment: ["Ambulance ×3", "Advanced Cardiac Life Support"], coverage: "Manila South & Ermita" },
-  { id: "TEAM-POL-A", name: "Police Response Unit Alpha", type: "POL", members: 20, vehicles: 5, station: "Manila Police District Station 3", contact: "+63 2 521 8000", leader: "PINSP Mark De Leon", status: "Ready", equipment: ["Patrol Cars ×3", "Motorcycles ×2", "Riot Gear", "Body Cameras"], coverage: "Sampaloc, Santa Cruz" },
-  { id: "TEAM-POL-B", name: "Police Response Unit Bravo", type: "POL", members: 16, vehicles: 4, station: "QC Police District Station 7", contact: "+63 2 928 0000", leader: "PINSP Lisa Pangilinan", status: "Standby", equipment: ["Patrol Cars ×2", "K9 Unit", "Motorcycles ×2", "Drone ×1"], coverage: "Quezon City East" },
+  {
+    id: "TEAM-FIELD-01", name: "Sampaloc Field Response", type: "FIELD",
+    members: 12, vehicles: 2, station: "Sampaloc Command Center", contact: "+63 917 310 8801",
+    leader: "Rafael Cruz", status: "Ready", equipment: ["Rescue rope", "Portable radios", "Flood lights"],
+    coverage: "Brgy. 390, Brgy. 485, Brgy. 522",
+  },
+  {
+    id: "TEAM-MEDIC-01", name: "UST Medical Volunteer Team", type: "MEDIC",
+    members: 8, vehicles: 1, station: "UST Health Post", contact: "+63 917 310 8802",
+    leader: "Dr. Lina Reyes", status: "Standby", equipment: ["Trauma kits", "AED", "Patient tags"],
+    coverage: "Brgy. 485, Brgy. 522",
+  },
+  {
+    id: "TEAM-LOG-01", name: "Lacson Logistics Support", type: "LOGISTICS",
+    members: 10, vehicles: 3, station: "Lacson Supply Hub", contact: "+63 917 310 8803",
+    leader: "Noel Garcia", status: "Ready", equipment: ["Relief packs", "Water containers", "Generator"],
+    coverage: "Brgy. 390, Brgy. 412",
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -198,12 +252,130 @@ export function unitStatusColor(s: UnitStatus) {
 }
 
 export function unitTypeColor(t: UnitType) {
-  return { FIRE: "#c2440a", AMB: "#1565c0", POL: "#5e35b1" }[t];
+  return { FIELD: "#2e7d32", MEDIC: "#1565c0", LOGISTICS: "#c77700" }[t];
 }
 
 export function priorityColor(p: IncidentPriority) {
   return { CRITICAL: "#c62828", HIGH: "#c2440a", MEDIUM: "#c77700", LOW: "#2e7d32" }[p];
 }
 
-export const UNIT_TYPE_ICON: Record<UnitType, string> = { FIRE: "🔥", AMB: "🚑", POL: "🚔" };
-export const CATEGORY_ICON: Record<string, string> = { FIRE: "🔥", AMB: "🚑", POL: "🚔", Other: "⚠️" };
+export const UNIT_TYPE_LABEL: Record<UnitType, string> = {
+  FIELD: "Field Volunteer",
+  MEDIC: "Medic Volunteer",
+  LOGISTICS: "Logistics Volunteer",
+};
+
+export const CATEGORY_LABEL: Record<string, string> = {
+  FIELD: "Field Volunteer",
+  MEDIC: "Medic Volunteer",
+  LOGISTICS: "Logistics Volunteer",
+  Other: "Volunteer",
+};
+export const UNIT_TYPE_ICON: Record<UnitType, string> = { FIELD: "FIELD", MEDIC: "MEDIC", LOGISTICS: "LOG" };
+export const CATEGORY_ICON: Record<string, string> = { FIELD: "FIELD", MEDIC: "MEDIC", LOGISTICS: "LOG", Other: "ALERT" };
+
+// ─── Backend Mapping Functions ────────────────────────────────────────────────
+// These are used to convert backend API responses to frontend data structures
+import { IncidentReport, Organization } from "../lib/types";
+
+export function mapBackendToFrontendIncident(report: IncidentReport): Incident {
+  const priorityMap: Record<string, IncidentPriority> = {
+    low: "LOW",
+    moderate: "MEDIUM",
+    high: "HIGH",
+    critical: "CRITICAL",
+  };
+
+  const statusMap: Record<string, IncidentStatus> = {
+    pending: "New",
+    reviewed: "Waiting",
+    actioned: "Dispatched",
+    closed: "Resolved",
+  };
+  const incidentType = report.title.toLowerCase();
+  const category: Incident["category"] =
+    /(medical|injur|health|patient|cardiac|fracture)/.test(incidentType) ? "MEDIC" :
+    /(relief|supply|food|transport|evacuat|distribution)/.test(incidentType) ? "LOGISTICS" :
+    /(fire|flood|rescue|collapse|damage)/.test(incidentType) ? "FIELD" :
+    "Other";
+
+  return {
+    id: report.id,
+    disasterId: report.disasterId,
+    type: report.title,
+    category,
+    reporter: "Citizen Report",
+    reporterPhone: "Verified",
+    address: report.location,
+    barangay: "",
+    city: "",
+    location: report.location,
+    lat: 14.6042,
+    lng: 120.9822,
+    timeReported: new Date(report.createdAt).toLocaleTimeString("en-PH", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    dateReported: new Date(report.createdAt).toLocaleDateString("en-PH"),
+    priority: priorityMap[report.severity?.toLowerCase() || "moderate"] || "MEDIUM",
+    status: statusMap[report.status?.toLowerCase() || "pending"] || "New",
+    situationType: "Under Control",
+    assignedUnits: [],
+    description: report.content,
+    notes: "",
+    timeActive: 0,
+  };
+}
+
+function classifyVolunteerType(org: Organization): UnitType {
+  const haystack = `${org.name} ${org.type}`.toLowerCase();
+  if (/(medic|medical|health|clinic|hospital|nurse|doctor|rescue)/.test(haystack)) return "MEDIC";
+  if (/(logistics|supply|warehouse|transport|delivery|food|relief|private)/.test(haystack)) return "LOGISTICS";
+  return "FIELD";
+}
+
+export function mapOrganizationToVolunteer(org: Organization, index: number): Unit {
+  const type = classifyVolunteerType(org);
+  const latOffset = ((index % 5) - 2) * 0.004;
+  const lngOffset = (Math.floor(index / 5) - 1) * 0.004;
+
+  return {
+    id: org.id,
+    type,
+    name: org.name,
+    station: (org as any).address || "Bayanihub volunteer network",
+    status: org.verified ? "Available" : "Offline",
+    lat: 14.604 + latOffset,
+    lng: 120.997 + lngOffset,
+    personnel: 1,
+    distance: "From hub",
+    eta: "On request",
+    teamLeader: UNIT_TYPE_LABEL[type],
+    contact: org.contactPhone || org.contactEmail || "Bayanihub",
+    plateNumber: "Volunteer",
+    lastActive: org.verified ? "Synced from backend" : "Needs verification",
+  };
+}
+
+export function volunteersToTeams(volunteers: Unit[]): Team[] {
+  return (["FIELD", "MEDIC", "LOGISTICS"] as UnitType[])
+    .map((type) => {
+      const group = volunteers.filter((u) => u.type === type);
+      return {
+        id: `TEAM-${type}`,
+        name: `${UNIT_TYPE_LABEL[type]} Pool`,
+        type,
+        members: group.length,
+        vehicles: 0,
+        station: "Bayanihub volunteer network",
+        contact: group.map((u) => u.contact).find(Boolean) || "Bayanihub",
+        leader: group[0]?.teamLeader || UNIT_TYPE_LABEL[type],
+        status: group.some((u) => u.status === "Available") ? "Ready" : "Standby",
+        equipment: group.slice(0, 4).map((u) => u.name),
+        coverage: "Assigned from verified Bayanihub organizations",
+      } as Team;
+    })
+    .filter((team) => team.members > 0);
+}
+
+

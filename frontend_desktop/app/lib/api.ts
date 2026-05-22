@@ -408,6 +408,43 @@ export async function getDispatcherIncidents(token: string) {
   return request<IncidentReport[]>("/dispatcher/incident-reports", {}, token);
 }
 
+export async function getDispatcherVolunteers(token: string, search?: string) {
+  const qs = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+  return request<Organization[]>(`/dispatcher/volunteers${qs}`, {}, token);
+}
+
+export async function getDispatcherDispatchOrders(token: string) {
+  return request<Array<{
+    id: string;
+    reportId: string;
+    operationId: string;
+    assignedTo: string;
+    priority: string;
+    instructions?: string;
+    status: string;
+    createdAt?: string | Date;
+    updatedAt?: string | Date;
+  }>>("/dispatcher/dispatch-orders", {}, token);
+}
+
+export async function createDispatcherDispatchOrder(
+  token: string,
+  payload: {
+    reportId: string;
+    operationId: string;
+    assignedTo: string;
+    priority?: string;
+    instructions?: string;
+    status?: string;
+    disasterId?: string;
+  },
+) {
+  return request<{ id: string }>("/dispatcher/dispatch-orders", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
 export async function getDispatcherOverview(token: string, disasterId?: string) {
   const qs = disasterId
     ? `?disasterId=${encodeURIComponent(disasterId)}`
@@ -878,3 +915,4 @@ export async function submitIncidentReport(token: string, payload: {
     body: JSON.stringify(payload),
   }, token);
 }
+

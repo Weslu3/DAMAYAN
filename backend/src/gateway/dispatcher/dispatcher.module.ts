@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { GatewayClientsModule } from '../clients.module.js';
 import { DispatcherIncidentReportsController } from './dispatcher-incident-reports.controller.js';
+import { DispatcherOperationsController } from './dispatcher-operations.controller.js';
 import { SiteManagerProxyService } from '../site-manager/site-manager.proxy.service.js';
 import { DispatcherService } from './dispatcher.service.js';
 import { BayanihubVolunteersService } from './bayanihub-volunteers.service.js';

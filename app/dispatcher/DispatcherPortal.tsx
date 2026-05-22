@@ -781,6 +781,7 @@ function RescueMonitoringPage({ incidents, units, onUpdate }: {
   const [afterCalamityInc, setAfterCalamityInc] = useState<Incident | null>(null);
   const [afterStep, setAfterStep] = useState<"confirm" | "verify" | "close">("confirm");
   const [safetyChecked, setSafetyChecked] = useState(false);
+  const [showLegend, setShowLegend] = useState(true);
   const toast = useToast();
 
   useEffect(() => {
@@ -813,7 +814,7 @@ function RescueMonitoringPage({ incidents, units, onUpdate }: {
   };
 
   return (
-    <div className="dp-incidents-page dp-fade-in">
+    <div className="dp-incidents-page dp-rescue-monitoring-page dp-fade-in">
 
       {/* ── Left: in-progress list ── */}
       <div className="dp-incidents-list">
@@ -885,18 +886,37 @@ function RescueMonitoringPage({ incidents, units, onUpdate }: {
 
       {/* ── Right: Map + rescue detail ── */}
       <div className="dp-incidents-map">
-        {/* Map header with situation legend */}
         <div className="dp-map-header">
-          <span className="dp-map-header-title">🛡 Rescue Monitoring</span>
-          <div className="dp-rescue-legend">
-            {(["Under Control","Escalating","Critical"] as SituationType[]).map(s => (
-              <div key={s} className="dp-rescue-legend-item">
-                <span style={{ width: 9, height: 9, borderRadius: "50%", background: situationColor(s), display: "inline-block", flexShrink: 0 }} />
-                Situation {s}
-              </div>
-            ))}
+          <div className="dp-map-phase-badge">
+            <span className="dp-map-phase-dot" />
+            <div>
+              <div className="dp-map-phase-eyebrow">Map Mode</div>
+              <div className="dp-map-header-title">Rescue Monitoring</div>
+            </div>
+          </div>
+          <div className="dp-map-floating-controls">
+            <button className="dp-map-icon-btn" title="Fullscreen">
+              <span className="material-symbols-outlined">fullscreen</span>
+            </button>
+            <button className="dp-map-icon-btn" title="Toggle Legend" onClick={() => setShowLegend((p) => !p)}>
+              <span className="material-symbols-outlined">info</span>
+            </button>
           </div>
         </div>
+
+        {showLegend && (
+          <div className="dp-map-legend-panel">
+            <div className="dp-map-legend-panel-head">Map Legend</div>
+            <div className="dp-rescue-legend">
+              {(["Under Control","Escalating","Critical"] as SituationType[]).map(s => (
+                <div key={s} className="dp-rescue-legend-item">
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: situationColor(s), display: "inline-block", flexShrink: 0, border: "2px solid #fff" }} />
+                  Situation {s}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Map — zooms to selected incident */}
         <div style={{ flex: selInc ? "0 0 42%" : "1", minHeight: 0 }}>
@@ -1607,7 +1627,7 @@ function ExpandedTicket({ inc, units, onBackup, onEscalate, onResolve, onClose }
   const assigned = inc.assignedUnits.map(id => units.find(u => u.id === id)).filter(Boolean) as Unit[];
   return (
     <div className="dp-ticket-detail dp-fade-in">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.8rem" }}>
+      <div className="dp-ticket-card dp-ticket-card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.8rem" }}>
         <div>
           <div style={{ fontFamily: "monospace", fontSize: "1.1rem", fontWeight: 900, color: "var(--d-primary)" }}>{inc.id}</div>
           <div style={{ fontSize: "0.875rem", fontWeight: 700, marginBottom: "0.3rem" }}>{inc.type}</div>
@@ -1631,6 +1651,7 @@ function ExpandedTicket({ inc, units, onBackup, onEscalate, onResolve, onClose }
         </div>
       </div>
 
+      <div className="dp-ticket-card dp-ticket-card-body">
       <div className="dp-ticket-detail-grid">
         <div>
           <div className="dp-ticket-section-label">Location & Report</div>
@@ -1665,7 +1686,7 @@ function ExpandedTicket({ inc, units, onBackup, onEscalate, onResolve, onClose }
             <div className="dp-alert dp-alert-red" style={{ marginTop: "0.5rem" }}>Invalid reason: {inc.invalidReason}</div>
           )}
         </div>
-        <div>
+        <div className="dp-ticket-subcard">
           <div className="dp-ticket-section-label">Assigned Units ({assigned.length})</div>
           {assigned.length === 0
             ? <p style={{ fontSize: "0.85rem", color: "var(--d-text-sub)" }}>No units assigned.</p>
@@ -1680,6 +1701,7 @@ function ExpandedTicket({ inc, units, onBackup, onEscalate, onResolve, onClose }
               ))}
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -1691,7 +1713,7 @@ function ResourcesPage({ units, setUnits }: { units: Unit[]; setUnits: React.Dis
   const [statusFilter, setStatusFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [addUnitModal, setAddUnitModal] = useState(false);
-  const [delConfirm, setDelConfirm] = useState<string|null>(null);
+  const [delConfirm, setDelConfirm] = useState<{ id: string; name: string } | null>(null);
   const [msgModal, setMsgModal] = useState<Unit|null>(null);
   const [msgText, setMsgText] = useState("");
   const [newU, setNewU] = useState({ name:"",type:"FIRE",station:"",leader:"",contact:"",personnel:"",plate:"" });
@@ -1815,7 +1837,7 @@ function ResourcesPage({ units, setUnits }: { units: Unit[]; setUnits: React.Dis
                       <button className="dp-btn dp-btn-ghost dp-btn-sm" style={{ borderColor:u.status==="Offline"?"var(--d-green)":"var(--d-red)",color:u.status==="Offline"?"var(--d-green)":"var(--d-red)" }} onClick={()=>{setUnits(p=>p.map(x=>x.id===u.id?{...x,status:x.status==="Offline"?"Available":"Offline"}:x));toast.show(`${u.id} ${u.status==="Offline"?"enabled":"disabled"}`)}}>
                         {u.status==="Offline"?"Enable":"Disable"}
                       </button>
-                      <button className="dp-btn dp-btn-ghost dp-btn-sm" style={{ borderColor:"var(--d-red)",color:"var(--d-red)" }} onClick={()=>setDelConfirm(u.id)}>🗑</button>
+                      <button className="dp-btn dp-btn-ghost dp-btn-sm" style={{ borderColor:"var(--d-red)",color:"var(--d-red)" }} onClick={()=>setDelConfirm({ id: u.id, name: u.name })}>🗑</button>
                     </div>
                   </td>
                 </tr>
@@ -1848,10 +1870,10 @@ function ResourcesPage({ units, setUnits }: { units: Unit[]; setUnits: React.Dis
       {/* Delete confirm */}
       {delConfirm&&(
         <Modal title="Remove Unit" onClose={()=>setDelConfirm(null)} width={420}>
-          <div className="dp-alert dp-alert-red" style={{ marginBottom:"1rem" }}>Are you sure you want to remove <strong>{delConfirm}</strong>? This action cannot be undone.</div>
+          <div className="dp-alert dp-alert-red" style={{ marginBottom:"1rem" }}>Are you sure you want to remove <strong>{delConfirm.name}</strong>? This action cannot be undone.</div>
           <div style={{ display:"flex",gap:"0.6rem",justifyContent:"flex-end" }}>
             <button className="dp-btn dp-btn-ghost" onClick={()=>setDelConfirm(null)}>Cancel</button>
-            <button className="dp-btn dp-btn-red" onClick={()=>{ setUnits(p=>p.filter(u=>u.id!==delConfirm)); setDelConfirm(null); toast.show(`Unit ${delConfirm} removed`); }}>Confirm Remove</button>
+            <button className="dp-btn dp-btn-red" onClick={()=>{ if (delConfirm) { setUnits(p=>p.filter(u=>u.id!==delConfirm.id)); toast.show(`Unit ${delConfirm.name} removed`); } setDelConfirm(null); }}>Confirm Remove</button>
           </div>
         </Modal>
       )}
