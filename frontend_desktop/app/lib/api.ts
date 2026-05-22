@@ -413,6 +413,23 @@ export async function getRegions(token: string) {
   return request<Array<{ id: string; name: string; currentPhase: string }>>(`/admin/regions`, {}, token);
 }
 
+export async function createRegion(
+  token: string,
+  payload: {
+    name: string;
+    centerLat: number;
+    centerLng: number;
+    spanDegrees?: number;
+    radiusKm?: number;
+    currentPhase?: "beforecalamity" | "duringcalamity" | "aftercalamity";
+  },
+) {
+  return request<{ id: string; name: string; currentPhase: string }>("/admin/regions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
 export async function getRegionsGeo(token: string) {
   return request<Array<{ id: string; name: string; geojson: any }>>(`/admin/regions/geo`, {}, token);
 }
@@ -459,6 +476,44 @@ export async function getRegionPersonaPhaseAudience(
     {},
     token,
   );
+}
+
+export async function getRegionAssignments(token: string, regionId: string) {
+  return request<Array<{
+    id: string;
+    regionId: string;
+    authUserId: string;
+    name: string;
+    role: string;
+    assignedAt?: string;
+    assignedBy?: string | null;
+    expiresAt?: string | null;
+  }>>(`/admin/regions/${regionId}/assignments`, {}, token);
+}
+
+export async function createRegionAssignment(
+  token: string,
+  regionId: string,
+  payload: { authUserId: string; role: string; expiresAt?: string | null },
+) {
+  return request<any>(`/admin/regions/${regionId}/assignments`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function deleteRegionAssignment(token: string, regionId: string, assignmentId: string) {
+  return request<any>(`/admin/regions/${regionId}/assignments/${assignmentId}`, {
+    method: 'DELETE',
+  }, token);
+}
+
+export async function getAvailableRegionUsers(token: string, regionId: string, role?: string, search?: string) {
+  const qsParts: string[] = [];
+  if (role) qsParts.push(`role=${encodeURIComponent(role)}`);
+  if (search) qsParts.push(`search=${encodeURIComponent(search)}`);
+  const qs = qsParts.length ? `?${qsParts.join('&')}` : '';
+  return request<Array<{ authUserId: string; name: string; role: string; assignedRegionId?: string }>>(`/admin/regions/${regionId}/available-users${qs}`, {}, token);
 }
 
 export async function getRecentCheckIns(token: string, limit = 8) {

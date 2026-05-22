@@ -20,9 +20,14 @@ import {
   approvePendingUser,
   rejectPendingUser,
   getRegions,
+  createRegion,
   getRegionsGeo,
   upsertRegionPersonaPhaseControl,
   getRegionPersonaPhaseAudience,
+  getRegionAssignments,
+  createRegionAssignment,
+  deleteRegionAssignment,
+  getAvailableRegionUsers,
   getRegionShelters,
   type AdminApprovalRecord,
 } from "../lib/api";
@@ -2331,6 +2336,7 @@ function DisasterMonitoringPage({
               </div>
             </div>
           </div>
+
         ))}
       </div>
 
@@ -3513,6 +3519,78 @@ function MiniRegionMap({
   return <div ref={containerRef} style={{ width: '100%', height: 260, borderRadius: 8, overflow: 'hidden' }} />;
 }
 
+function RegionCenterPickerMap({
+  lat,
+  lng,
+  radiusKm,
+  onChange,
+}: {
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  onChange: (lat: number, lng: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const circleRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    import('leaflet').then((L) => {
+      mapRef.current = L.map(containerRef.current!, {
+        center: [lat, lng],
+        zoom: 12,
+        zoomControl: true,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(mapRef.current);
+
+      mapRef.current.on('click', (e: any) => {
+        const nextLat = Number(e?.latlng?.lat ?? lat);
+        const nextLng = Number(e?.latlng?.lng ?? lng);
+        onChange(nextLat, nextLng);
+      });
+    });
+
+    return () => {
+      try { mapRef.current?.remove(); } catch {}
+      mapRef.current = null;
+      markerRef.current = null;
+      circleRef.current = null;
+    };
+  }, [lat, lng, onChange]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    import('leaflet').then((L) => {
+      if (markerRef.current) {
+        try { mapRef.current.removeLayer(markerRef.current); } catch {}
+      }
+      if (circleRef.current) {
+        try { mapRef.current.removeLayer(circleRef.current); } catch {}
+      }
+
+      markerRef.current = L.marker([lat, lng]).addTo(mapRef.current);
+      circleRef.current = L.circle([lat, lng], {
+        radius: Math.max(0.1, radiusKm) * 1000,
+        color: '#2563eb',
+        fillColor: '#2563eb',
+        fillOpacity: 0.12,
+        weight: 2,
+      }).addTo(mapRef.current);
+
+      mapRef.current.setView([lat, lng], mapRef.current.getZoom() ?? 12, { animate: false });
+    });
+  }, [lat, lng, radiusKm]);
+
+  return <div ref={containerRef} style={{ width: '100%', height: 260, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--admin-outline)' }} />;
+}
+
 function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: string | null; showToast: (type: ToastItem["type"], title: string, sub?: string) => void }) {
   const [regionId, setRegionId] = useState("");
   const [regions, setRegions] = useState<Array<{ id: string; name: string; currentPhase: string }>>([]);
@@ -3522,6 +3600,23 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
   const [audience, setAudience] = useState<Array<{ authUserId: string; name: string; role: AppRole; assignedRegionId: string | null }>>([]);
   const [saving, setSaving] = useState(false);
   const [loadingAudience, setLoadingAudience] = useState(false);
+  const [assignments, setAssignments] = useState<Array<{ id: string; name: string; role: string; assignedAt?: string }>>([]);
+  const [loadingAssignments, setLoadingAssignments] = useState(false);
+  const [newAssignUserId, setNewAssignUserId] = useState("");
+  const [newAssignRole, setNewAssignRole] = useState<string>("site_manager");
+  const [newAssignExpiry, setNewAssignExpiry] = useState<string | undefined>(undefined);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ authUserId: string; name: string; role: string }>>([]);
+  const [loadingAvailableUsers, setLoadingAvailableUsers] = useState(false);
+  const [newRegionName, setNewRegionName] = useState("");
+  const [newRegionLat, setNewRegionLat] = useState<string>("14.5995");
+  const [newRegionLng, setNewRegionLng] = useState<string>("120.9842");
+  const [newRegionRadiusKm, setNewRegionRadiusKm] = useState<string>("2");
+  const [creatingRegion, setCreatingRegion] = useState(false);
+
+  const handleCenterPick = useCallback((lat: number, lng: number) => {
+    setNewRegionLat(lat.toFixed(6));
+    setNewRegionLng(lng.toFixed(6));
+  }, []);
 
   const handleSave = async () => {
     if (!authToken) {
@@ -3622,6 +3717,121 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
     return () => { cancelled = true; };
   }, [authToken, regionId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAssignments() {
+      if (!authToken || !regionId) { setAssignments([]); return; }
+      try {
+        setLoadingAssignments(true);
+        const list = await getRegionAssignments(authToken, regionId);
+        if (!cancelled) setAssignments(list ?? []);
+      } catch (err) {
+        // ignore silently
+      } finally {
+        if (!cancelled) setLoadingAssignments(false);
+      }
+    }
+    void loadAssignments();
+    return () => { cancelled = true; };
+  }, [authToken, regionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAvailableUsers() {
+      if (!authToken || !regionId) {
+        if (!cancelled) setAvailableUsers([]);
+        return;
+      }
+      try {
+        setLoadingAvailableUsers(true);
+        const list = await getAvailableRegionUsers(authToken, regionId, newAssignRole);
+        if (!cancelled) setAvailableUsers(list ?? []);
+      } catch {
+        if (!cancelled) setAvailableUsers([]);
+      } finally {
+        if (!cancelled) setLoadingAvailableUsers(false);
+      }
+    }
+
+    void loadAvailableUsers();
+    return () => { cancelled = true; };
+  }, [authToken, regionId, newAssignRole, assignments.length]);
+
+  const handleCreateRegion = async () => {
+    if (!authToken) {
+      showToast("error", "Session expired", "Please re-login to continue.");
+      return;
+    }
+    if (!newRegionName.trim()) {
+      showToast("error", "Missing region name", "Enter a region name.");
+      return;
+    }
+
+    const lat = Number(newRegionLat);
+    const lng = Number(newRegionLng);
+    const radiusKm = Number(newRegionRadiusKm);
+
+    if (Number.isNaN(lat) || lat < -90 || lat > 90) {
+      showToast("error", "Invalid latitude", "Latitude must be between -90 and 90.");
+      return;
+    }
+    if (Number.isNaN(lng) || lng < -180 || lng > 180) {
+      showToast("error", "Invalid longitude", "Longitude must be between -180 and 180.");
+      return;
+    }
+    if (Number.isNaN(radiusKm) || radiusKm < 0.1 || radiusKm > 100) {
+      showToast("error", "Invalid radius", "Radius must be between 0.1 and 100 km.");
+      return;
+    }
+
+    try {
+      setCreatingRegion(true);
+      const created = await createRegion(authToken, {
+        name: newRegionName.trim(),
+        centerLat: lat,
+        centerLng: lng,
+        radiusKm,
+      });
+
+      const list = await getRegions(authToken);
+      setRegions(list ?? []);
+      setRegionId(created.id);
+      showToast("success", "Region created", `${created.name} is now available for assignment.`);
+      setNewRegionName("");
+    } catch (err: any) {
+      showToast("error", "Create region failed", err?.message ?? "Unable to create region.");
+    } finally {
+      setCreatingRegion(false);
+    }
+  };
+
+  const handleCreateRegionAssignment = async () => {
+    if (!authToken) { showToast("error", "Session expired", "Please re-login to continue."); return; }
+    if (!regionId) { showToast("error", "Missing region", "Select a region first."); return; }
+    if (!newAssignUserId.trim()) { showToast("error", "Missing user", "Enter the user's auth id to assign."); return; }
+    try {
+      await createRegionAssignment(authToken, regionId, { authUserId: newAssignUserId.trim(), role: newAssignRole, expiresAt: newAssignExpiry ?? null });
+      showToast("success", "Assigned", `User ${newAssignUserId} assigned as ${newAssignRole}`);
+      setNewAssignUserId("");
+      const list = await getRegionAssignments(authToken, regionId);
+      setAssignments(list ?? []);
+    } catch (err: any) {
+      showToast("error", "Assign failed", err?.message ?? "Unable to assign user to region.");
+    }
+  };
+
+  const handleDeleteRegionAssignment = async (assignmentId: string) => {
+    if (!authToken || !regionId) return;
+    try {
+      await deleteRegionAssignment(authToken, regionId, assignmentId);
+      showToast("success", "Removed", "Assignment deleted.");
+      const list = await getRegionAssignments(authToken, regionId);
+      setAssignments(list ?? []);
+    } catch (err: any) {
+      showToast("error", "Delete failed", err?.message ?? "Unable to remove assignment.");
+    }
+  };
+
   return (
     <div className="admin-page">
       <div className="admin-page-head">
@@ -3634,6 +3844,46 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
         <div>
           <div style={{ maxWidth: '100%' }}>
+            <div className="admin-card" style={{ marginBottom: "0.9rem" }}>
+              <div className="admin-card-header">
+                <div className="admin-card-title">Create Region</div>
+              </div>
+              <div className="admin-card-body">
+                <div style={{ color: "var(--admin-text-soft)", marginBottom: 10 }}>Click on the map to pinpoint the center, then adjust the radius in kilometers.</div>
+                <RegionCenterPickerMap
+                  lat={Number(newRegionLat) || 14.5995}
+                  lng={Number(newRegionLng) || 120.9842}
+                  radiusKm={Number(newRegionRadiusKm) || 2}
+                  onChange={handleCenterPick}
+                />
+                <div className="admin-form-grid">
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Region Name</label>
+                    <input className="admin-form-input" value={newRegionName} onChange={(e) => setNewRegionName(e.target.value)} placeholder="e.g. Sampaloc Sector A" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Center Latitude</label>
+                    <input className="admin-form-input" value={newRegionLat} onChange={(e) => setNewRegionLat(e.target.value)} placeholder="14.5995" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Center Longitude</label>
+                    <input className="admin-form-input" value={newRegionLng} onChange={(e) => setNewRegionLng(e.target.value)} placeholder="120.9842" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Radius (km)</label>
+                    <input className="admin-form-input" type="number" min="0.1" max="100" step="0.1" value={newRegionRadiusKm} onChange={(e) => setNewRegionRadiusKm(e.target.value)} placeholder="2" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Radius Slider</label>
+                    <input type="range" min="0.1" max="30" step="0.1" value={Number(newRegionRadiusKm) || 2} onChange={(e) => setNewRegionRadiusKm(e.target.value)} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.85rem" }}>
+                  <button className="admin-btn admin-btn-accent" onClick={handleCreateRegion} disabled={creatingRegion}>{creatingRegion ? "Creating..." : "Create Region"}</button>
+                </div>
+              </div>
+            </div>
+
             <div className="admin-card">
               <div className="admin-card-header">
                 <div className="admin-card-title">Region Persona Override</div>
@@ -3706,6 +3956,77 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="admin-card" style={{ marginTop: "0.9rem" }}>
+              <div className="admin-card-header"><div className="admin-card-title">Region Assignments</div></div>
+              <div className="admin-card-body">
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ color: "var(--admin-text-soft)", fontSize: "0.9rem" }}>Assign available site managers or dispatchers to this region.</div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Selected Region</label>
+                    <div style={{ fontWeight: 700 }}>{regions.find((r) => r.id === regionId)?.name ?? (regionId ? regionId : "None selected")}</div>
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Role</label>
+                    <select className="admin-form-input" value={newAssignRole} onChange={(e) => setNewAssignRole(e.target.value)}>
+                      <option value="site_manager">site_manager</option>
+                      <option value="dispatcher">dispatcher</option>
+                    </select>
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Available Users</label>
+                    <select className="admin-form-input" value={newAssignUserId} onChange={(e) => setNewAssignUserId(e.target.value)}>
+                      <option value="">Select an available user...</option>
+                      {availableUsers.map((u) => (
+                        <option key={u.authUserId} value={u.authUserId}>
+                          {u.name} ({u.role}) - {u.authUserId}
+                        </option>
+                      ))}
+                    </select>
+                    {loadingAvailableUsers ? (
+                      <div style={{ color: "var(--admin-text-soft)", marginTop: 6 }}>Loading available users...</div>
+                    ) : availableUsers.length === 0 ? (
+                      <div style={{ color: "var(--admin-text-soft)", marginTop: 6 }}>No available users for this role in the selected region.</div>
+                    ) : null}
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Expires At (optional)</label>
+                    <input className="admin-form-input" type="datetime-local" value={newAssignExpiry ?? ""} onChange={(e) => setNewAssignExpiry(e.target.value || undefined)} />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="admin-btn admin-btn-accent" onClick={handleCreateRegionAssignment}>Assign</button>
+                    <button className="admin-btn admin-btn-ghost" onClick={() => { setNewAssignUserId(""); setNewAssignExpiry(undefined); }}>Clear</button>
+                  </div>
+
+                  <div style={{ marginTop: 8 }}>
+                    {loadingAssignments ? (
+                      <div style={{ color: "var(--admin-text-soft)" }}>Loading assignments...</div>
+                    ) : assignments.length === 0 ? (
+                      <div style={{ color: "var(--admin-text-soft)" }}>No assignments for this region.</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {assignments.map((a) => (
+                          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.45rem", borderRadius: 6, background: "var(--admin-surface-low)" }}>
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{a.name}</div>
+                              <div style={{ fontSize: "0.8rem", color: "var(--admin-text-soft)" }}>{a.role} - {a.assignedAt ? new Date(a.assignedAt).toLocaleString() : "just now"}</div>
+                            </div>
+                            <div>
+                              <button className="admin-btn admin-btn-ghost" onClick={() => handleDeleteRegionAssignment(a.id)}>Remove</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

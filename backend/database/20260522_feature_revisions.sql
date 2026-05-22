@@ -111,3 +111,49 @@ AS $$
       )
   );
 $$;
+
+-- Assign site managers and dispatchers to regions
+CREATE TABLE IF NOT EXISTS public.region_assignments (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  region_id uuid NOT NULL REFERENCES public.regions(id) ON DELETE CASCADE,
+  auth_user_id uuid NOT NULL REFERENCES public.user_profiles(auth_user_id) ON DELETE CASCADE,
+  role text NOT NULL CHECK (
+    role = ANY (ARRAY['site_manager'::text, 'dispatcher'::text])
+  ),
+  assigned_at timestamp with time zone NOT NULL DEFAULT now(),
+  assigned_by uuid NULL REFERENCES public.user_profiles(auth_user_id) ON DELETE SET NULL,
+  expires_at timestamp with time zone NULL,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT region_assignments_pkey PRIMARY KEY (id),
+  CONSTRAINT region_assignments_unique UNIQUE (region_id, auth_user_id, role)
+);
+
+CREATE INDEX IF NOT EXISTS region_assignments_region_id_idx
+  ON public.region_assignments (region_id);
+
+CREATE INDEX IF NOT EXISTS region_assignments_auth_user_id_idx
+  ON public.region_assignments (auth_user_id);
+
+CREATE INDEX IF NOT EXISTS region_assignments_role_idx
+  ON public.region_assignments (role);
+
+CREATE OR REPLACE FUNCTION public.region_assignments_set_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'region_assignments_set_updated_at_trg'
+  ) THEN
+    CREATE TRIGGER region_assignments_set_updated_at_trg
+    BEFORE UPDATE ON public.region_assignments
+    FOR EACH ROW EXECUTE FUNCTION public.region_assignments_set_updated_at();
+  END IF;
+END $$;
