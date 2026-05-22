@@ -611,7 +611,7 @@ export default function DashboardTab({ // NOSONAR
                 className={`w-full py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${recoveryTab === "assess" ? "bg-white dark:bg-[#232622] shadow-md text-black dark:text-white" : "text-[#444743] dark:text-[#a0a39f] hover:bg-white/10"}`}
               >
                 <span className="material-symbols-outlined text-sm">analytics</span>
-                <span>1. People Ops</span>
+                <span>1. People Operations</span>
               </button>
               <button
                 onClick={() => setRecoveryTab("structure")}
@@ -883,9 +883,53 @@ export default function DashboardTab({ // NOSONAR
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  <div className="lg:col-span-8 bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4 text-left">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                      <div>
+                        <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">1. Regional Historical Calamity Repository</h5>
+                        <p className="text-[10px] text-[#707a6c] mt-0.5">Filter and reference response metrics of past tropical cyclones.</p>
+                      </div>
+                      <input type="text" value={historySearchQuery} onChange={(e) => setHistorySearchQuery(e.target.value)} placeholder="Search cyclones (e.g. Pepito)..." className="bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] rounded-full px-4 py-1.5 text-xs font-bold outline-none w-full sm:w-48 text-[#1a1c19] dark:text-white" />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {historicalDisasterReports.filter((r) => r.name.toLowerCase().includes(historySearchQuery.toLowerCase())).map((rpt) => {
+                        const isSelected = selectedReportId === rpt.id;
+                        return (
+                          <button
+                            key={rpt.id}
+                            type="button"
+                            onClick={() => setSelectedReportId(rpt.id)}
+                            className={`w-full text-left p-4 rounded-xl border transition-all cursor-pointer ${isSelected ? "border-green-600 bg-green-50/20 dark:bg-green-950/10 shadow-sm" : "border-[#dadad5] dark:border-[#3b3b3b] bg-[#f4f4ef]/30 dark:bg-[#232622]/30 hover:border-green-600/50"}`}
+                          >
+                            <div className="flex justify-between items-start gap-2">
+                              <p className="font-black text-xs text-[#1a1c19] dark:text-white leading-tight">{rpt.name}</p>
+                              <span className="text-[8px] font-black uppercase text-[#707a6c] shrink-0">{rpt.date}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-3 text-[10px] text-[#444743] dark:text-[#a0a39f] font-bold border-t border-[#dadad5]/50 pt-2.5">
+                              <div><p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Severity</p><p className="font-black text-[#1a1c19] dark:text-white">{rpt.severity}</p></div>
+                              <div><p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Affected Areas</p><p className="font-black text-[#1a1c19] dark:text-white">{rpt.affectedAreas}</p></div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedHistoricalReport && (
+                      <div className="bg-[#f4f4ef]/50 dark:bg-[#232622]/50 border border-green-600/20 p-4 rounded-xl space-y-3 mt-4 text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="flex justify-between items-center pb-2 border-b border-[#dadad5]/50">
+                          <span className="font-black text-[10px] uppercase text-green-700 tracking-wider">Lessons Learned File: {selectedHistoricalReport.name}</span>
+                          <span className="material-symbols-outlined text-sm text-green-700">inventory</span>
+                        </div>
+                        <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px]">Lessons Learned & Recommendations</p>
+                        <p className="text-[#1a1c19] dark:text-[#e2e3dd] italic leading-relaxed">"{selectedHistoricalReport.lessonsLearned}"</p>
+                        <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px] pt-1">Full Incident Report Log</p>
+                        <p className="text-[#444743] dark:text-[#a0a39f] leading-relaxed">{selectedHistoricalReport.fullText}</p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="lg:col-span-4 bg-white dark:bg-[#1a1c19] p-6 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-5 text-left">
                     <div className="pb-3 border-b border-[#dadad5]/50 flex justify-between items-center">
-                      <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">Historical Event Snapshot</h5>
+                      <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">2. Historical Event Snapshot</h5>
                       <span className="bg-green-50 text-green-700 text-[8px] font-black uppercase px-2 py-0.5 rounded border border-green-200/50">BACKEND SYNCED</span>
                     </div>
                     <div className="space-y-4">
@@ -906,80 +950,34 @@ export default function DashboardTab({ // NOSONAR
                     </div>
                   </div>
 
-                  <div className="lg:col-span-8 space-y-6 text-left">
-                    <div className="bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4">
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">1. Operational Activity Feed</h5>
-                        <span className="bg-[#2E7D32]/10 text-[#2E7D32] dark:text-[#81C784] text-[8px] font-black uppercase px-2 py-0.5 rounded border border-[#2E7D32]/20">{operationalAuditEntries.length} LIVE RECORDS</span>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs min-w-[500px]">
-                          <thead>
-                            <tr className="border-b border-[#dadad5]/50 text-[#707a6c] font-black text-[9px] uppercase tracking-wider">
-                              <th className="pb-2">Activity</th>
-                              <th className="pb-2">Logged Time</th>
-                              <th className="pb-2 text-center">Source</th>
-                              <th className="pb-2 text-center">Status</th>
-                              <th className="pb-2 text-right">Rating</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#dadad5]/30">
-                            {operationalAuditEntries.map((entry) => (
-                              <tr key={entry.id} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors font-bold">
-                                <td className="py-3"><p className="text-[#1a1c19] dark:text-white">{entry.title}</p><p className="text-[9px] text-[#707a6c] font-mono mt-0.5">{entry.note}</p></td>
-                                <td className="py-3 font-medium text-[#707a6c] whitespace-nowrap">{entry.timestamp}</td>
-                                <td className="py-3 text-center">{entry.source}</td>
-                                <td className="py-3 text-center">{entry.status}</td>
-                                <td className="py-3 text-right"><span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase ${entry.status.toLowerCase() === "resolved" || entry.status.toLowerCase() === "checked_in" || entry.status.toLowerCase() === "processed" ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300" : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>{entry.status}</span></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                  <div className="lg:col-span-12 bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4 text-left">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                      <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">3. Operational Activity Feed</h5>
+                      <span className="bg-[#2E7D32]/10 text-[#2E7D32] dark:text-[#81C784] text-[8px] font-black uppercase px-2 py-0.5 rounded border border-[#2E7D32]/20">{operationalAuditEntries.length} LIVE RECORDS</span>
                     </div>
-
-                    <div className="bg-white dark:bg-[#1a1c19] p-5 rounded-2xl border border-[#dadad5] dark:border-[#3b3b3b] space-y-4">
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <div>
-                          <h5 className="font-black text-xs uppercase tracking-wider text-[#1a1c19] dark:text-white">2. Regional Historical Calamity Repository</h5>
-                          <p className="text-[10px] text-[#707a6c] mt-0.5">Filter and reference response metrics of past tropical cyclones.</p>
-                        </div>
-                        <input type="text" value={historySearchQuery} onChange={(e) => setHistorySearchQuery(e.target.value)} placeholder="Search cyclones (e.g. Pepito)..." className="bg-[#f4f4ef] dark:bg-[#232622] border border-[#dadad5] dark:border-[#3b3b3b] rounded-full px-4 py-1.5 text-xs font-bold outline-none w-full sm:w-48 text-[#1a1c19] dark:text-white" />
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {historicalDisasterReports.filter((r) => r.name.toLowerCase().includes(historySearchQuery.toLowerCase())).map((rpt) => {
-                          const isSelected = selectedReportId === rpt.id;
-                          return (
-                            <button
-                              key={rpt.id}
-                              type="button"
-                              onClick={() => setSelectedReportId(rpt.id)}
-                              className={`w-full text-left p-4 rounded-xl border transition-all cursor-pointer ${isSelected ? "border-green-600 bg-green-50/20 dark:bg-green-950/10 shadow-sm" : "border-[#dadad5] dark:border-[#3b3b3b] bg-[#f4f4ef]/30 dark:bg-[#232622]/30 hover:border-green-600/50"}`}
-                            >
-                              <div className="flex justify-between items-start gap-2">
-                                <p className="font-black text-xs text-[#1a1c19] dark:text-white leading-tight">{rpt.name}</p>
-                                <span className="text-[8px] font-black uppercase text-[#707a6c] shrink-0">{rpt.date}</span>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 mt-3 text-[10px] text-[#444743] dark:text-[#a0a39f] font-bold border-t border-[#dadad5]/50 pt-2.5">
-                                <div><p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Severity</p><p className="font-black text-[#1a1c19] dark:text-white">{rpt.severity}</p></div>
-                                <div><p className="text-[8px] uppercase tracking-wider text-[#707a6c]">Affected Areas</p><p className="font-black text-[#1a1c19] dark:text-white">{rpt.affectedAreas}</p></div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {selectedHistoricalReport && (
-                        <div className="bg-[#f4f4ef]/50 dark:bg-[#232622]/50 border border-green-600/20 p-4 rounded-xl space-y-3 mt-4 text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
-                          <div className="flex justify-between items-center pb-2 border-b border-[#dadad5]/50">
-                            <span className="font-black text-[10px] uppercase text-green-700 tracking-wider">Lessons Learned File: {selectedHistoricalReport.name}</span>
-                            <span className="material-symbols-outlined text-sm text-green-700">inventory</span>
-                          </div>
-                          <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px]">Lessons Learned & Recommendations</p>
-                          <p className="text-[#1a1c19] dark:text-[#e2e3dd] italic leading-relaxed">"{selectedHistoricalReport.lessonsLearned}"</p>
-                          <p className="font-bold text-[#444743] uppercase tracking-wider text-[8px] pt-1">Full Incident Report Log</p>
-                          <p className="text-[#444743] dark:text-[#a0a39f] leading-relaxed">{selectedHistoricalReport.fullText}</p>
-                        </div>
-                      )}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs min-w-[500px]">
+                        <thead>
+                          <tr className="border-b border-[#dadad5]/50 text-[#707a6c] font-black text-[9px] uppercase tracking-wider">
+                            <th className="pb-2">Activity</th>
+                            <th className="pb-2">Logged Time</th>
+                            <th className="pb-2 text-center">Source</th>
+                            <th className="pb-2 text-center">Status</th>
+                            <th className="pb-2 text-right">Rating</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#dadad5]/30">
+                          {operationalAuditEntries.map((entry) => (
+                            <tr key={entry.id} className="hover:bg-[#f4f4ef]/50 dark:hover:bg-white/5 transition-colors font-bold">
+                              <td className="py-3"><p className="text-[#1a1c19] dark:text-white">{entry.title}</p><p className="text-[9px] text-[#707a6c] font-mono mt-0.5">{entry.note}</p></td>
+                              <td className="py-3 font-medium text-[#707a6c] whitespace-nowrap">{entry.timestamp}</td>
+                              <td className="py-3 text-center">{entry.source}</td>
+                              <td className="py-3 text-center">{entry.status}</td>
+                              <td className="py-3 text-right"><span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase ${entry.status.toLowerCase() === "resolved" || entry.status.toLowerCase() === "checked_in" || entry.status.toLowerCase() === "processed" ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300" : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>{entry.status}</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
