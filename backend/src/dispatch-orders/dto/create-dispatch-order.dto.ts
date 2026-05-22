@@ -1,6 +1,10 @@
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateDispatchOrderDto {
+  @IsOptional()
+  @IsString()
+  disasterId?: string;
+
   @IsNotEmpty()
   @IsString()
   reportId!: string;

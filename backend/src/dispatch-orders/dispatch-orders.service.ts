@@ -5,6 +5,7 @@ import { UpdateDispatchOrderDto } from './dto/update-dispatch-order.dto.js';
 
 interface DispatchOrderRow {
   id: string;
+  disaster_id: string;
   report_id: string;
   operation_id: string;
   assigned_to: string;
@@ -19,15 +20,18 @@ interface DispatchOrderRow {
 export class DispatchOrdersService {
   constructor(@Inject(SupabaseService) private readonly supabaseService: SupabaseService) {}
 
-  async findAll(search?: string, operationId?: string) {
+  async findAll(search?: string, operationId?: string, disasterId?: string) {
     const supabase = this.supabaseService.getClient() as any;
     let query = supabase
       .from('dispatch_orders')
-      .select('id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
+      .select('id, disaster_id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
       .order('created_at', { ascending: false });
 
     if (operationId) {
       query = query.eq('operation_id', operationId);
+    }
+    if (disasterId) {
+      query = query.eq('disaster_id', disasterId);
     }
 
     const { data, error } = await query;
@@ -54,7 +58,7 @@ export class DispatchOrdersService {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
       .from('dispatch_orders')
-      .select('id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
+      .select('id, disaster_id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
       .eq('id', id)
       .maybeSingle();
 
@@ -67,9 +71,14 @@ export class DispatchOrdersService {
 
   async create(createDispatchOrderDto: CreateDispatchOrderDto) {
     const supabase = this.supabaseService.getClient() as any;
+    const disasterId =
+      createDispatchOrderDto.disasterId ??
+      (await this.resolveDisasterId(createDispatchOrderDto.reportId));
+
     const { data, error } = await supabase
       .from('dispatch_orders')
       .insert({
+        disaster_id: disasterId,
         report_id: createDispatchOrderDto.reportId,
         operation_id: createDispatchOrderDto.operationId,
         assigned_to: createDispatchOrderDto.assignedTo,
@@ -77,7 +86,7 @@ export class DispatchOrdersService {
         instructions: createDispatchOrderDto.instructions ?? null,
         status: createDispatchOrderDto.status ?? 'pending',
       })
-      .select('id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
+      .select('id, disaster_id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
       .single();
 
     if (error) {
@@ -93,6 +102,7 @@ export class DispatchOrdersService {
     const { data, error } = await supabase
       .from('dispatch_orders')
       .update({
+        disaster_id: updateDispatchOrderDto.disasterId ?? existing.disasterId,
         report_id: updateDispatchOrderDto.reportId ?? existing.reportId,
         operation_id: updateDispatchOrderDto.operationId ?? existing.operationId,
         assigned_to: updateDispatchOrderDto.assignedTo ?? existing.assignedTo,
@@ -102,7 +112,7 @@ export class DispatchOrdersService {
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .select('id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
+      .select('id, disaster_id, report_id, operation_id, assigned_to, priority, instructions, status, created_at, updated_at')
       .single();
 
     if (error) {
@@ -134,6 +144,7 @@ export class DispatchOrdersService {
   private toDispatchOrder(row: DispatchOrderRow) {
     return {
       id: row.id,
+      disasterId: row.disaster_id,
       reportId: row.report_id,
       operationId: row.operation_id,
       assignedTo: row.assigned_to,
@@ -143,5 +154,20 @@ export class DispatchOrdersService {
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
       updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
     };
+  }
+
+  private async resolveDisasterId(reportId: string): Promise<string> {
+    const supabase = this.supabaseService.getClient() as any;
+    const { data, error } = await supabase
+      .from('incident_reports')
+      .select('disaster_id')
+      .eq('id', reportId)
+      .maybeSingle();
+
+    if (error || !data?.disaster_id) {
+      throw new NotFoundException(`Cannot resolve disaster for incident report ${reportId}`);
+    }
+
+    return data.disaster_id as string;
   }
 }

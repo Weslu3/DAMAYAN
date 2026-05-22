@@ -3,14 +3,14 @@ import "./dispatcher.css";
 import { useState, useEffect, useRef } from "react";
 import {
   NavPage, Incident, Unit, Team, IncidentPriority, IncidentStatus, SituationType, UnitType,
-  MOCK_DISPATCHER, MOCK_UNITS, MOCK_INCIDENTS, MOCK_TEAMS,
+  MOCK_DISPATCHER, MOCK_UNITS,
   priorityClass, statusClass, situationClass, situationColor, unitStatusColor, unitTypeColor,
   priorityColor, UNIT_TYPE_ICON, CATEGORY_ICON, shortenId
 } from "./data";
 import LiveMap, { MapMode } from "./LiveMap";
-import { getDispatcherIncidents, updateIncidentReport } from "../lib/api";
+import { getDispatcherOverview, getDispatcherProfile, sendDispatcherBroadcast, updateIncidentReport } from "../lib/api";
 import { loadSession } from "../lib/session";
-import { IncidentReport } from "../lib/types";
+import type { DispatcherProfile as BackendDispatcherProfile, DispatcherVolunteerTeam, DispatcherVolunteerUnit, DispatchOrder, IncidentReport, Organization } from "../lib/types";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MINI COMPONENTS
@@ -221,9 +221,10 @@ function AwaitingPage({ onProceed }: { onProceed: () => void }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // DASHBOARD PAGE
 // ══════════════════════════════════════════════════════════════════════════════
-function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: {
+function DashboardPage({ incidents, units, teams, onDispatch, onMarkInvalid, status }: {
   incidents: Incident[];
   units: Unit[];
+  teams: Team[];
   onDispatch: (inc: Incident) => void;
   onMarkInvalid: (inc: Incident, reason: string) => void;
   status: "active" | "inactive";
@@ -235,14 +236,16 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
   const critical  = incidents.filter(i => (i.priority === "CRITICAL" || i.priority === "HIGH") && i.status !== "Resolved" && i.status !== "Invalid");
   const avail     = units.filter(u => u.status === "Available").length;
   const deployed  = units.filter(u => u.status !== "Available" && u.status !== "Offline").length;
+  const readyRoles = teams.filter(t => t.status === "Ready").length;
+  const activeRoles = teams.length > 0;
 
   const stats = [
     { label: "New Incidents",    value: newInc.length,    color: "var(--d-red)",     icon: "N" },
     { label: "Active Response",  value: activeInc.length, color: "var(--d-primary)", icon: "A" },
     { label: "Resolved Today",   value: resolved.length,  color: "var(--d-green)",   icon: "R" },
     { label: "Critical / High",  value: critical.length,  color: "#c77700",          icon: "!" },
-    { label: "Units Available",  value: avail,            color: "var(--d-blue)",    icon: "U", sub: `${deployed} deployed` },
-    { label: "Total Units",      value: units.length,     color: "var(--d-text)",    icon: "T" },
+    { label: activeRoles ? "Ready Roles" : "Units Available",  value: activeRoles ? readyRoles : avail, color: "var(--d-blue)", icon: "U", sub: activeRoles ? `${teams.length} total roles` : `${deployed} deployed` },
+    { label: activeRoles ? "Volunteer Roles" : "Total Units",  value: activeRoles ? teams.length : units.length, color: "var(--d-text)", icon: "T" },
   ];
 
   const ACTIVITY = [
@@ -621,14 +624,29 @@ function ResourceMapPage({ incidents, units, onUpdate, dispatchTarget, onClearDi
 
   const confirmDispatch = () => {
     if (isInactive) return;
-    // Move incident to Dispatched/In Progress
-    if (selInc) {
-      onUpdate(selInc.id, {
-        status: "Dispatched",
-        assignedUnits: assigned,
-        dispatchedAt: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
-      });
+    const patch: Partial<Incident> = {
+      status: "Dispatched",
+      assignedUnits: assigned,
+      dispatchedAt: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    const session = loadSession();
+    if (session?.accessToken && selInc) {
+      const apiPatch: Record<string, any> = { status: "actioned" };
+      if (assigned.length > 0) {
+        apiPatch.content = `Dispatched: ${assigned.join(", ")} to ${selInc.type}s`;
+      }
+      void updateIncidentReport(session.accessToken, selInc.id, apiPatch)
+        .then(() => { onUpdate(selInc.id, patch); })
+        .catch((err) => {
+          console.error("Failed to persist dispatch:", err);
+          toast.show(err?.message || "Failed to sync dispatch to server.");
+          onUpdate(selInc.id, patch);
+        });
+    } else if (selInc) {
+      onUpdate(selInc.id, patch);
     }
+
     setMapMode("monitoring");
     setSelInc(null);
     setAssigned([]);
@@ -1828,10 +1846,15 @@ function ExpandedTicket({ inc, units, onBackup, onEscalate, onResolve, onClose, 
   );
 }
 
-function ResourcesPage({ units, setUnits, status }: { units: Unit[]; setUnits: React.Dispatch<React.SetStateAction<Unit[]>>; status: "active" | "inactive" }) {
+function ResourcesPage({ units, setUnits, teams, setTeams, status }: {
+  units: Unit[];
+  setUnits: React.Dispatch<React.SetStateAction<Unit[]>>;
+  teams: Team[];
+  setTeams: React.Dispatch<React.SetStateAction<Team[]>>;
+  status: "active" | "inactive";
+}) {
   const isInactive = status === "inactive";
   const [tab, setTab] = useState<"teams"|"units">("teams");
-  const [teams, setTeams] = useState(MOCK_TEAMS);
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [search, setSearch] = useState("");
@@ -1853,6 +1876,19 @@ function ResourcesPage({ units, setUnits, status }: { units: Unit[]; setUnits: R
   });
 
   const filteredTeams = teams.filter(t => typeFilter==="All"||t.type===typeFilter);
+  const resourceStats = tab === "teams"
+    ? [
+        { l:"Volunteer Roles",v:teams.length,c:"var(--d-text)" },
+        { l:"Ready Roles",v:teams.filter(t=>t.status==="Ready").length,c:"var(--d-green)" },
+        { l:"Filled Slots",v:teams.reduce((sum,t)=>sum+t.members,0),c:"var(--d-primary)" },
+        { l:"Open Slots",v:teams.reduce((sum,t)=>sum+t.vehicles,0),c:"var(--d-text-sub)" },
+      ]
+    : [
+        { l:"Approved Volunteers",v:units.length,c:"var(--d-text)" },
+        { l:"Available",v:units.filter(u=>u.status==="Available").length,c:"var(--d-green)" },
+        { l:"Deployed",v:units.filter(u=>["On Route","On Scene"].includes(u.status)).length,c:"var(--d-primary)" },
+        { l:"Offline",v:units.filter(u=>u.status==="Offline").length,c:"var(--d-text-sub)" },
+      ];
 
   const TEAM_STATUS_CLS: Record<string,string> = { Ready:"dp-badge-green",Deployed:"dp-badge-blue",Standby:"dp-badge-amber",Offline:"dp-badge-grey" };
 
@@ -1870,7 +1906,7 @@ function ResourcesPage({ units, setUnits, status }: { units: Unit[]; setUnits: R
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
         <div>
           <h2 style={{ margin:"0 0 0.25rem",fontSize:"1.35rem",fontWeight:900,letterSpacing:"-0.04em" }}>Resources</h2>
-          <p style={{ margin:0,fontSize:"0.875rem",color:"var(--d-text-muted)" }}>Manage teams, units, and responders across Metro Cluster 3</p>
+          <p style={{ margin:0,fontSize:"0.875rem",color:"var(--d-text-muted)" }}>Manage Bayanihub volunteer roles, units, and responders across Metro Cluster 3</p>
         </div>
         <div style={{ display:"flex",gap:"0.6rem" }}>
           {tab==="units"&&<button className="dp-btn dp-btn-orange" disabled={isInactive} style={isInactive ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={()=>setAddUnitModal(true)}>+ Add Unit</button>}
@@ -1879,14 +1915,14 @@ function ResourcesPage({ units, setUnits, status }: { units: Unit[]; setUnits: R
 
       {/* Summary */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"0.75rem" }}>
-        {[{ l:"Total Units",v:units.length,c:"var(--d-text)" },{ l:"Available",v:units.filter(u=>u.status==="Available").length,c:"var(--d-green)" },{ l:"Deployed",v:units.filter(u=>["On Route","On Scene"].includes(u.status)).length,c:"var(--d-primary)" },{ l:"Offline",v:units.filter(u=>u.status==="Offline").length,c:"var(--d-text-sub)" }].map(s=>(
+        {resourceStats.map(s=>(
           <div key={s.l} className="dp-stat"><div className="dp-stat-label">{s.l}</div><div className="dp-stat-value" style={{ color:s.c,fontSize:"1.6rem" }}>{s.v}</div></div>
         ))}
       </div>
 
       {/* Tabs */}
       <div className="dp-resources-tabs">
-        <button className={`dp-resources-tab ${tab==="teams"?"active":""}`} onClick={()=>setTab("teams")}>🏢 Response Teams</button>
+        <button className={`dp-resources-tab ${tab==="teams"?"active":""}`} onClick={()=>setTab("teams")}>Volunteer Roles</button>
         <button className={`dp-resources-tab ${tab==="units"?"active":""}`} onClick={()=>setTab("units")}>Individual Units</button>
       </div>
 
@@ -1915,19 +1951,20 @@ function ResourcesPage({ units, setUnits, status }: { units: Unit[]; setUnits: R
                 <Badge label={team.status} cls={TEAM_STATUS_CLS[team.status]} />
               </div>
               <div className="dp-team-card-grid">
-                {[["Leader",team.leader],["Contact",team.contact],["Members",`${team.members} personnel`],["Vehicles",`${team.vehicles} units`],["Coverage",team.coverage]].map(([l,v])=>(
+                {[["Source",team.leader],["Schedule",team.contact],["Filled Slots",`${team.members} volunteers`],["Open Slots",`${team.vehicles} slots`],["Location",team.coverage]].map(([l,v])=>(
                   <div key={l}><div className="dp-team-card-item-label">{l}</div><div className="dp-team-card-item-val">{v}</div></div>
                 ))}
               </div>
+              <div className="dp-team-card-item-label">Requirements / Tasks</div>
               <div className="dp-equipment-list">
                 {team.equipment.map(e=><span key={e} className="dp-equipment-tag">{e}</span>)}
               </div>
               <div className="dp-team-card-footer">
                 <button className="dp-btn dp-btn-ghost dp-btn-sm" disabled={isInactive} style={isInactive ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={()=>toast.show(`Message sent to ${team.name}`)}>💬 Message</button>
-                <button className="dp-btn dp-btn-ghost dp-btn-sm" disabled={isInactive} style={{ borderColor:"var(--d-red)",color:"var(--d-red)", opacity: isInactive ? 0.5 : 1, cursor: isInactive ? "not-allowed" : "pointer" }} onClick={()=>{setTeams(p=>p.filter(t=>t.id!==team.id));toast.show(`${team.name} removed`);}}>🗑 Remove</button>
               </div>
             </div>
           ))}
+          {filteredTeams.length===0&&<div className="dp-card" style={{ gridColumn:"1 / -1",padding:"2rem",textAlign:"center",color:"var(--d-text-sub)" }}>No Bayanihub volunteer roles match your filters.</div>}
         </div>
       )}
 
@@ -2037,25 +2074,18 @@ function ProfilePage({ onLogout, onProfileUpdated }: { onLogout: () => void; onP
 
   useEffect(() => {
     const session = loadSession();
-    if (session?.user) {
-      const u = session.user;
-      const initials = `${u.firstName?.[0] || ""}${u.lastName?.[0] || ""}`.toUpperCase() || "DS";
-      const name = u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Daniel Santos";
-      const email = u.email || "d.santos@ndrrmc.gov.ph";
-      const phone = u.phone || "+63 917 345 6789";
-      const username = u.email ? u.email.split("@")[0] : "d.santos";
-      
-      const realProfile = {
-        ...MOCK_DISPATCHER,
-        name,
-        username,
-        email,
-        phone,
-        initials,
-      };
-      setProfile(realProfile);
-      setDraft(realProfile);
-    }
+    if (!session?.accessToken) return;
+
+    getDispatcherProfile(session.accessToken)
+      .then((data) => {
+        const realProfile = mapBackendProfile(data);
+        setProfile(realProfile);
+        setDraft(realProfile);
+      })
+      .catch((err) => {
+        console.error("Failed to load dispatcher profile:", err);
+        toast.show(err?.message || "Failed to load profile");
+      });
   }, []);
 
   const save = async () => {
@@ -2220,7 +2250,7 @@ function ProfilePage({ onLogout, onProfileUpdated }: { onLogout: () => void; onP
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN SHELL
 // ══════════════════════════════════════════════════════════════════════════════
-function mapBackendToFrontendIncident(report: IncidentReport): Incident {
+function mapBackendToFrontendIncident(report: IncidentReport, dispatchOrders: DispatchOrder[] = []): Incident {
   const priorityMap: Record<string, IncidentPriority> = {
     low: "LOW",
     moderate: "MEDIUM",
@@ -2235,6 +2265,25 @@ function mapBackendToFrontendIncident(report: IncidentReport): Incident {
     closed: "Resolved",
   };
 
+  const relatedOrders = dispatchOrders.filter((order) => order.reportId === report.id);
+  const latestOrder = relatedOrders[0];
+  const orderStatusMap: Record<string, IncidentStatus> = {
+    pending: "Dispatched",
+    accepted: "Dispatched",
+    in_progress: "In Progress",
+    completed: "Resolved",
+  };
+  const status =
+    latestOrder?.status ? orderStatusMap[latestOrder.status] ?? statusMap[report.status?.toLowerCase() || "pending"] :
+    statusMap[report.status?.toLowerCase() || "pending"] || "New";
+  const createdAt = new Date(report.createdAt);
+  const dispatchedAt = latestOrder?.createdAt
+    ? new Date(latestOrder.createdAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
+    : undefined;
+  const resolvedAt = latestOrder?.status === "completed" && latestOrder.updatedAt
+    ? new Date(latestOrder.updatedAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
+    : undefined;
+
   return {
     id: report.id,
     type: report.title,
@@ -2247,18 +2296,98 @@ function mapBackendToFrontendIncident(report: IncidentReport): Incident {
     location: report.location,
     lat: 14.6042,
     lng: 120.9822,
-    timeReported: new Date(report.createdAt).toLocaleTimeString("en-PH", {
+    timeReported: createdAt.toLocaleTimeString("en-PH", {
       hour: "2-digit",
       minute: "2-digit",
     }),
-    dateReported: new Date(report.createdAt).toLocaleDateString("en-PH"),
+    dateReported: createdAt.toLocaleDateString("en-PH"),
     priority: priorityMap[report.severity?.toLowerCase() || "moderate"] || "MEDIUM",
-    status: statusMap[report.status?.toLowerCase() || "pending"] || "New",
-    situationType: "Under Control",
+    status,
+    situationType: report.severity?.toLowerCase() === "critical" ? "Critical" : latestOrder ? "Escalating" : "Under Control",
     assignedUnits: [],
     description: report.content,
-    notes: "",
-    timeActive: 0,
+    notes: latestOrder?.instructions ?? "",
+    timeActive: Math.max(0, Math.round((Date.now() - createdAt.getTime()) / 60000)),
+    dispatchedAt,
+    resolvedAt,
+  };
+}
+
+function mapOrganizationToTeam(organization: Organization): Team {
+  const typeMap: Record<string, UnitType> = {
+    government: "POL",
+    lgu: "POL",
+    private: "AMB",
+    ngo: "FIRE",
+  };
+  const type = typeMap[organization.type?.toLowerCase()] ?? "POL";
+
+  return {
+    id: organization.id,
+    name: organization.name,
+    type,
+    members: organization.verified ? 10 : 4,
+    vehicles: organization.verified ? 2 : 1,
+    station: organization.address || "Unassigned station",
+    contact: organization.contactPhone || organization.contactEmail || "No contact listed",
+    leader: organization.contactEmail || "Coordinator pending",
+    status: organization.verified ? "Ready" : "Standby",
+    equipment: [organization.type || "resource partner"],
+    coverage: organization.address || "Coverage not listed",
+  };
+}
+
+function mapVolunteerRoleToTeam(role: DispatcherVolunteerTeam): Team {
+  return {
+    id: role.id,
+    name: role.name,
+    type: role.type,
+    members: role.members,
+    vehicles: role.vehicles,
+    station: role.station,
+    contact: role.contact,
+    leader: role.leader,
+    status: role.status,
+    equipment: role.equipment.length ? role.equipment : ["No requirements listed"],
+    coverage: role.coverage,
+  };
+}
+
+function mapBackendProfile(profile: BackendDispatcherProfile) {
+  return {
+    ...MOCK_DISPATCHER,
+    id: profile.id,
+    name: profile.name,
+    username: profile.username,
+    email: profile.email,
+    phone: profile.phone,
+    badge: profile.badge,
+    rank: profile.rank,
+    cluster: profile.cluster,
+    station: profile.station,
+    initials: profile.initials,
+    joinedDate: profile.joinedDate,
+    totalDispatches: profile.totalDispatches,
+    resolvedToday: profile.resolvedToday,
+  };
+}
+
+function mapVolunteerUnit(unit: DispatcherVolunteerUnit): Unit {
+  return {
+    id: unit.id,
+    type: unit.type,
+    name: unit.name,
+    station: unit.station,
+    status: unit.status,
+    lat: unit.lat,
+    lng: unit.lng,
+    personnel: unit.personnel,
+    distance: unit.distance,
+    eta: unit.eta,
+    teamLeader: unit.teamLeader,
+    contact: unit.contact,
+    plateNumber: unit.plateNumber,
+    lastActive: unit.lastActive,
   };
 }
 
@@ -2267,6 +2396,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [units, setUnits] = useState<Unit[]>(MOCK_UNITS);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [dropdown, setDropdown] = useState(false);
   const [broadcastModal, setBroadcastModal] = useState(false);
   const [broadcastMsg, setBroadcastMsg] = useState("");
@@ -2277,19 +2407,34 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const toast = useToast();
   const dropRef = useRef<HTMLDivElement>(null);
 
-  const syncProfile = () => {
+  const syncProfile = async () => {
     const session = loadSession();
+    if (session?.accessToken) {
+      try {
+        const profile = await getDispatcherProfile(session.accessToken);
+        setDispUser({
+          name: profile.name,
+          initials: profile.initials,
+          rank: profile.rank,
+          badge: profile.badge,
+          cluster: profile.cluster,
+          station: profile.station,
+        });
+        return;
+      } catch (err) {
+        console.error("Failed to sync dispatcher profile:", err);
+      }
+    }
+
     if (session?.user) {
       const u = session.user;
-      const initials = `${u.firstName?.[0] || ""}${u.lastName?.[0] || ""}`.toUpperCase() || "DS";
-      const name = u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Daniel Santos";
       setDispUser({
-        name,
-        initials,
-        rank: "Senior Dispatcher",
-        badge: "DS-3042",
-        cluster: "Metro Cluster 3",
-        station: "Sampaloc Command Center",
+        name: u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Dispatcher",
+        initials: `${u.firstName?.[0] || ""}${u.lastName?.[0] || ""}`.toUpperCase() || "DS",
+        rank: "Dispatcher I",
+        badge: "Not assigned",
+        cluster: u.municipality || u.province || u.barangay || "Unassigned Cluster",
+        station: u.address || "Unassigned Command Center",
       });
     }
   };
@@ -2298,9 +2443,19 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     syncProfile();
     const session = loadSession();
     if (session?.accessToken) {
-      getDispatcherIncidents(session.accessToken)
+      getDispatcherOverview(session.accessToken)
         .then((data) => {
-          setIncidents(data.map(mapBackendToFrontendIncident));
+          setIncidents(data.incidentReports.map((report) =>
+            mapBackendToFrontendIncident(report, data.dispatchOrders),
+          ));
+          setTeams(
+            data.volunteerTeams?.length
+              ? data.volunteerTeams.map(mapVolunteerRoleToTeam)
+              : data.organizations.map(mapOrganizationToTeam),
+          );
+          if (data.volunteerUnits?.length) {
+            setUnits(data.volunteerUnits.map(mapVolunteerUnit));
+          }
         })
         .catch((err) => {
           console.error("Failed to fetch incidents:", err);
@@ -2437,7 +2592,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 {status === "active" ? "Active / On Duty" : "Inactive"}
               </span>
             </div>
-            <div className="dp-status-cluster">{dispUser?.cluster || MOCK_DISPATCHER.cluster}</div>
+            <div className="dp-status-cluster">{dispUser?.cluster || "Unassigned Cluster"}</div>
             <button
               className={`dp-status-toggle ${status === "active" ? "set-inactive" : "set-active"}`}
               onClick={() => setStatus(s => s === "active" ? "inactive" : "active")}
@@ -2486,7 +2641,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <span className={`dp-phase-badge ${status === "active" ? "active" : "inactive"}`}>
               {status === "active" ? "● Active Response" : "○ Inactive / Off Duty"}
             </span>
-            <span className="dp-topbar-title">Sampaloc Command Center — {dispUser?.cluster || MOCK_DISPATCHER.cluster}</span>
+            <span className="dp-topbar-title">{dispUser?.station || "Unassigned Command Center"} — {dispUser?.cluster || "Unassigned Cluster"}</span>
           </div>
           <div className="dp-topbar-right">
             <span className="dp-clock">{clock}</span>
@@ -2509,8 +2664,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               {dropdown && (
                 <div className="dp-avatar-dropdown">
                   <div className="dp-avatar-dropdown-header">
-                    <div className="dp-avatar-dropdown-name">{dispUser?.name || MOCK_DISPATCHER.name}</div>
-                    <div className="dp-avatar-dropdown-role">{dispUser?.rank || MOCK_DISPATCHER.rank}</div>
+                    <div className="dp-avatar-dropdown-name">{dispUser?.name || "Dispatcher"}</div>
+                    <div className="dp-avatar-dropdown-role">{dispUser?.rank || "Dispatcher I"}</div>
                   </div>
                   <button className="dp-avatar-dropdown-item" onClick={() => { setPage("profile"); setDropdown(false); }}>👤 View Profile</button>
                   <button className="dp-avatar-dropdown-item" onClick={() => { setPage("profile"); setDropdown(false); }}>✏️ Edit Profile</button>
@@ -2528,6 +2683,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <DashboardPage
               incidents={incidents}
               units={units}
+              teams={teams}
               onDispatch={handleDashboardDispatch}
               onMarkInvalid={handleDashboardMarkInvalid}
               status={status}
@@ -2560,7 +2716,13 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             />
           )}
           {page === "resources" && (
-            <ResourcesPage units={units} setUnits={setUnits} status={status} />
+            <ResourcesPage
+              units={units}
+              setUnits={setUnits}
+              teams={teams}
+              setTeams={setTeams}
+              status={status}
+            />
           )}
 {page === "profile" && (
             <ProfilePage onLogout={onLogout} onProfileUpdated={syncProfile} />
@@ -2588,7 +2750,28 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <button
               className="dp-btn dp-btn-red"
               disabled={!broadcastMsg.trim()}
-              onClick={() => { toast.show("Broadcast sent to all units and citizens"); setBroadcastModal(false); setBroadcastMsg(""); }}
+              onClick={async () => {
+                const session = loadSession();
+                if (!session?.accessToken) {
+                  toast.show("Session expired. Please log in again.");
+                  onLogout();
+                  return;
+                }
+
+                try {
+                  const result = await sendDispatcherBroadcast(session.accessToken, {
+                    message: broadcastMsg,
+                    severity: "critical",
+                    type: "Emergency",
+                  });
+                  toast.show(`Broadcast saved and sent to ${result.deliveredInApp} users`);
+                  setBroadcastModal(false);
+                  setBroadcastMsg("");
+                } catch (err: any) {
+                  console.error("Failed to send broadcast:", err);
+                  toast.show(err?.message || "Failed to send broadcast");
+                }
+              }}
             >
               Send Broadcast Now
             </button>

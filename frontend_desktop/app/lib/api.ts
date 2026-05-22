@@ -8,6 +8,11 @@ import type {
   IncidentReport,
   InventoryItem,
   Organization,
+  DispatcherOverview,
+  DispatchOrder,
+  DispatcherProfile,
+  DispatcherVolunteerUnit,
+  DispatcherVolunteerTeam,
 } from "./types";
 
 export interface AdminDisasterEventWithTickets extends DisasterEvent {
@@ -403,6 +408,61 @@ export async function getDispatcherIncidents(token: string) {
   return request<IncidentReport[]>("/dispatcher/incident-reports", {}, token);
 }
 
+export async function getDispatcherOverview(token: string, disasterId?: string) {
+  const qs = disasterId
+    ? `?disasterId=${encodeURIComponent(disasterId)}`
+    : "";
+  return request<DispatcherOverview>(`/dispatcher/overview${qs}`, {}, token);
+}
+
+export async function getDispatcherProfile(token: string) {
+  return request<DispatcherProfile>("/dispatcher/profile", {}, token);
+}
+
+export async function getDispatcherDispatchOrders(token: string, disasterId?: string) {
+  const qs = disasterId
+    ? `?disasterId=${encodeURIComponent(disasterId)}`
+    : "";
+  return request<DispatchOrder[]>(`/dispatcher/dispatch-orders${qs}`, {}, token);
+}
+
+export async function getDispatcherUnits(token: string, search?: string) {
+  const qs = search?.trim()
+    ? `?search=${encodeURIComponent(search.trim())}`
+    : "";
+  return request<DispatcherVolunteerUnit[]>(`/dispatcher/units${qs}`, {}, token);
+}
+
+export async function getDispatcherVolunteerTeams(token: string, search?: string) {
+  const qs = search?.trim()
+    ? `?search=${encodeURIComponent(search.trim())}`
+    : "";
+  return request<DispatcherVolunteerTeam[]>(`/dispatcher/volunteer-teams${qs}`, {}, token);
+}
+
+export async function sendDispatcherBroadcast(
+  token: string,
+  payload: {
+    message: string;
+    title?: string;
+    type?: string;
+    severity?: "info" | "warning" | "critical" | "evacuation";
+    areas?: string[];
+  },
+) {
+  return request<{
+    title: string;
+    message: string;
+    severity: string;
+    type: string;
+    areas: string[];
+    deliveredInApp: number;
+  }>("/dispatcher/broadcast", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
 export async function createManualCheckIn(
   token: string,
   payload: {
@@ -675,6 +735,7 @@ export async function createAdminReliefOperation(
 export async function createAdminDispatchOrder(
   token: string,
   payload: {
+    disasterId?: string;
     reportId: string;
     operationId: string;
     assignedTo: string;
