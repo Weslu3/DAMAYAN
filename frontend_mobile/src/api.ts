@@ -7,17 +7,60 @@ import type {
   DisasterEvent,
   IncidentReport,
   InventoryItem,
+  Organization,
 } from "./types";
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
 
-function getExpoHostUri(): string | null {
-  const hostUri = Constants.expoConfig?.hostUri?.trim();
-  if (!hostUri) {
+function extractHostFromUri(uri?: string | null): string | null {
+  const raw = uri?.trim();
+  if (!raw) {
     return null;
   }
 
-  return hostUri.replace(/^exp:\/\//, "").replace(/^https?:\/\//, "").split(":")[0] ?? null;
+  const hostWithOptionalPort = raw
+    .replace(/^exp:\/\//, "")
+    .replace(/^https?:\/\//, "")
+    .split(/[/?#]/)[0];
+
+  return hostWithOptionalPort.split(":")[0] || null;
+}
+
+function getExpoHostUri(): string | null {
+  const expoConstants = Constants as typeof Constants & {
+    expoGoConfig?: { debuggerHost?: string | null };
+    manifest?: { debuggerHost?: string | null; hostUri?: string | null };
+    manifest2?: { extra?: { expoClient?: { hostUri?: string | null } } };
+  };
+
+  const candidates = [
+    expoConstants.expoConfig?.hostUri,
+    expoConstants.expoGoConfig?.debuggerHost,
+    expoConstants.manifest?.hostUri,
+    expoConstants.manifest?.debuggerHost,
+    expoConstants.manifest2?.extra?.expoClient?.hostUri,
+  ];
+
+  for (const candidate of candidates) {
+    const host = extractHostFromUri(candidate);
+    if (host) return host;
+  }
+
+  return null;
+}
+
+function getReactNativePackagerHost(): string | null {
+  const sourceCode = (NativeModules as { SourceCode?: { scriptURL?: string } }).SourceCode;
+  return extractHostFromUri(sourceCode?.scriptURL);
+}
+
+function getWebHost(): string | null {
+  if (Platform.OS !== "web") {
+    return null;
+  }
+
+  const location = (globalThis as { location?: { hostname?: string } }).location;
+  return location?.hostname?.trim() || null;
 }
 
 function getApiFallbackHint(): string {
@@ -43,7 +86,7 @@ export function getApiBaseUrl(): string {
     return configured;
   }
 
-  const host = getExpoHostUri();
+  const host = getWebHost() ?? getExpoHostUri() ?? getReactNativePackagerHost();
   if (host) {
     return `http://${host}:3001/api`;
   }
@@ -73,7 +116,6 @@ function getResponseErrorMessage(payload: unknown, status: number): string {
   if (typeof payload === "object" && payload && "message" in payload) {
     return String((payload as { message?: string }).message);
   }
-
   if (typeof payload === "string") {
     return payload;
   }
@@ -258,45 +300,51 @@ export async function getDisasterEvents(scope: "site-manager", token: string) {
   return request<DisasterEvent[]>("/site-manager/disaster-events", {}, token);
 }
 
-export async function getInventory(scope: "site-manager", token: string) {
-  return request<InventoryItem[]>("/site-manager/inventory", {}, token);
+export async function getInventory(scope: "admin" | "site-manager", token: string) {
+  const prefix = scope === "admin" ? "/admin" : "/site-manager";
+  return request<InventoryItem[]>(`${prefix}/inventory`, {}, token);
+}
+
+export async function getOrganizations(token: string) {
+  return request<Organization[]>("/admin/organizations", {}, token);
 }
 
 export type RegionPhaseState = "BEFORE" | "DURING" | "AFTER";
+export type RegionPersonaAudienceMember = {
+  authUserId: string;
+  name: string;
+  role: AppRole;
+  assignedRegionId: string | null;
+};
+export type RegionPersonaPhaseControl = {
+  id: string;
+  regionId: string;
+  personaRole: AppRole;
+  phase: RegionPhaseState;
+  visibleToAssignedUsers: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
 
 export async function getRegionPersonaPhaseControls(token: string, regionId: string) {
-  return request<Array<{
-    id: string;
-    regionId: string;
-    personaRole: AppRole;
-    phase: RegionPhaseState;
-    visibleToAssignedUsers: boolean;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-  }>>(`/admin/regions/${regionId}/persona-phase-controls`, {}, token);
+  return request<RegionPersonaPhaseControl[]>(`/admin/regions/${regionId}/persona-phase-controls`, {}, token);
 }
 
 export async function upsertRegionPersonaPhaseControl(
   token: string,
   regionId: string,
   payload: {
-    personaRole: AppRole;
+    personaRole?: AppRole;
+    personaRoles?: AppRole[];
     phase: RegionPhaseState;
     visibleToAssignedUsers?: boolean;
   },
 ) {
   return request<{
     region: { id: string; name: string };
-    control: {
-      id: string;
-      regionId: string;
-      personaRole: AppRole;
-      phase: RegionPhaseState;
-      visibleToAssignedUsers: boolean;
-      createdAt?: string | null;
-      updatedAt?: string | null;
-    };
-    audience: Array<{ authUserId: string; name: string; role: AppRole; assignedRegionId: string | null }>;
+    control?: RegionPersonaPhaseControl;
+    controls: RegionPersonaPhaseControl[];
+    audience: RegionPersonaAudienceMember[];
   }>(`/admin/regions/${regionId}/persona-phase-controls`, {
     method: "POST",
     body: JSON.stringify(payload),
@@ -306,10 +354,16 @@ export async function upsertRegionPersonaPhaseControl(
 export async function getRegionPersonaPhaseAudience(
   token: string,
   regionId: string,
-  personaRole?: AppRole,
+  personaRole?: AppRole | AppRole[],
 ) {
-  const suffix = personaRole ? `?personaRole=${encodeURIComponent(personaRole)}` : "";
-  return request<Array<{ authUserId: string; name: string; role: AppRole; assignedRegionId: string | null }>>(
+  const suffix = Array.isArray(personaRole)
+    ? personaRole.length
+      ? `?personaRoles=${encodeURIComponent(personaRole.join(","))}`
+      : ""
+    : personaRole
+      ? `?personaRole=${encodeURIComponent(personaRole)}`
+      : "";
+  return request<RegionPersonaAudienceMember[]>(
     `/admin/regions/${regionId}/persona-phase-controls/audience${suffix}`,
     {},
     token,

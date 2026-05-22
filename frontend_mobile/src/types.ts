@@ -90,6 +90,8 @@ export interface CapacityCenter {
   maxManagers?: number;
   description?: string;
   assignedManagers?: Array<{ id: string; name: string }>;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface DisasterEvent {
