@@ -16,7 +16,7 @@ import QRCode from "react-native-qrcode-svg";
 import * as ImagePicker from "expo-image-picker";
 import { theme, fonts } from "../../theme";
 import { styles } from "./CitizenDuringScreen.styles";
-import { submitIncidentReport } from "../../api";
+import { submitIncidentReport, getIncidentPhotoUploadUrl } from "../../api";
 import { CitizenLiveMap, type EvacCenter } from "./CitizenLiveMap";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,14 +30,16 @@ type DuringStep =
   | "arrive_site"
   | "logged_in";
 
-const STEP_ORDER: DuringStep[] = [
-  "rescue_decision",
-  "delivery_confirmation",
-  "safe_zone_map",
-  "navigate_evacuation",
-  "arrive_site",
-  "logged_in",
-];
+const STEP_PROGRESS: Record<DuringStep, number> = {
+  rescue_decision: 0,
+  report_incident: 15,
+  self_evacuate: 20,
+  delivery_confirmation: 35,
+  safe_zone_map: 50,
+  navigate_evacuation: 65,
+  arrive_site: 80,
+  logged_in: 100,
+};
 
 // ─── Static Evacuation Centers ────────────────────────────────────────────────
 const EVAC_CENTERS: EvacCenter[] = [
@@ -92,8 +94,8 @@ function PulsatingDot({ color = theme.danger }: { color?: string }) {
 }
 
 // ─── Progress Bar ─────────────────────────────────────────────────────────────
-function ProgressBar({ step }: { step: number }) {
-  const progress = Math.min((step / (STEP_ORDER.length - 1)) * 100, 100);
+function ProgressBar({ step }: { step: DuringStep }) {
+  const progress = STEP_PROGRESS[step] ?? 0;
   return (
     <View style={styles.progressWrap}>
       <View style={styles.progressTrack}>
@@ -156,8 +158,7 @@ export function CitizenDuringScreen({
   }, []);
 
   useEffect(() => {
-    if (initialStep === "map") setStep("safe_zone_map");
-    else if (initialStep === "decision") setStep("rescue_decision");
+    if (initialStep === "decision") setStep("rescue_decision");
     else if (initialStep) setStep(initialStep as DuringStep);
   }, [initialStep]);
 
@@ -205,11 +206,32 @@ export function CitizenDuringScreen({
         ? `${userLocation.latitude.toFixed(5)}, ${userLocation.longitude.toFixed(5)}`
         : "Location unavailable";
 
+      const attachmentKeys: string[] = [];
+      if (photoUri) {
+        try {
+          const fileName = photoUri.split("/").pop() ?? "incident.jpg";
+          const { signedUrl, objectPath } = await getIncidentPhotoUploadUrl(session.accessToken, fileName);
+          const fileResponse = await fetch(photoUri);
+          const blob = await fileResponse.blob();
+          const uploadRes = await fetch(signedUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "image/jpeg" },
+            body: blob,
+          });
+          if (uploadRes.ok) {
+            attachmentKeys.push(objectPath);
+          }
+        } catch (photoErr) {
+          console.warn("Incident photo upload failed:", photoErr);
+        }
+      }
+
       await submitIncidentReport(session.accessToken, {
         title: "Citizen SOS Report",
         content: `Citizen needs immediate rescue. GPS: ${locationStr}.`,
         severity: "high",
         location: locationStr,
+        attachmentKeys,
       });
       go("delivery_confirmation");
     } catch (err: any) {
@@ -218,8 +240,6 @@ export function CitizenDuringScreen({
       setIsSubmitting(false);
     }
   };
-
-  const stepIndex = STEP_ORDER.indexOf(step);
 
   function go(next: DuringStep) {
     setStep(next);
@@ -248,7 +268,7 @@ export function CitizenDuringScreen({
         </View>
       </View>
 
-      <ProgressBar step={stepIndex} />
+      <ProgressBar step={step} />
 
       <ScrollView
         style={styles.scrollView}

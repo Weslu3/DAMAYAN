@@ -76,8 +76,6 @@ export const fonts = {
 } as const;
 
 export const roleColors = {
-  admin: "#1B5E20",
-  dispatcher: "#2E7D32",
   site_manager: "#FFB300",
   citizen: "#004D40",
 } as const;

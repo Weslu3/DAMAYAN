@@ -133,13 +133,7 @@
 .admin-sb-mark {
   width: 2.2rem;
   height: 2.2rem;
-  border-radius: 0.6rem;
-  background: linear-gradient(135deg, var(--admin-accent-mid), var(--admin-accent-deep));
-  display: grid;
-  place-items: center;
-  font-size: 0.85rem;
-  font-weight: 900;
-  color: #fff;
+  object-fit: contain;
   flex-shrink: 0;
 }
 

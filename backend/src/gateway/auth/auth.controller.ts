@@ -75,6 +75,24 @@ export class AuthGatewayController {
     );
   }
 
+  @Post('uploads/profile-photo')
+  @UseGuards(JwtAuthGuard)
+  createProfilePhotoUploadUrl(
+    @Req() request: RequestWithUser,
+    @Body() body: { fileName: string },
+  ) {
+    return this.uploadsService.createProfilePhotoUploadUrl(request.user.sub, body.fileName);
+  }
+
+  @Post('uploads/incident-photo')
+  @UseGuards(JwtAuthGuard)
+  createIncidentPhotoUploadUrl(
+    @Req() request: RequestWithUser,
+    @Body() body: { fileName: string },
+  ) {
+    return this.uploadsService.createCitizenIncidentPhotoUploadUrl(request.user.sub, body.fileName);
+  }
+
   @Post('uploads/view-url')
   @UseGuards(JwtAuthGuard)
   getFileViewUrl(@Body() body: { bucket: string; objectPath: string; expiresIn?: number }) {

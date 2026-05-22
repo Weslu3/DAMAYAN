@@ -6,70 +6,7 @@ import type {
   DisasterEvent,
   IncidentReport,
   InventoryItem,
-  Organization,
 } from "./types";
-
-export interface AdminDisasterEventWithTickets extends DisasterEvent {
-  ticketCount?: number;
-}
-
-export interface AdminDisasterEventsPayload {
-  disasterEvents: AdminDisasterEventWithTickets[];
-  aggregate?: {
-    totalDisasters?: number;
-    activeDisasters?: number;
-    totalTickets?: number;
-  };
-}
-
-export interface AdminApprovalRecord {
-  id: string;
-  authUserId?: string;
-  auth_user_id?: string;
-  firstName?: string;
-  first_name?: string;
-  lastName?: string;
-  last_name?: string;
-  email?: string | null;
-  phone?: string | null;
-  role?: string;
-  status?: string;
-  rejectReason?: string | null;
-  reject_reason?: string | null;
-  createdAt?: string;
-  created_at?: string;
-}
-
-export interface AdminSystemHealthRecord {
-  name: string;
-  status: "OPERATIONAL" | "DEGRADED" | "DOWN";
-  latencyMs?: number;
-  latency?: string;
-  uptime?: string;
-  note?: string;
-}
-
-export interface AdminWarningBroadcastPayload {
-  type: string;
-  severity: string;
-  areas: string[];
-  message: string;
-  useSMS: boolean;
-  usePush: boolean;
-}
-
-export interface AdminWarningBroadcastResult {
-  type: string;
-  severity: string;
-  areas: string[];
-  attempted: number;
-  delivered: number;
-  failed: number;
-  channels: {
-    sms: boolean;
-    push: boolean;
-  };
-}
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
@@ -184,6 +121,32 @@ export async function getGovernmentIdUploadUrl(params: {
   });
 }
 
+export async function getIncidentPhotoUploadUrl(token: string, fileName: string) {
+  return request<{
+    bucket: string;
+    objectPath: string;
+    signedUrl: string;
+    token: string;
+    path: string;
+  }>("/auth/uploads/incident-photo", {
+    method: "POST",
+    body: JSON.stringify({ fileName }),
+  }, token);
+}
+
+export async function getProfilePhotoUploadUrl(token: string, fileName: string) {
+  return request<{
+    bucket: string;
+    objectPath: string;
+    signedUrl: string;
+    token: string;
+    path: string;
+  }>("/auth/uploads/profile-photo", {
+    method: "POST",
+    body: JSON.stringify({ fileName }),
+  }, token);
+}
+
 export async function updateProfile(
   token: string,
   updates: {
@@ -204,46 +167,26 @@ export async function updateProfile(
   }, token);
 }
 
-export async function getDashboard(scope: "admin" | "site-manager", token: string) {
-  const prefix = scope === "admin" ? "/admin" : "/site-manager";
-  return request<DashboardOverview>(`${prefix}/dashboard`, {}, token);
-}
-
-export async function getDisasterEvents(scope: "admin" | "site-manager", token: string) {
-  const prefix = scope === "admin" ? "/admin" : "/site-manager";
-  return request<DisasterEvent[] | AdminDisasterEventsPayload>(`${prefix}/disaster-events`, {}, token);
-}
-
-export async function updateAdminDisasterEvent(
+export async function updateMedical(
   token: string,
-  id: string,
-  payload: Partial<{
-    name: string;
-    type: string;
-    severityLevel: string;
-    affectedAreas: string[];
-    province: string;
-    dateStarted: string;
-    dateEnded: string;
-    status: string;
-    declaredBy: string;
-    coverImageKey: string;
-    notes: string;
-  }>,
+  updates: { bloodType?: string; medicalConditions?: string },
 ) {
-  return request<DisasterEvent>(`/admin/disaster-events/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
+  return request<any>("/citizen/medical", {
+    method: "PATCH",
+    body: JSON.stringify(updates),
   }, token);
 }
 
-export async function getOrganizations(token: string) {
-  return request<Organization[]>("/admin/organizations", {}, token);
+export async function getDashboard(scope: "site-manager", token: string) {
+  return request<DashboardOverview>("/site-manager/dashboard", {}, token);
 }
 
-export async function getInventory(scope: "admin" | "site-manager", token: string) {
-  const prefix = scope === "admin" ? "/admin" : "/site-manager";
-  return request<InventoryItem[]>(`${prefix}/inventory`, {}, token);
+export async function getDisasterEvents(scope: "site-manager", token: string) {
+  return request<DisasterEvent[]>("/site-manager/disaster-events", {}, token);
+}
+
+export async function getInventory(scope: "site-manager", token: string) {
+  return request<InventoryItem[]>("/site-manager/inventory", {}, token);
 }
 
 export async function getCapacity(token: string) {
@@ -378,37 +321,6 @@ export async function createInventoryBatch(
 
 export async function getProfile(token: string) {
   return request<{ user: AuthSession["user"] }>("/auth/me", {}, token);
-}
-
-export async function getPendingApprovals(token: string) {
-  return request<AdminApprovalRecord[]>("/admin/approvals", {}, token);
-}
-
-export async function approvePendingUser(token: string, id: string) {
-  return request<AdminApprovalRecord>(`/admin/approvals/${id}/approve`, {
-    method: "PATCH",
-  }, token);
-}
-
-export async function rejectPendingUser(token: string, id: string, rejectReason: string) {
-  return request<AdminApprovalRecord>(`/admin/approvals/${id}/reject`, {
-    method: "PATCH",
-    body: JSON.stringify({ rejectReason }),
-  }, token);
-}
-
-export async function getSystemHealth(token: string) {
-  return request<AdminSystemHealthRecord[]>("/admin/system-health", {}, token);
-}
-
-export async function broadcastAdminWarning(
-  token: string,
-  payload: AdminWarningBroadcastPayload,
-) {
-  return request<AdminWarningBroadcastResult>("/admin/warnings/broadcast", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  }, token);
 }
 
 export async function registerCitizen(token: string, payload: {

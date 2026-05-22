@@ -491,6 +491,41 @@ export async function getCitizenByQrCode(token: string, qrCodeId: string) {
   return results.find((c) => c.qrCodeId === qrCodeId) ?? null;
 }
 
+export interface FamilyGroupMemberRecord {
+  id: string;
+  citizenQrCodeId: string;
+  memberFullName?: string;
+  relationship?: string;
+}
+
+export interface FamilyGroupRecord {
+  id: string;
+  familyQrCodeId: string;
+  headUserId: string;
+  headName?: string;
+  headQrCodeId?: string;
+  familyName?: string;
+  members: FamilyGroupMemberRecord[];
+}
+
+export async function getFamilyGroupByQrCode(token: string, qrCode: string): Promise<FamilyGroupRecord | null> {
+  return request<FamilyGroupRecord | null>(`/site-manager/family-group?qrCode=${encodeURIComponent(qrCode)}`, {}, token);
+}
+
+export async function scanFamilyCheckIn(token: string, qrCode: string, centerId?: string) {
+  return request<any>("/site-manager/check-ins/scan", {
+    method: "POST",
+    body: JSON.stringify({ qrCode, centerId }),
+  }, token);
+}
+
+export async function checkOutFamilyGroup(token: string, familyQrCode: string) {
+  return request<{ checkedOut: number }>("/site-manager/check-ins/family-checkout", {
+    method: "POST",
+    body: JSON.stringify({ familyQrCode }),
+  }, token);
+}
+
 export interface SiteManagerCitizenRecord {
   id: string;
   userId?: string;
