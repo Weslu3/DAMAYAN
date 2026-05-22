@@ -6038,7 +6038,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                       setDropdown(false);
                     }}
                   >
-                    View Profile
+                     View Profile
                   </button>
                   <button
                     className="dp-avatar-dropdown-item"
