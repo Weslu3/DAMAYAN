@@ -1,16 +1,14 @@
 import React, { useState } from "react";
 import {
-  Image,
   ImageBackground,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { MobileHeader } from "../components/MobileShell";
-import { Button, Input, Pill, Screen, SectionCard } from "../components/UI";
-import { roleColors, theme, fonts } from "../theme";
+import { Ionicons } from "@expo/vector-icons";
+import { Screen } from "../components/UI";
+import { roleColors, theme } from "../theme";
 import { PortalRole } from "../types";
 import { styles } from "./PortalLoginScreen.styles";
 
@@ -63,7 +61,7 @@ export function PortalLoginScreen({
   secondaryLabel,
   loading,
   error,
-}: {
+}: Readonly<{
   role: PortalRole;
   onBack: () => void;
   onSubmit: (payload: { email: string; password: string }) => void;
@@ -71,7 +69,7 @@ export function PortalLoginScreen({
   secondaryLabel?: string;
   loading?: boolean;
   error?: string | null;
-}) {
+}>) {
   const content = roleContent[role];
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -95,7 +93,7 @@ export function PortalLoginScreen({
           <View style={styles.roleBadgeRow}>
             <Text style={styles.roleTag}>{content.loginLabel}</Text>
             <View style={styles.avatarIcon}>
-              <Text style={{ fontSize: 18 }}>{role === "citizen" ? "👤" : "🛡️"}</Text>
+              <Ionicons name={role === "citizen" ? "person" : "shield-half"} size={18} color={content.accent} />
             </View>
           </View>
         </View>
@@ -203,7 +201,7 @@ export function PortalLoginScreen({
 
               {onSecondary && secondaryLabel ? (
                 <Pressable onPress={onSecondary} style={{ marginTop: 8, alignItems: "center" }}>
-                  <Text style={{ color: content.accent, ...fonts.bold }}>{secondaryLabel}</Text>
+                  <Text style={{ color: content.accent, fontWeight: "700" }}>{secondaryLabel}</Text>
                 </Pressable>
               ) : null}
             </View>

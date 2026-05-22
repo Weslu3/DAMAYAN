@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Home, TriangleAlert } from "lucide-react";
 import type { CapacityCenter } from "../../lib/types";
 import { geocodeAddress } from "../../lib/api";
 
@@ -19,24 +21,24 @@ const PH_CENTER: [number, number] = [12.8797, 121.774];
 
 const FALLBACK_COORDS: Record<string, [number, number]> = {
   "makati": [14.5547, 121.0244],
-  "quezon city": [14.6760, 121.0437],
+  "quezon city": [14.676, 121.0437],
   "pasig": [14.5764, 121.0851],
   "taguig": [14.5176, 121.0509],
   "manila": [14.5995, 120.9842],
   "marikina": [14.6507, 121.1029],
-  "san juan": [14.6042, 121.0300],
+  "san juan": [14.6042, 121.03],
   "mandaluyong": [14.5794, 121.0359],
   "pasay": [14.5378, 120.9993],
   "parañaque": [14.4793, 121.0198],
   "las piñas": [14.4445, 120.9939],
   "muntinlupa": [14.4081, 121.0415],
-  "valenzuela": [14.7011, 120.9830],
-  "malabon": [14.6628, 120.9560],
+  "valenzuela": [14.7011, 120.983],
+  "malabon": [14.6628, 120.956],
   "navotas": [14.6732, 120.9429],
   "pateros": [14.5454, 121.0687],
   "caloocan": [14.6507, 120.9715],
-  "cauayan": [16.9200, 121.7700],
-  "isabela": [17.0000, 122.0000],
+  "cauayan": [16.92, 121.77],
+  "isabela": [17, 122],
 };
 
 export default function SiteManagerRegionalMap({
@@ -48,7 +50,16 @@ export default function SiteManagerRegionalMap({
   assignedMunicipality,
   assignedBarangay,
   incidentReports = [],
-}: SiteManagerRegionalMapProps) {
+}: {
+  readonly centers: CapacityCenter[];
+  readonly token: string;
+  readonly height?: number | string;
+  readonly phase?: 'before' | 'during' | 'after';
+  readonly assignedCenterId?: string;
+  readonly assignedMunicipality?: string;
+  readonly assignedBarangay?: string;
+  readonly incidentReports?: any[];
+}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const leafletRef = useRef<any>(null);
@@ -65,12 +76,9 @@ export default function SiteManagerRegionalMap({
 
   // Computed stats
   const totalShelters = centers.length;
-  const totalPopulation = centers.reduce((s, c) => s + c.currentOccupancy, 0);
-  const criticalCount = centers.filter(c => c.utilizationRate >= 90).length;
-  const avgUtilization = totalShelters > 0 ? Math.round(centers.reduce((s, c) => s + c.utilizationRate, 0) / totalShelters) : 0;
 
   useEffect(() => {
-    if (typeof window === "undefined" || mapInstanceRef.current) return;
+    if (globalThis.window === undefined || mapInstanceRef.current) return;
 
     if (!document.getElementById("lf-css")) {
       const cssLink = document.createElement("link");
@@ -231,13 +239,20 @@ export default function SiteManagerRegionalMap({
     const color = markerColor(center);
     const isAssigned = center.id === assignedCenterId;
     const size = isAssigned ? 22 : 16;
-    return `<div class="${isAssigned ? 'assigned-marker' : ''}" style="position:relative;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,0.4);z-index:${isAssigned ? '999' : 'auto'};"></div>`;
+    const iconMarkup = renderToStaticMarkup(
+      <Home size={Math.round(size * 0.72)} color="#fff" strokeWidth={2.4} />,
+    );
+
+    return `<div class="${isAssigned ? 'assigned-marker' : ''}" style="position:relative;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,0.4);z-index:${isAssigned ? '999' : 'auto'};display:flex;align-items:center;justify-content:center;">${iconMarkup}</div>`;
   }
 
   function incidentMarkerHtml(title: string, severity: string): string {
     const isHigh = severity.toLowerCase() === 'high' || severity.toLowerCase() === 'severe' || severity.toLowerCase() === 'major';
     const color = isHigh ? "#ba1a1a" : "#FFB300";
-    return `<div class="incident-marker" style="position:relative;width:28px;height:28px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 0 12px ${color};"><span class="material-symbols-outlined" style="font-size:14px">warning</span></div>`;
+    const iconMarkup = renderToStaticMarkup(
+      <TriangleAlert size={14} color="#fff" strokeWidth={2.4} />,
+    );
+    return `<div class="incident-marker" style="position:relative;width:28px;height:28px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;border:2.5px solid #fff;box-shadow:0 0 12px ${color};">${iconMarkup}</div>`;
   }
 
   function getLocationQuery(rawLocation: string): string {

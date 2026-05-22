@@ -216,6 +216,9 @@ export default function SiteMapTab({
                         <div>
                           <p className="font-black text-sm">{center.name}</p>
                           <p className="text-[10px] text-[#707a6c] uppercase tracking-widest">{center.barangay}, {center.municipality}</p>
+                          {center.description ? (
+                            <p className="mt-2 text-xs text-[#444743] dark:text-[#cfd1ca] leading-5">{center.description}</p>
+                          ) : null}
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full" style={{ background: metricBg, color: metricColor }}>
@@ -227,6 +230,20 @@ export default function SiteMapTab({
                       <div className="mt-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-[#444743]">
                         <span>{statLeft}</span>
                         <span>{statRight}</span>
+                      </div>
+                      <div className="mt-3 rounded-xl border border-dashed border-[#dadad5] dark:border-[#3b3b3b] bg-white/60 dark:bg-[#232622] px-3 py-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-[#707a6c] mb-2">Co-assigned managers</p>
+                        {center.assignedManagers && center.assignedManagers.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {center.assignedManagers.map((manager) => (
+                              <span key={manager.id} className="text-[10px] font-bold px-2 py-1 rounded-full bg-[#e8f5e9] text-[#2E7D32]">
+                                {manager.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[#707a6c]">No additional managers assigned.</p>
+                        )}
                       </div>
                     </div>
                   );

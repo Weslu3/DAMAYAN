@@ -93,7 +93,7 @@ export function UnifiedLoginScreen({
       });
       onLoginSuccess(role);
     } catch (caughtError) {
-      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to sign in. Please try again.");
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to sign in. Please try again.");
     } finally {
       setLoading(false);
     }

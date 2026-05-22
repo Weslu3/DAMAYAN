@@ -15,6 +15,21 @@ interface EvacuationCenterRow {
   contact_person: string | null;
   contact_phone: string | null;
   status: string | null;
+  max_managers: number | null;
+  lat?: number | null;
+  lng?: number | null;
+  description: string | null;
+}
+
+interface ShelterAssignmentRow {
+  center_id: string;
+  manager_id: string;
+}
+
+interface UserProfileRow {
+  auth_user_id: string;
+  first_name: string | null;
+  last_name: string | null;
 }
 
 interface CapacityCenter {
@@ -32,6 +47,11 @@ interface CapacityCenter {
   contactPerson?: string;
   contactPhone?: string;
   dbStatus?: string;
+  maxManagers?: number;
+  description?: string;
+  assignedManagers?: Array<{ id: string; name: string }>;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 @Injectable()
@@ -43,7 +63,7 @@ export class CapacityService {
     let query = supabase
       .from('evacuation_centers')
       .select(
-        'id, name, address, barangay, municipality, capacity, current_occupancy, facilities, contact_person, contact_phone, status',
+        'id, name, address, barangay, municipality, capacity, current_occupancy, facilities, contact_person, contact_phone, status, lat, lng',
       )
       .order('name', { ascending: true });
 
@@ -58,8 +78,35 @@ export class CapacityService {
       throw new NotFoundException(error.message);
     }
 
-    return (data ?? []).map((row: EvacuationCenterRow) =>
-      this.toCapacityCenter(row),
+    const centers = (data ?? []) as EvacuationCenterRow[];
+
+    const { data: assignments } = await supabase
+      .from('shelter_assignments')
+      .select('center_id, manager_id');
+
+    const managerIds = ((assignments ?? []) as ShelterAssignmentRow[]).map((assignment) => assignment.manager_id);
+    const { data: profiles } = managerIds.length
+      ? await supabase
+          .from('user_profiles')
+          .select('auth_user_id, first_name, last_name')
+          .in('auth_user_id', managerIds)
+      : { data: [], error: null };
+
+    const profileMap = new Map(
+      ((profiles ?? []) as UserProfileRow[]).map((profile) => [profile.auth_user_id, profile]),
+    );
+
+    const assignmentMap = new Map<string, Array<{ id: string; name: string }>>();
+    for (const assignment of (assignments ?? []) as ShelterAssignmentRow[]) {
+      const profile = profileMap.get(assignment.manager_id);
+      const name = `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim();
+      const current = assignmentMap.get(assignment.center_id) ?? [];
+      current.push({ id: assignment.manager_id, name: name || assignment.manager_id });
+      assignmentMap.set(assignment.center_id, current);
+    }
+
+    return centers.map((row: EvacuationCenterRow) =>
+      this.toCapacityCenter(row, assignmentMap.get(row.id) ?? []),
     );
   }
 
@@ -89,7 +136,7 @@ export class CapacityService {
     };
   }
 
-  private toCapacityCenter(row: EvacuationCenterRow): CapacityCenter {
+  private toCapacityCenter(row: EvacuationCenterRow, assignedManagers: Array<{ id: string; name: string }>): CapacityCenter {
     const capacity = row.capacity ?? 0;
     const currentOccupancy = row.current_occupancy ?? 0;
     const availableSlots = Math.max(0, capacity - currentOccupancy);
@@ -111,6 +158,11 @@ export class CapacityService {
       contactPerson: row.contact_person ?? undefined,
       contactPhone: row.contact_phone ?? undefined,
       dbStatus: row.status ?? undefined,
+      maxManagers: row.max_managers ?? undefined,
+      description: row.description ?? undefined,
+      assignedManagers,
+      latitude: row.lat ?? null,
+      longitude: row.lng ?? null,
     };
   }
 

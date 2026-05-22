@@ -24,4 +24,15 @@ export class UpdateDispatchOrderDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  externalVolunteerId?: string;
+
+  @IsOptional()
+  @IsString()
+  dispatcherAuthUserId?: string;
+
+  @IsOptional()
+  isExternalVolunteerDispatch?: boolean;
 }

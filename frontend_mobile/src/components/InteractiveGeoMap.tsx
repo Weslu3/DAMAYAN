@@ -14,9 +14,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import MapView, { Marker, type MapPressEvent } from 'react-native-maps';
+import { getApiBaseUrl } from '../api';
+import { formatCoordinates, resolveReadableAddress } from '../utils/geoUtils';
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:3001/api';
+const API_BASE_URL = getApiBaseUrl();
 
 export interface GeoData {
   latitude: number;
@@ -58,6 +59,13 @@ export function InteractiveGeoMap({
     const timeout = setTimeout(() => controller.abort(), 10_000);
 
     try {
+      const nativeAddress = await resolveReadableAddress(markerCoords);
+      if (nativeAddress !== formatCoordinates(markerCoords)) {
+        onLocationSelected({ ...markerCoords, resolved_address: nativeAddress });
+        setLoading(false);
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/geo/citizen/resolve-pin`, {
         method: 'POST',
         headers: {

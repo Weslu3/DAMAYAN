@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { AlertTriangle, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001/api';
@@ -100,17 +101,23 @@ export function DispatcherGeoFenceChecker({
 
         {status === 'inside' && (
           <div className="p-2 text-xs rounded bg-green-50 text-green-800 font-semibold border border-green-200">
-            ✓ Inside selected active response sector.
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 size={14} /> Inside selected active response sector.
+            </span>
           </div>
         )}
         {status === 'outside' && (
           <div className="p-2 text-xs rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
-            ⚠ Out of bounds — coordinate falls outside this rescue envelope.
+            <span className="inline-flex items-center gap-1">
+              <AlertTriangle size={14} /> Out of bounds - coordinate falls outside this rescue envelope.
+            </span>
           </div>
         )}
         {status === 'error' && (
           <div className="p-2 text-xs rounded bg-red-50 text-red-800 border border-red-200">
-            Service error — could not validate geofence boundaries.
+            <span className="inline-flex items-center gap-1">
+              <ShieldAlert size={14} /> Service error - could not validate geofence boundaries.
+            </span>
           </div>
         )}
       </div>

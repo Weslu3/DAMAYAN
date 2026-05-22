@@ -425,7 +425,7 @@ export function CitizenBeforeScreen({
         </View>
       </Modal>
 
-      {/* 🛡️ Premium Typhoon Safety Plan Modal */}
+      {/* Premium Typhoon Safety Plan Modal */}
       <Modal visible={safetyPlanOpen} transparent animationType="slide" onRequestClose={() => setSafetyPlanOpen(false)}>
         <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}>
           <View style={{ backgroundColor: currentTheme.bg || "#fff", borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 32, paddingBottom: 40, height: "85%", borderTopWidth: 1, borderColor: "rgba(0,0,0,0.05)" }}>
@@ -462,7 +462,7 @@ export function CitizenBeforeScreen({
               {/* Section 1: Evacuation Go-Bag checklist */}
               <View style={{ marginBottom: 28 }}>
                 <Text style={{ fontSize: 14, ...fonts.black, color: currentTheme.text || "#1A1C1A", marginBottom: 16, letterSpacing: -0.2 }}>
-                  🎒 72-Hour Evacuation Go-Bag Checklist
+                  72-Hour Evacuation Go-Bag Checklist
                 </Text>
                 
                 {[
@@ -485,12 +485,12 @@ export function CitizenBeforeScreen({
               {/* Section 2: Evacuation Shelters */}
               <View style={{ marginBottom: 28 }}>
                 <Text style={{ fontSize: 14, ...fonts.black, color: currentTheme.text || "#1A1C1A", marginBottom: 16, letterSpacing: -0.2 }}>
-                  🏫 Designated Evacuation Shelters
+                  Designated Evacuation Shelters
                 </Text>
                 
                 <View style={{ gap: 12 }}>
                   <View style={{ backgroundColor: currentTheme.surface || "#fff", borderRadius: 20, padding: 16, borderWidth: 1, borderColor: "rgba(0,0,0,0.05)" }}>
-                    <Text style={{ fontSize: 14, ...fonts.black, color: currentTheme.text || "#1A1C1A" }}>🏫 Primary: Bicol Sector Central HS</Text>
+                    <Text style={{ fontSize: 14, ...fonts.black, color: currentTheme.text || "#1A1C1A" }}>Primary: Bicol Sector Central HS</Text>
                     <Text style={{ fontSize: 11, ...fonts.medium, color: currentTheme.textLight || "#7e887e", marginTop: 4 }}>Evacuation route: Main Highway North → Sector 2 Exit</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, backgroundColor: "#E8F5E9", alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
                       <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: "#2E7D32" }} />
@@ -499,7 +499,7 @@ export function CitizenBeforeScreen({
                   </View>
 
                   <View style={{ backgroundColor: currentTheme.surface || "#fff", borderRadius: 20, padding: 16, borderWidth: 1, borderColor: "rgba(0,0,0,0.05)" }}>
-                    <Text style={{ fontSize: 14, ...fonts.black, color: currentTheme.text || "#1A1C1A" }}>🏟️ Secondary: Barangay 102 Dome</Text>
+                    <Text style={{ fontSize: 14, ...fonts.black, color: currentTheme.text || "#1A1C1A" }}>Secondary: Barangay 102 Dome</Text>
                     <Text style={{ fontSize: 11, ...fonts.medium, color: currentTheme.textLight || "#7e887e", marginTop: 4 }}>Evacuation route: Rizal Ave East → District 4 Dome Link</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, backgroundColor: "#E8F5E9", alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
                       <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: "#2E7D32" }} />
@@ -512,7 +512,7 @@ export function CitizenBeforeScreen({
               {/* Section 3: Critical Hotlines */}
               <View style={{ marginBottom: 12 }}>
                 <Text style={{ fontSize: 14, ...fonts.black, color: currentTheme.text || "#1A1C1A", marginBottom: 16, letterSpacing: -0.2 }}>
-                  🚨 Critical Rescue Hotlines
+                  Critical Rescue Hotlines
                 </Text>
 
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>

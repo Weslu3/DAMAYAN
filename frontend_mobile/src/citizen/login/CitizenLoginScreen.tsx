@@ -105,10 +105,7 @@ export function CitizenLoginScreen({
 
       onSubmit();
     } catch (caughtError) {
-      const message =
-        caughtError instanceof ApiError
-          ? caughtError.message
-          : "Unable to sign in. Please try again.";
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to sign in. Please try again.";
       setError(message);
       Alert.alert("Login Failed", message);
     } finally {

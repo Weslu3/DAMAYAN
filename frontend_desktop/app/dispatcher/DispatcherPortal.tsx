@@ -725,9 +725,9 @@ function DashboardPage({
   ];
 
   const responderGroups = [
-    { type: "FIELD" as UnitType, label: "Rescue", color: "var(--d-red)" },
-    { type: "MEDIC" as UnitType, label: "Medical", color: "var(--d-blue)" },
-    { type: "LOGISTICS" as UnitType, label: "Logistics", color: "var(--d-primary)" },
+    { type: "FIELD" as const, label: "Rescue", color: "var(--d-red)" },
+    { type: "MEDIC" as const, label: "Medical", color: "var(--d-blue)" },
+    { type: "LOGISTICS" as const, label: "Logistics", color: "var(--d-primary)" },
   ].map((group) => {
     const total = units.filter((u) => u.type === group.type).length;
     const available = units.filter((u) => u.type === group.type && u.status === "Available").length;
@@ -787,7 +787,7 @@ function DashboardPage({
           />
           <QueueFilterDropdown<"ALL" | IncidentPriority>
             value={queuePriority}
-            onChange={setQueuePriority}
+            onChange={(value) => setQueuePriority(value as IncidentPriority | "ALL")}
             options={[
               { value: "ALL", label: "All Priorities" },
               { value: "CRITICAL", label: "Critical" },
@@ -798,7 +798,7 @@ function DashboardPage({
           />
           <QueueFilterDropdown<"ALL" | IncidentStatus>
             value={queueStatus}
-            onChange={setQueueStatus}
+            onChange={(value) => setQueueStatus(value as IncidentStatus | "ALL")}
             options={[
               { value: "ALL", label: "All Statuses" },
               { value: "New", label: "New" },
@@ -2172,7 +2172,7 @@ function RescueMonitoringPage({
       <div className="dp-rescue-content-grid">
         <div className="dp-incidents-map">
           <div className="dp-map-header">
-            <span className="dp-map-header-title"> Rescue Monitoring</span>
+            <span className="dp-map-header-title">Rescue Monitoring</span>
           </div>
           <div style={{ flex: "1", minHeight: 0 }}>
             <LiveMap
@@ -3205,13 +3205,13 @@ function RescueDetailPanel({
       : []),
     ...(inc.situationType === "Critical"
       ? [
-        {
-          type: "alert",
-          time: addMins(dispatchTime, 8),
-          from: "System Alert",
-          msg: ` Situation escalated to CRITICAL at ${inc.location}. All nearby volunteers on standby.`,
-        },
-      ]
+          {
+            type: "alert",
+            time: addMins(dispatchTime, 8),
+            from: "System Alert",
+            msg: `Situation escalated to CRITICAL at ${inc.location}. All nearby volunteers on standby.`,
+          },
+        ]
       : []),
     ...(inc.timeActive > 12
       ? [
@@ -6697,7 +6697,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 setBroadcastModal(true);
               }}
             >
-               Broadcast
+              Broadcast
             </button>
             <button
               className="dp-live-activity-btn"
@@ -6854,7 +6854,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       {/* Broadcast modal */}
       {broadcastModal && (
         <Modal
-          title=" System-Wide Broadcast Alert"
+          title="System-Wide Broadcast Alert"
           onClose={() => {
             setBroadcastModal(false);
             setBroadcastMsg("");

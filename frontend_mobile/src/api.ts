@@ -1,4 +1,5 @@
 import type {
+  AppRole,
   AuthSession,
   CapacityCenter,
   CheckInRecord,
@@ -7,10 +8,78 @@ import type {
   IncidentReport,
   InventoryItem,
 } from "./types";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
-  "http://localhost:3001/api";
+function getExpoHostUri(): string | null {
+  const hostUri = Constants.expoConfig?.hostUri?.trim();
+  if (!hostUri) {
+    return null;
+  }
+
+  return hostUri.replace(/^exp:\/\//, "").replace(/^https?:\/\//, "").split(":")[0] ?? null;
+}
+
+function getApiFallbackHint(): string {
+  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  if (configured) {
+    return "";
+  }
+
+  if (Platform.OS === "android") {
+    return " Set EXPO_PUBLIC_API_BASE_URL to your computer's LAN IP when using Expo Go on a physical Android device.";
+  }
+
+  if (Platform.OS === "ios") {
+    return " Set EXPO_PUBLIC_API_BASE_URL to your computer's LAN IP when using Expo Go on a physical iPhone.";
+  }
+
+  return "";
+}
+
+export function getApiBaseUrl(): string {
+  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/\/$/, "");
+  if (configured) {
+    return configured;
+  }
+
+  const host = getExpoHostUri();
+  if (host) {
+    return `http://${host}:3001/api`;
+  }
+
+  return Platform.select({
+    android: "http://10.0.2.2:3001/api",
+    default: "http://localhost:3001/api",
+  }) as string;
+}
+
+const API_BASE_URL = getApiBaseUrl();
+
+function buildNetworkErrorMessage(detail?: string): string {
+  const detailSuffix = detail ? " (" + detail + ")" : "";
+  return "Unable to reach the backend at " + API_BASE_URL + "." + getApiFallbackHint() + detailSuffix;
+}
+
+function parseResponsePayload(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+function getResponseErrorMessage(payload: unknown, status: number): string {
+  if (typeof payload === "object" && payload && "message" in payload) {
+    return String((payload as { message?: string }).message);
+  }
+
+  if (typeof payload === "string") {
+    return payload;
+  }
+
+  return `Request failed with status ${status}`;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -33,20 +102,24 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string) 
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    throw new ApiError(
+      buildNetworkErrorMessage(error instanceof Error ? error.message : undefined),
+      0,
+    );
+  }
 
   const text = await response.text();
-  const payload = text ? (JSON.parse(text) as unknown) : null;
+  const payload: unknown = text ? parseResponsePayload(text) : null;
 
   if (!response.ok) {
-    const message =
-      typeof payload === "object" && payload && "message" in payload
-        ? String((payload as { message?: string }).message)
-        : `Request failed with status ${response.status}`;
-    throw new ApiError(message, response.status);
+    throw new ApiError(getResponseErrorMessage(payload, response.status), response.status);
   }
 
   return payload as T;
@@ -187,6 +260,60 @@ export async function getDisasterEvents(scope: "site-manager", token: string) {
 
 export async function getInventory(scope: "site-manager", token: string) {
   return request<InventoryItem[]>("/site-manager/inventory", {}, token);
+}
+
+export type RegionPhaseState = "BEFORE" | "DURING" | "AFTER";
+
+export async function getRegionPersonaPhaseControls(token: string, regionId: string) {
+  return request<Array<{
+    id: string;
+    regionId: string;
+    personaRole: AppRole;
+    phase: RegionPhaseState;
+    visibleToAssignedUsers: boolean;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  }>>(`/admin/regions/${regionId}/persona-phase-controls`, {}, token);
+}
+
+export async function upsertRegionPersonaPhaseControl(
+  token: string,
+  regionId: string,
+  payload: {
+    personaRole: AppRole;
+    phase: RegionPhaseState;
+    visibleToAssignedUsers?: boolean;
+  },
+) {
+  return request<{
+    region: { id: string; name: string };
+    control: {
+      id: string;
+      regionId: string;
+      personaRole: AppRole;
+      phase: RegionPhaseState;
+      visibleToAssignedUsers: boolean;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    };
+    audience: Array<{ authUserId: string; name: string; role: AppRole; assignedRegionId: string | null }>;
+  }>(`/admin/regions/${regionId}/persona-phase-controls`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
+export async function getRegionPersonaPhaseAudience(
+  token: string,
+  regionId: string,
+  personaRole?: AppRole,
+) {
+  const suffix = personaRole ? `?personaRole=${encodeURIComponent(personaRole)}` : "";
+  return request<Array<{ authUserId: string; name: string; role: AppRole; assignedRegionId: string | null }>>(
+    `/admin/regions/${regionId}/persona-phase-controls/audience${suffix}`,
+    {},
+    token,
+  );
 }
 
 export async function getCapacity(token: string) {

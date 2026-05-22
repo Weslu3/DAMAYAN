@@ -14,10 +14,11 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import * as ImagePicker from "expo-image-picker";
-import { theme, fonts } from "../../theme";
+import { theme } from "../../theme";
 import { styles } from "./CitizenDuringScreen.styles";
 import { submitIncidentReport, getIncidentPhotoUploadUrl } from "../../api";
 import { CitizenLiveMap, type EvacCenter } from "./CitizenLiveMap";
+import { formatCoordinates, manhattanDistanceMeters, resolveReadableAddress, sortByManhattanDistance } from "../../utils/geoUtils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type DuringStep =
@@ -43,28 +44,13 @@ const STEP_PROGRESS: Record<DuringStep, number> = {
 
 // ─── Static Evacuation Centers ────────────────────────────────────────────────
 const EVAC_CENTERS: EvacCenter[] = [
-  { id: "1", name: "Brgy. 102 Barangay Hall", latitude: 14.6020, longitude: 120.9850, status: "Open" },
-  { id: "2", name: "San Miguel Elementary School", latitude: 14.5975, longitude: 120.9870, status: "Open" },
-  { id: "3", name: "Manila City Hall Evac Center", latitude: 14.5942, longitude: 120.9770, status: "Open" },
+  { id: "1", name: "Brgy. 102 Barangay Hall", latitude: 14.602, longitude: 120.985, status: "Open" },
+  { id: "2", name: "San Miguel Elementary School", latitude: 14.5975, longitude: 120.987, status: "Open" },
+  { id: "3", name: "Manila City Hall Evac Center", latitude: 14.5942, longitude: 120.977, status: "Open" },
 ];
 
-function haversineKm(
-  lat1: number, lon1: number,
-  lat2: number, lon2: number,
-): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 // ─── Pulsating Dot ────────────────────────────────────────────────────────────
-function PulsatingDot({ color = theme.danger }: { color?: string }) {
+function PulsatingDot({ color = theme.danger }: { readonly color?: string }) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0.7)).current;
 
@@ -94,7 +80,7 @@ function PulsatingDot({ color = theme.danger }: { color?: string }) {
 }
 
 // ─── Progress Bar ─────────────────────────────────────────────────────────────
-function ProgressBar({ step }: { step: DuringStep }) {
+function ProgressBar({ step }: { readonly step: DuringStep }) {
   const progress = STEP_PROGRESS[step] ?? 0;
   return (
     <View style={styles.progressWrap}>
@@ -114,11 +100,11 @@ export function CitizenDuringScreen({
   authUser,
   qrCodeId,
 }: {
-  onBack: () => void;
-  initialStep?: string;
-  session: any;
-  authUser: any;
-  qrCodeId?: string | null;
+  readonly onBack: () => void;
+  readonly initialStep?: string;
+  readonly session: any;
+  readonly authUser: any;
+  readonly qrCodeId?: string | null;
 }) {
   const [step, setStep] = useState<DuringStep>("rescue_decision");
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -128,6 +114,8 @@ export function CitizenDuringScreen({
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(true);
   const [locationDenied, setLocationDenied] = useState(false);
+  const [resolvedLocationLabel, setResolvedLocationLabel] = useState<string | null>(null);
+  const [orderedCenters, setOrderedCenters] = useState<EvacCenter[]>(EVAC_CENTERS);
 
   // Selected evacuation center (chosen on safe_zone_map, used in navigate_evacuation)
   const [selectedCenter, setSelectedCenter] = useState<EvacCenter>(EVAC_CENTERS[0]);
@@ -145,10 +133,11 @@ export function CitizenDuringScreen({
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
-        setUserLocation({
+        const coordinates = {
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
-        });
+        };
+        setUserLocation(coordinates);
       } catch {
         setLocationDenied(true);
       } finally {
@@ -156,6 +145,30 @@ export function CitizenDuringScreen({
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!userLocation) {
+      setOrderedCenters(EVAC_CENTERS);
+      setSelectedCenter(EVAC_CENTERS[0]);
+      setResolvedLocationLabel(null);
+      return;
+    }
+
+    let cancelled = false;
+    const sortedCenters = sortByManhattanDistance(userLocation, EVAC_CENTERS);
+    setOrderedCenters(sortedCenters);
+    setSelectedCenter((current) => sortedCenters.find((center) => center.id === current.id) ?? sortedCenters[0]);
+
+    resolveReadableAddress(userLocation).then((label) => {
+      if (!cancelled) {
+        setResolvedLocationLabel(label);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userLocation]);
 
   useEffect(() => {
     if (initialStep === "decision") setStep("rescue_decision");
@@ -169,7 +182,7 @@ export function CitizenDuringScreen({
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaType.Images,
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.8,
@@ -203,7 +216,7 @@ export function CitizenDuringScreen({
     try {
       setIsSubmitting(true);
       const locationStr = userLocation
-        ? `${userLocation.latitude.toFixed(5)}, ${userLocation.longitude.toFixed(5)}`
+        ? resolvedLocationLabel ?? formatCoordinates(userLocation)
         : "Location unavailable";
 
       const attachmentKeys: string[] = [];
@@ -245,13 +258,23 @@ export function CitizenDuringScreen({
     setStep(next);
   }
 
-  const locationLabel = locationLoading
-    ? "Detecting location…"
-    : locationDenied
-    ? "GPS unavailable"
-    : userLocation
-    ? `${userLocation.latitude.toFixed(4)}° N, ${userLocation.longitude.toFixed(4)}° E`
-    : "Location unavailable";
+  let locationLabel = "Location unavailable";
+  if (locationLoading) {
+    locationLabel = "Detecting location…";
+  } else if (locationDenied) {
+    locationLabel = "GPS unavailable";
+  } else if (resolvedLocationLabel) {
+    locationLabel = resolvedLocationLabel;
+  } else if (userLocation) {
+    locationLabel = formatCoordinates(userLocation);
+  }
+
+  let locationIconName: "time" | "warning" | "location" = "location";
+  if (locationLoading) {
+    locationIconName = "time";
+  } else if (locationDenied) {
+    locationIconName = "warning";
+  }
 
   return (
     <View style={styles.shell}>
@@ -324,7 +347,7 @@ export function CitizenDuringScreen({
 
             <View style={[styles.infoRow, { borderLeftColor: theme.danger }]}>
               <Ionicons
-                name={locationLoading ? "time" : locationDenied ? "warning" : "location"}
+                name={locationIconName}
                 size={24}
                 color={locationDenied ? theme.warning : theme.danger}
               />
@@ -403,7 +426,7 @@ export function CitizenDuringScreen({
 
             <View style={[styles.infoRow, { borderLeftColor: theme.danger }]}>
               <Ionicons
-                name={locationLoading ? "time" : locationDenied ? "warning" : "location"}
+                name={locationIconName}
                 size={24}
                 color={locationDenied ? theme.warning : theme.primary}
               />
@@ -476,7 +499,7 @@ export function CitizenDuringScreen({
               <CitizenLiveMap
                 mode="shelter_select"
                 userLocation={userLocation}
-                evacCenters={EVAC_CENTERS}
+                evacCenters={orderedCenters}
                 selectedCenter={selectedCenter}
                 onCenterSelect={setSelectedCenter}
               />
@@ -493,9 +516,9 @@ export function CitizenDuringScreen({
             )}
 
             {/* Evacuation centers list */}
-            {EVAC_CENTERS.map((center) => {
+            {orderedCenters.map((center) => {
               const dist = userLocation
-                ? haversineKm(userLocation.latitude, userLocation.longitude, center.latitude, center.longitude)
+                ? manhattanDistanceMeters(userLocation, center) / 1000
                 : null;
               const isSelected = selectedCenter.id === center.id;
               return (
@@ -518,7 +541,7 @@ export function CitizenDuringScreen({
                       {center.name}
                     </Text>
                     <Text style={styles.infoRowSub}>
-                      {dist !== null ? `${dist.toFixed(1)} km away` : "Calculating…"} · {center.status}
+                      {dist === null ? "Calculating…" : `${dist.toFixed(1)} km away`} · {center.status}
                     </Text>
                   </View>
                   {isSelected && (
@@ -555,7 +578,7 @@ export function CitizenDuringScreen({
                 <Text style={styles.infoRowText}>{selectedCenter.name}</Text>
                 <Text style={styles.infoRowSub}>
                   {userLocation
-                    ? `${haversineKm(userLocation.latitude, userLocation.longitude, selectedCenter.latitude, selectedCenter.longitude).toFixed(1)} km away`
+                    ? `${(manhattanDistanceMeters(userLocation, selectedCenter) / 1000).toFixed(1)} km away`
                     : "Calculating distance…"}
                 </Text>
               </View>
@@ -570,7 +593,7 @@ export function CitizenDuringScreen({
               <CitizenLiveMap
                 mode="navigate"
                 userLocation={userLocation}
-                evacCenters={EVAC_CENTERS}
+                evacCenters={orderedCenters}
                 selectedCenter={selectedCenter}
               />
             )}

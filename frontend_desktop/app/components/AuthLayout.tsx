@@ -7,18 +7,18 @@ import "./auth.css";
 export type PersonaType = "citizen" | "sm" | "dispatcher" | "admin";
 
 interface AuthLayoutProps {
-  persona: PersonaType;
-  portalName: string;
-  eyebrow: string;
-  headline: ReactNode;
-  subline: string;
-  brandAddon?: ReactNode;
-  badgeText?: string;
-  formTitle?: string;
-  formSub?: string;
-  switchText?: string;
-  switchLink?: string;
-  children: ReactNode;
+  readonly persona: PersonaType;
+  readonly portalName: string;
+  readonly eyebrow: string;
+  readonly headline: ReactNode;
+  readonly subline: string;
+  readonly brandAddon?: ReactNode;
+  readonly badgeText?: string;
+  readonly formTitle?: string;
+  readonly formSub?: string;
+  readonly switchText?: string;
+  readonly switchLink?: string;
+  readonly children: ReactNode;
 }
 
 export default function AuthLayout({
@@ -34,7 +34,7 @@ export default function AuthLayout({
   switchText,
   switchLink,
   children,
-}: AuthLayoutProps) {
+}: Readonly<AuthLayoutProps>) {
   return (
     <main className={`auth-root ${persona}-auth`}>
       {/* Decorative blobs */}

@@ -19,6 +19,16 @@ import {
   getPendingApprovals,
   approvePendingUser,
   rejectPendingUser,
+  getRegions,
+  createRegion,
+  getRegionsGeo,
+  upsertRegionPersonaPhaseControl,
+  getRegionPersonaPhaseAudience,
+  getRegionAssignments,
+  createRegionAssignment,
+  deleteRegionAssignment,
+  getAvailableRegionUsers,
+  getRegionShelters,
   type AdminApprovalRecord,
 } from "../lib/api";
 import { subscribeToLiveAlerts, type LiveAlertRecord } from "../lib/supabase";
@@ -34,6 +44,7 @@ type AdminPage =
   | "after_calamity"
   | "disaster_monitoring"
   | "early_warning"
+  | "persona_controls"
   | "profile";
 
 type AccountStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -2325,6 +2336,7 @@ function DisasterMonitoringPage({
               </div>
             </div>
           </div>
+
         ))}
       </div>
 
@@ -3412,6 +3424,645 @@ function mapApprovalToAccount(record: AdminApprovalRecord): PendingAccount {
 }
 
 // 
+//  Persona Phase Controls Page
+// 
+function MiniRegionMap({
+  regionsGeo,
+  shelters,
+  selectedRegionId,
+  onSelectRegion,
+}: {
+  regionsGeo: Array<{ id: string; name: string; geojson: any }>;
+  shelters: Array<{ id: string; name: string; lat: number; lng: number }>;
+  selectedRegionId?: string;
+  onSelectRegion: (id: string) => void;
+}) {
+  const mapRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const layersRef = useRef<any[]>([]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    if (mapRef.current) return;
+
+    import('leaflet').then((L) => {
+      // Patch default icon
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+
+      mapRef.current = L.map(containerRef.current, { zoomControl: false }).setView([14.5547, 121.0], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(mapRef.current);
+    });
+
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    // clear previous layers
+    for (const l of layersRef.current) {
+      try { mapRef.current.removeLayer(l); } catch {}
+    }
+    layersRef.current = [];
+
+    import('leaflet').then((L) => {
+      // draw regions
+      const regionLayers: any[] = [];
+      for (const r of regionsGeo) {
+        try {
+          const layer = L.geoJSON(r.geojson, {
+            style: () => ({ color: r.id === selectedRegionId ? '#2563EB' : '#475569', weight: r.id === selectedRegionId ? 3 : 1, fillOpacity: r.id === selectedRegionId ? 0.12 : 0.06 }),
+          }).on('click', () => onSelectRegion(r.id));
+          layer.addTo(mapRef.current);
+          regionLayers.push(layer);
+        } catch (e) {
+          // ignore invalid geojson
+        }
+      }
+
+      // markers for shelters
+      const markerLayers: any[] = [];
+      for (const s of shelters) {
+        const m = L.marker([s.lat, s.lng]);
+        m.bindPopup(`<strong>${s.name}</strong>`);
+        m.on('click', () => onSelectRegion(selectedRegionId ?? ''));
+        m.addTo(mapRef.current);
+        markerLayers.push(m);
+      }
+
+      layersRef.current = [...regionLayers, ...markerLayers];
+
+      // fit bounds to selected region if available
+      const sel = regionLayers.find((rl) => (rl.feature && rl.feature.properties && rl.feature.properties.id) ? rl.feature.properties.id === selectedRegionId : false);
+      if (selectedRegionId && regionLayers.length > 0) {
+        try {
+          const group = L.featureGroup(regionLayers as any[]);
+          mapRef.current.fitBounds(group.getBounds(), { padding: [20, 20] });
+        } catch {}
+      } else if (regionLayers.length > 0) {
+        try { mapRef.current.fitBounds(L.featureGroup(regionLayers as any[]).getBounds(), { padding: [20, 20] }); } catch {}
+      }
+    });
+  }, [regionsGeo, shelters, selectedRegionId, onSelectRegion]);
+
+  return <div ref={containerRef} style={{ width: '100%', height: 260, borderRadius: 8, overflow: 'hidden' }} />;
+}
+
+function RegionCenterPickerMap({
+  lat,
+  lng,
+  radiusKm,
+  onChange,
+}: {
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  onChange: (lat: number, lng: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const circleRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    import('leaflet').then((L) => {
+      mapRef.current = L.map(containerRef.current!, {
+        center: [lat, lng],
+        zoom: 12,
+        zoomControl: true,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(mapRef.current);
+
+      mapRef.current.on('click', (e: any) => {
+        const nextLat = Number(e?.latlng?.lat ?? lat);
+        const nextLng = Number(e?.latlng?.lng ?? lng);
+        onChange(nextLat, nextLng);
+      });
+    });
+
+    return () => {
+      try { mapRef.current?.remove(); } catch {}
+      mapRef.current = null;
+      markerRef.current = null;
+      circleRef.current = null;
+    };
+  }, [lat, lng, onChange]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    import('leaflet').then((L) => {
+      if (markerRef.current) {
+        try { mapRef.current.removeLayer(markerRef.current); } catch {}
+      }
+      if (circleRef.current) {
+        try { mapRef.current.removeLayer(circleRef.current); } catch {}
+      }
+
+      markerRef.current = L.marker([lat, lng]).addTo(mapRef.current);
+      circleRef.current = L.circle([lat, lng], {
+        radius: Math.max(0.1, radiusKm) * 1000,
+        color: '#2563eb',
+        fillColor: '#2563eb',
+        fillOpacity: 0.12,
+        weight: 2,
+      }).addTo(mapRef.current);
+
+      mapRef.current.setView([lat, lng], mapRef.current.getZoom() ?? 12, { animate: false });
+    });
+  }, [lat, lng, radiusKm]);
+
+  return <div ref={containerRef} style={{ width: '100%', height: 260, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--admin-outline)' }} />;
+}
+
+function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: string | null; showToast: (type: ToastItem["type"], title: string, sub?: string) => void }) {
+  const [regionId, setRegionId] = useState("");
+  const [regions, setRegions] = useState<Array<{ id: string; name: string; currentPhase: string }>>([]);
+  const [persona, setPersona] = useState<AppRole>(AppRole.CITIZEN);
+  const [phase, setPhase] = useState<"BEFORE" | "DURING" | "AFTER">("BEFORE");
+  const [visible, setVisible] = useState(true);
+  const [audience, setAudience] = useState<Array<{ authUserId: string; name: string; role: AppRole; assignedRegionId: string | null }>>([]);
+  const [saving, setSaving] = useState(false);
+  const [loadingAudience, setLoadingAudience] = useState(false);
+  const [assignments, setAssignments] = useState<Array<{ id: string; name: string; role: string; assignedAt?: string }>>([]);
+  const [loadingAssignments, setLoadingAssignments] = useState(false);
+  const [newAssignUserId, setNewAssignUserId] = useState("");
+  const [newAssignRole, setNewAssignRole] = useState<string>("site_manager");
+  const [newAssignExpiry, setNewAssignExpiry] = useState<string | undefined>(undefined);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ authUserId: string; name: string; role: string }>>([]);
+  const [loadingAvailableUsers, setLoadingAvailableUsers] = useState(false);
+  const [newRegionName, setNewRegionName] = useState("");
+  const [newRegionLat, setNewRegionLat] = useState<string>("14.5995");
+  const [newRegionLng, setNewRegionLng] = useState<string>("120.9842");
+  const [newRegionRadiusKm, setNewRegionRadiusKm] = useState<string>("2");
+  const [creatingRegion, setCreatingRegion] = useState(false);
+
+  const handleCenterPick = useCallback((lat: number, lng: number) => {
+    setNewRegionLat(lat.toFixed(6));
+    setNewRegionLng(lng.toFixed(6));
+  }, []);
+
+  const handleSave = async () => {
+    if (!authToken) {
+      showToast("error", "Session expired", "Please re-login to continue.");
+      return;
+    }
+    if (!regionId.trim()) {
+      showToast("error", "Missing region", "Enter the region id first.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const res = await upsertRegionPersonaPhaseControl(authToken, regionId.trim(), {
+        personaRole: persona,
+        phase,
+        visibleToAssignedUsers: visible,
+      });
+
+      setAudience(res.audience ?? []);
+      showToast("success", "Saved", `${res.region.name}: ${res.control.personaRole} → ${res.control.phase} (${res.audience.length} users)`);
+    } catch (err: any) {
+      showToast("error", "Save failed", err?.message ?? "Unable to save regional control.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLoadAudience = async () => {
+    if (!authToken) {
+      showToast("error", "Session expired", "Please re-login to continue.");
+      return;
+    }
+    if (!regionId.trim()) {
+      showToast("error", "Missing region", "Enter the region id first.");
+      return;
+    }
+
+    try {
+      setLoadingAudience(true);
+      const list = await getRegionPersonaPhaseAudience(authToken, regionId.trim(), persona);
+      setAudience(list ?? []);
+      showToast("info", "Audience loaded", `${list.length} assigned user(s) found.`);
+    } catch (err: any) {
+      showToast("error", "Load failed", err?.message ?? "Unable to load audience.");
+    } finally {
+      setLoadingAudience(false);
+    }
+  };
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRegions() {
+      if (!authToken) return;
+      try {
+        const list = await getRegions(authToken);
+        if (!cancelled) setRegions(list ?? []);
+      } catch {
+        // ignore
+      }
+    }
+    void loadRegions();
+    return () => { cancelled = true; };
+  }, [authToken]);
+
+  const [regionsGeo, setRegionsGeo] = useState<Array<{ id: string; name: string; geojson: any }>>([]);
+  const [shelters, setShelters] = useState<Array<{ id: string; name: string; lat: number; lng: number }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGeo() {
+      if (!authToken) return;
+      try {
+        const list = await getRegionsGeo(authToken);
+        if (!cancelled) setRegionsGeo(list ?? []);
+      } catch {
+        // ignore
+      }
+    }
+    void loadGeo();
+    return () => { cancelled = true; };
+  }, [authToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadShelters() {
+      if (!authToken || !regionId) {
+        setShelters([]);
+        return;
+      }
+      try {
+        const list = await getRegionShelters(authToken, regionId);
+        if (!cancelled) setShelters(list ?? []);
+      } catch {
+        // ignore
+      }
+    }
+    void loadShelters();
+    return () => { cancelled = true; };
+  }, [authToken, regionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAssignments() {
+      if (!authToken || !regionId) { setAssignments([]); return; }
+      try {
+        setLoadingAssignments(true);
+        const list = await getRegionAssignments(authToken, regionId);
+        if (!cancelled) setAssignments(list ?? []);
+      } catch (err) {
+        // ignore silently
+      } finally {
+        if (!cancelled) setLoadingAssignments(false);
+      }
+    }
+    void loadAssignments();
+    return () => { cancelled = true; };
+  }, [authToken, regionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAvailableUsers() {
+      if (!authToken || !regionId) {
+        if (!cancelled) setAvailableUsers([]);
+        return;
+      }
+      try {
+        setLoadingAvailableUsers(true);
+        const list = await getAvailableRegionUsers(authToken, regionId, newAssignRole);
+        if (!cancelled) setAvailableUsers(list ?? []);
+      } catch {
+        if (!cancelled) setAvailableUsers([]);
+      } finally {
+        if (!cancelled) setLoadingAvailableUsers(false);
+      }
+    }
+
+    void loadAvailableUsers();
+    return () => { cancelled = true; };
+  }, [authToken, regionId, newAssignRole, assignments.length]);
+
+  const handleCreateRegion = async () => {
+    if (!authToken) {
+      showToast("error", "Session expired", "Please re-login to continue.");
+      return;
+    }
+    if (!newRegionName.trim()) {
+      showToast("error", "Missing region name", "Enter a region name.");
+      return;
+    }
+
+    const lat = Number(newRegionLat);
+    const lng = Number(newRegionLng);
+    const radiusKm = Number(newRegionRadiusKm);
+
+    if (Number.isNaN(lat) || lat < -90 || lat > 90) {
+      showToast("error", "Invalid latitude", "Latitude must be between -90 and 90.");
+      return;
+    }
+    if (Number.isNaN(lng) || lng < -180 || lng > 180) {
+      showToast("error", "Invalid longitude", "Longitude must be between -180 and 180.");
+      return;
+    }
+    if (Number.isNaN(radiusKm) || radiusKm < 0.1 || radiusKm > 100) {
+      showToast("error", "Invalid radius", "Radius must be between 0.1 and 100 km.");
+      return;
+    }
+
+    try {
+      setCreatingRegion(true);
+      const created = await createRegion(authToken, {
+        name: newRegionName.trim(),
+        centerLat: lat,
+        centerLng: lng,
+        radiusKm,
+      });
+
+      const list = await getRegions(authToken);
+      setRegions(list ?? []);
+      setRegionId(created.id);
+      showToast("success", "Region created", `${created.name} is now available for assignment.`);
+      setNewRegionName("");
+    } catch (err: any) {
+      showToast("error", "Create region failed", err?.message ?? "Unable to create region.");
+    } finally {
+      setCreatingRegion(false);
+    }
+  };
+
+  const handleCreateRegionAssignment = async () => {
+    if (!authToken) { showToast("error", "Session expired", "Please re-login to continue."); return; }
+    if (!regionId) { showToast("error", "Missing region", "Select a region first."); return; }
+    if (!newAssignUserId.trim()) { showToast("error", "Missing user", "Enter the user's auth id to assign."); return; }
+    try {
+      await createRegionAssignment(authToken, regionId, { authUserId: newAssignUserId.trim(), role: newAssignRole, expiresAt: newAssignExpiry ?? null });
+      showToast("success", "Assigned", `User ${newAssignUserId} assigned as ${newAssignRole}`);
+      setNewAssignUserId("");
+      const list = await getRegionAssignments(authToken, regionId);
+      setAssignments(list ?? []);
+    } catch (err: any) {
+      showToast("error", "Assign failed", err?.message ?? "Unable to assign user to region.");
+    }
+  };
+
+  const handleDeleteRegionAssignment = async (assignmentId: string) => {
+    if (!authToken || !regionId) return;
+    try {
+      await deleteRegionAssignment(authToken, regionId, assignmentId);
+      showToast("success", "Removed", "Assignment deleted.");
+      const list = await getRegionAssignments(authToken, regionId);
+      setAssignments(list ?? []);
+    } catch (err: any) {
+      showToast("error", "Delete failed", err?.message ?? "Unable to remove assignment.");
+    }
+  };
+
+  return (
+    <div className="admin-page">
+      <div className="admin-page-head">
+        <div>
+          <h2>Persona Phase Controls</h2>
+          <p>Set per-region calamity phase visibility for a specific persona.</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
+        <div>
+          <div style={{ maxWidth: '100%' }}>
+            <div className="admin-card" style={{ marginBottom: "0.9rem" }}>
+              <div className="admin-card-header">
+                <div className="admin-card-title">Create Region</div>
+              </div>
+              <div className="admin-card-body">
+                <div style={{ color: "var(--admin-text-soft)", marginBottom: 10 }}>Click on the map to pinpoint the center, then adjust the radius in kilometers.</div>
+                <RegionCenterPickerMap
+                  lat={Number(newRegionLat) || 14.5995}
+                  lng={Number(newRegionLng) || 120.9842}
+                  radiusKm={Number(newRegionRadiusKm) || 2}
+                  onChange={handleCenterPick}
+                />
+                <div className="admin-form-grid">
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Region Name</label>
+                    <input className="admin-form-input" value={newRegionName} onChange={(e) => setNewRegionName(e.target.value)} placeholder="e.g. Sampaloc Sector A" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Center Latitude</label>
+                    <input className="admin-form-input" value={newRegionLat} onChange={(e) => setNewRegionLat(e.target.value)} placeholder="14.5995" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Center Longitude</label>
+                    <input className="admin-form-input" value={newRegionLng} onChange={(e) => setNewRegionLng(e.target.value)} placeholder="120.9842" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Radius (km)</label>
+                    <input className="admin-form-input" type="number" min="0.1" max="100" step="0.1" value={newRegionRadiusKm} onChange={(e) => setNewRegionRadiusKm(e.target.value)} placeholder="2" />
+                  </div>
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Radius Slider</label>
+                    <input type="range" min="0.1" max="30" step="0.1" value={Number(newRegionRadiusKm) || 2} onChange={(e) => setNewRegionRadiusKm(e.target.value)} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.85rem" }}>
+                  <button className="admin-btn admin-btn-accent" onClick={handleCreateRegion} disabled={creatingRegion}>{creatingRegion ? "Creating..." : "Create Region"}</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-card">
+              <div className="admin-card-header">
+                <div className="admin-card-title">Region Persona Override</div>
+              </div>
+              <div className="admin-card-body">
+                <div className="admin-form-grid">
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Region</label>
+                    <select className="admin-form-input" value={regionId} onChange={(e) => setRegionId(e.target.value)}>
+                      <option value="">Select a region...</option>
+                      {regions.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name} {r.currentPhase ? `(${r.currentPhase})` : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Persona</label>
+                    <select className="admin-form-input" value={persona} onChange={(e) => setPersona(e.target.value as AppRole)}>
+                      <option value={AppRole.ADMIN}>admin</option>
+                      <option value={AppRole.DISPATCHER}>dispatcher</option>
+                      <option value={AppRole.LINE_MANAGER}>line_manager</option>
+                      <option value={AppRole.CITIZEN}>citizen</option>
+                    </select>
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Phase</label>
+                    <select className="admin-form-input" value={phase} onChange={(e) => setPhase(e.target.value as any)}>
+                      <option value="BEFORE">BEFORE</option>
+                      <option value="DURING">DURING</option>
+                      <option value="AFTER">AFTER</option>
+                    </select>
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Visible To Assigned Users</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <input id="visible-toggle" type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />
+                      <label htmlFor="visible-toggle" style={{ margin: 0, color: "var(--admin-text-soft)" }}>Show this phase state to users assigned to the region</label>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.85rem" }}>
+                  <button className="admin-btn admin-btn-accent" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Override"}</button>
+                  <button className="admin-btn admin-btn-ghost" onClick={handleLoadAudience} disabled={loadingAudience}>{loadingAudience ? "Loading..." : "Load Audience"}</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-card" style={{ marginTop: "0.9rem" }}>
+              <div className="admin-card-header"><div className="admin-card-title">Audience</div></div>
+              <div className="admin-card-body">
+                {audience.length === 0 ? (
+                  <div style={{ color: "var(--admin-text-soft)" }}>No users loaded. Use "Load Audience" or save an override to populate the list.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: "0.5rem" }}>
+                    {audience.map((u) => (
+                      <div key={u.authUserId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.45rem", borderRadius: "0.5rem", background: "var(--admin-surface-low)" }}>
+                        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+                          <div style={{ width: "2rem", height: "2rem", borderRadius: "0.4rem", background: "linear-gradient(135deg, var(--admin-accent-mid), var(--admin-accent))", color: "#fff", display: "grid", placeItems: "center", fontWeight: 800 }}>{u.name?.[0] ?? "U"}</div>
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{u.name}</div>
+                            <div style={{ fontSize: "0.75rem", color: "var(--admin-text-soft)" }}>{u.role}</div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: "0.82rem", color: "var(--admin-text-soft)" }}>{u.assignedRegionId ?? "-"}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="admin-card" style={{ marginTop: "0.9rem" }}>
+              <div className="admin-card-header"><div className="admin-card-title">Region Assignments</div></div>
+              <div className="admin-card-body">
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ color: "var(--admin-text-soft)", fontSize: "0.9rem" }}>Assign available site managers or dispatchers to this region.</div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Selected Region</label>
+                    <div style={{ fontWeight: 700 }}>{regions.find((r) => r.id === regionId)?.name ?? (regionId ? regionId : "None selected")}</div>
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Role</label>
+                    <select className="admin-form-input" value={newAssignRole} onChange={(e) => setNewAssignRole(e.target.value)}>
+                      <option value="site_manager">site_manager</option>
+                      <option value="dispatcher">dispatcher</option>
+                    </select>
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Available Users</label>
+                    <select className="admin-form-input" value={newAssignUserId} onChange={(e) => setNewAssignUserId(e.target.value)}>
+                      <option value="">Select an available user...</option>
+                      {availableUsers.map((u) => (
+                        <option key={u.authUserId} value={u.authUserId}>
+                          {u.name} ({u.role}) - {u.authUserId}
+                        </option>
+                      ))}
+                    </select>
+                    {loadingAvailableUsers ? (
+                      <div style={{ color: "var(--admin-text-soft)", marginTop: 6 }}>Loading available users...</div>
+                    ) : availableUsers.length === 0 ? (
+                      <div style={{ color: "var(--admin-text-soft)", marginTop: 6 }}>No available users for this role in the selected region.</div>
+                    ) : null}
+                  </div>
+
+                  <div className="admin-form-group">
+                    <label className="admin-form-label">Expires At (optional)</label>
+                    <input className="admin-form-input" type="datetime-local" value={newAssignExpiry ?? ""} onChange={(e) => setNewAssignExpiry(e.target.value || undefined)} />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="admin-btn admin-btn-accent" onClick={handleCreateRegionAssignment}>Assign</button>
+                    <button className="admin-btn admin-btn-ghost" onClick={() => { setNewAssignUserId(""); setNewAssignExpiry(undefined); }}>Clear</button>
+                  </div>
+
+                  <div style={{ marginTop: 8 }}>
+                    {loadingAssignments ? (
+                      <div style={{ color: "var(--admin-text-soft)" }}>Loading assignments...</div>
+                    ) : assignments.length === 0 ? (
+                      <div style={{ color: "var(--admin-text-soft)" }}>No assignments for this region.</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {assignments.map((a) => (
+                          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.45rem", borderRadius: 6, background: "var(--admin-surface-low)" }}>
+                            <div>
+                              <div style={{ fontWeight: 700 }}>{a.name}</div>
+                              <div style={{ fontSize: "0.8rem", color: "var(--admin-text-soft)" }}>{a.role} - {a.assignedAt ? new Date(a.assignedAt).toLocaleString() : "just now"}</div>
+                            </div>
+                            <div>
+                              <button className="admin-btn admin-btn-ghost" onClick={() => handleDeleteRegionAssignment(a.id)}>Remove</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside>
+          <div className="admin-card">
+            <div className="admin-card-header"><div className="admin-card-title">Region Directory</div></div>
+            <div className="admin-card-body">
+              <MiniRegionMap regionsGeo={regionsGeo} shelters={shelters} selectedRegionId={regionId} onSelectRegion={(id) => setRegionId(id)} />
+              <div style={{ marginTop: 8, maxHeight: 120, overflowY: 'auto' }}>
+                {regions.length === 0 ? (
+                  <div style={{ color: 'var(--admin-text-soft)' }}>No regions found.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {regions.map((r) => (
+                      <button key={r.id} className="admin-btn admin-btn-ghost" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={() => setRegionId(r.id)}>
+                        <div style={{ textAlign: 'left' }}>
+                          <div style={{ fontWeight: 700 }}>{r.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--admin-text-soft)' }}>{r.currentPhase ?? ''}</div>
+                        </div>
+                        <div style={{ fontSize: '0.82rem', color: 'var(--admin-text-soft)' }}>Select</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// 
 //  ROOT ADMIN PORTAL
 // 
 export default function AdminPortal() {
@@ -3758,6 +4409,7 @@ export default function AdminPortal() {
     after_calamity: { title: "After Calamity", sub: "Post-disaster response, relief deployment and reporting" },
     disaster_monitoring: { title: "Disaster Monitoring", sub: "Live feeds, event tracking, forecast analysis" },
     early_warning: { title: "Early Warning System", sub: "Configure and broadcast calamity warnings" },
+    persona_controls: { title: "Persona Phase Controls", sub: "Per-region phase overrides for specific personas" },
     profile: { title: "My Profile", sub: "Account settings and password management" },
   };
 
@@ -3777,14 +4429,15 @@ export default function AdminPortal() {
 
         <div className="admin-sb-section">Navigation</div>
         <nav className="admin-sb-nav">
-          {([
-            { id: "overview", icon: "grid_view", label: "Overview" },
-            { id: "approvals", icon: "how_to_reg", label: "Approvals", badge: pending },
-            { id: "people_records", icon: "people", label: "People & Records" },
-            { id: "after_calamity", icon: "assignment_turned_in", label: "After Calamity" },
-            { id: "disaster_monitoring", icon: "crisis_alert", label: "Disaster Monitor" },
-            { id: "early_warning", icon: "broadcast_on_home", label: "Early Warning" },
-          ] as { id: AdminPage; icon: string; label: string; badge?: number }[]).map((item) => (
+            {([
+              { id: "overview", icon: "grid_view", label: "Overview" },
+              { id: "approvals", icon: "how_to_reg", label: "Approvals", badge: pending },
+              { id: "people_records", icon: "people", label: "People & Records" },
+              { id: "after_calamity", icon: "assignment_turned_in", label: "After Calamity" },
+              { id: "disaster_monitoring", icon: "crisis_alert", label: "Disaster Monitor" },
+              { id: "early_warning", icon: "broadcast_on_home", label: "Early Warning" },
+              { id: "persona_controls", icon: "groups", label: "Persona Phase Controls" },
+            ] as { id: AdminPage; icon: string; label: string; badge?: number }[]).map((item) => (
             <button
               key={item.id}
               className={`admin-nav-item ${page === item.id ? "active" : ""}`}
@@ -3931,6 +4584,9 @@ export default function AdminPortal() {
               setPage={setPage}
               authToken={session?.accessToken}
             />
+          )}
+          {page === "persona_controls" && (
+            <RegionPersonaControlsPage authToken={session?.accessToken} showToast={showToast} />
           )}
           {page === "profile" && (
             <ProfilePage profile={profile} onSave={handleProfileSave} showToast={showToast} />

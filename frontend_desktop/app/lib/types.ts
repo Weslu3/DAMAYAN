@@ -94,6 +94,9 @@ export interface CapacityCenter {
   availableSlots: number;
   utilizationRate: number;
   status: string;
+  maxManagers?: number;
+  description?: string;
+  assignedManagers?: Array<{ id: string; name: string }>;
 }
 
 export interface DisasterEvent {

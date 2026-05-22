@@ -28,4 +28,15 @@ export class CreateDispatchOrderDto {
   @IsOptional()
   @IsString()
   disasterId?: string;
+
+  @IsOptional()
+  @IsString()
+  externalVolunteerId?: string;
+
+  @IsOptional()
+  @IsString()
+  dispatcherAuthUserId?: string;
+
+  @IsOptional()
+  isExternalVolunteerDispatch?: boolean;
 }

@@ -13,6 +13,7 @@
     "@tailwindcss/forms": "latest",
     "autoprefixer": "latest",
     "leaflet": "^1.9.4",
+    "lucide-react": "^1.16.0",
     "next": "latest",
     "postcss": "latest",
     "react": "latest",

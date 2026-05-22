@@ -16,6 +16,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useCalamityContext } from '../hooks/useCalamityContext';
+import { reverseGeocodeNominatim } from '../lib/api';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001/api';
@@ -56,7 +57,11 @@ export function MapLibreDashboard({
   userRole,
   accessToken,
   shelterBoundary,
-}: MapLibreDashboardProps) {
+}: {
+  readonly userRole: 'dispatcher' | 'line_manager' | 'admin';
+  readonly accessToken: string;
+  readonly shelterBoundary?: ShelterBoundary;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null);
@@ -64,6 +69,7 @@ export function MapLibreDashboard({
   const markersRef = useRef<any[]>([]);
 
   const [incidents, setIncidents] = useState<IncidentPin[]>([]);
+  const [incidentAddressMap, setIncidentAddressMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -153,10 +159,10 @@ export function MapLibreDashboard({
         if (!cancelled) {
           setIncidents(body.data ?? body.incidents ?? []);
         }
-      } catch (err) {
+      } catch (error) {
         clearTimeout(timeout);
         if (!cancelled) {
-          setFetchError('Could not load incident data.');
+          setFetchError(error instanceof Error ? error.message : 'Could not load incident data.');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -175,6 +181,47 @@ export function MapLibreDashboard({
       if (interval) clearInterval(interval);
     };
   }, [accessToken, shouldTrackCityGPS]);
+
+  // ── Resolve readable incident addresses for map popups ───────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveAddresses = async () => {
+      const nextAddressMap: Record<string, string> = {};
+
+      await Promise.all(
+        incidents.map(async (incident) => {
+          if (incident.latitude == null || incident.longitude == null) {
+            return;
+          }
+
+          if (incident.resolved_address) {
+            nextAddressMap[incident.id] = incident.resolved_address;
+            return;
+          }
+
+          nextAddressMap[incident.id] = await reverseGeocodeNominatim(
+            incident.latitude,
+            incident.longitude,
+          );
+        }),
+      );
+
+      if (!cancelled) {
+        setIncidentAddressMap(nextAddressMap);
+      }
+    };
+
+    if (incidents.length > 0) {
+      void resolveAddresses();
+    } else {
+      setIncidentAddressMap({});
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [incidents]);
 
   // ── Plot markers whenever incidents or the map change ─────────────────────
   useEffect(() => {
@@ -198,7 +245,7 @@ export function MapLibreDashboard({
           ? pinnable.filter((inc) => {
               const dlat = inc.latitude - shelterBoundary.latitude;
               const dlng = inc.longitude - shelterBoundary.longitude;
-              return Math.sqrt(dlat * dlat + dlng * dlng) < 0.018;
+              return Math.hypot(dlat, dlng) < 0.018;
             })
           : pinnable;
 
@@ -216,17 +263,18 @@ export function MapLibreDashboard({
           .bindPopup(
             `<div style="font-size:12px;line-height:1.6;min-width:160px">
               <strong>${(inc.severity ?? 'INCIDENT').toUpperCase()}</strong><br/>
-              ${inc.resolved_address ?? `${inc.latitude.toFixed(5)}, ${inc.longitude.toFixed(5)}`}<br/>
+              ${incidentAddressMap[inc.id] ?? inc.resolved_address ?? `${inc.latitude.toFixed(5)}, ${inc.longitude.toFixed(5)}`}<br/>
               <span style="color:#6B7280">Status: ${inc.status ?? '—'}</span>
             </div>`,
             { maxWidth: 240 },
           )
-          .addTo(mapRef.current!);
+          .addTo(mapRef.current);
 
         markersRef.current.push(marker);
       });
     });
-  }, [incidents, userRole, shelterBoundary]);
+
+  }, [incidents, userRole, shelterBoundary, incidentAddressMap]);
 
   return (
     <div className="flex flex-col h-full gap-2">
@@ -278,20 +326,20 @@ export function MapLibreDashboard({
       {/* Legend */}
       <div className="flex flex-wrap gap-4 px-1 text-xs text-gray-500">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full bg-red-600" />
+          <span className="inline-block w-3 h-3 rounded-full bg-red-600" />{" "}
           High / Critical
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full bg-amber-500" />
+          <span className="inline-block w-3 h-3 rounded-full bg-amber-500" />{" "}
           Moderate
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full bg-green-600" />
+          <span className="inline-block w-3 h-3 rounded-full bg-green-600" />{" "}
           Low
         </span>
         {userRole === 'line_manager' && (
           <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-400 bg-blue-100" />
+            <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-400 bg-blue-100" />{" "}
             Shelter radius (500 m)
           </span>
         )}

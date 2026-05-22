@@ -16,9 +16,10 @@ import {
 import MapView, { Marker, type Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
+import { getApiBaseUrl } from '../api';
+import { formatCoordinates, resolveReadableAddress } from '../utils/geoUtils';
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:3001/api';
+const API_BASE_URL = getApiBaseUrl();
 
 export interface CitizenLocationPayload {
   latitude: number;
@@ -32,11 +33,16 @@ interface CitizenMaplibreScannerProps {
   onCancel?: () => void;
 }
 
-async function resolveAddressFromApi(
+async function resolveAddress(
   coords: { latitude: number; longitude: number },
   accessToken: string,
 ): Promise<string> {
-  const fallback = `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`;
+  const nativeAddress = await resolveReadableAddress(coords);
+  const fallback = formatCoordinates(coords);
+  if (nativeAddress !== fallback) {
+    return nativeAddress;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
   try {
@@ -115,7 +121,7 @@ export function CitizenMaplibreScanner({
 
         // Pre-resolve the device address
         setResolving(true);
-        const address = await resolveAddressFromApi(coords, accessToken);
+        const address = await resolveAddress(coords, accessToken);
         setResolvedAddress(address);
         setResolving(false);
       } catch {
@@ -135,7 +141,7 @@ export function CitizenMaplibreScanner({
     setPinCoords(coords);
     setResolvedAddress(null);
     setResolving(true);
-    const address = await resolveAddressFromApi(coords, accessToken);
+    const address = await resolveAddress(coords, accessToken);
     setResolvedAddress(address);
     setResolving(false);
   };
@@ -147,7 +153,7 @@ export function CitizenMaplibreScanner({
     }
     setSubmitting(true);
     const address =
-      resolvedAddress ?? (await resolveAddressFromApi(pinCoords, accessToken));
+      resolvedAddress ?? (await resolveAddress(pinCoords, accessToken));
     setSubmitting(false);
     onSubmit({ ...pinCoords, resolved_address: address });
   };

@@ -120,6 +120,7 @@ export default function UnifiedLoginPage() {
           <div className="login-hero-copy">
             <div className="login-eyebrow">
               <span className="login-eyebrow-dot" />
+              {" "}
               Philippines Disaster Response
             </div>
             <h1 className="login-headline">
@@ -135,14 +136,17 @@ export default function UnifiedLoginPage() {
           <div className="login-features">
             <div className="login-feature-pill">
               <span className="material-symbols-outlined">shield</span>
+              {" "}
               Role-Based Access
             </div>
             <div className="login-feature-pill">
               <span className="material-symbols-outlined">speed</span>
+              {" "}
               Real-Time Dispatch
             </div>
             <div className="login-feature-pill">
               <span className="material-symbols-outlined">monitoring</span>
+              {" "}
               Live Analytics
             </div>
           </div>
@@ -155,6 +159,7 @@ export default function UnifiedLoginPage() {
           <header className="login-card-header">
             <span className="login-card-badge">
               <span className="material-symbols-outlined" style={{ fontSize: '0.85rem' }}>lock</span>
+              {" "}
               Command Center
             </span>
             <h2 className="login-card-title">Welcome Back</h2>
@@ -163,7 +168,7 @@ export default function UnifiedLoginPage() {
             </p>
           </header>
 
-          <form onSubmit={handleLogin} className="login-form">
+          <form onSubmit={handleLogin} className="login-form" suppressHydrationWarning>
             <div className="login-field">
               <label htmlFor="login-email" className="login-field-label">Email Address</label>
               <div className="login-input-wrap">
@@ -223,6 +228,7 @@ export default function UnifiedLoginPage() {
             <p className="login-footer-text">Don't have an account yet?</p>
             <Link href="/signup" className="login-register-btn">
               <span className="material-symbols-outlined">person_add</span>
+              {" "}
               Register for Command Center
             </Link>
           </div>
