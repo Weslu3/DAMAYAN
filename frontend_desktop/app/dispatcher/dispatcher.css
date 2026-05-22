@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 /* â”€â”€â”€ Dispatcher Portal CSS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Design language: identical structure to citizen portal
    Color scheme: warm cream bg + orange primary (vs green for citizen)
@@ -6,12 +8,20 @@
 
 /* â”€â”€ TOKENS â”€â”€ */
 :root {
+  /* Enhanced Design Tokens for Visual Polish */
+  
+  /* Background & Surface */
   --d-bg: #f5f7f5;
   --d-surface: #ffffff;
   --d-surface-low: #ecf0ec;
   --d-surface-mid: #dfe5df;
+  --d-gradient-surface: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(46, 125, 50, 0.02));
+  
+  /* Borders */
   --d-border: rgba(46, 125, 50, 0.08);
   --d-border-strong: rgba(46, 125, 50, 0.16);
+  
+  /* Text */
   --d-text: #1e251f;
   --d-text-muted: #4f5850;
   --d-text-sub: #7b857d;
@@ -36,11 +46,28 @@
   --d-purple: #6a1b9a;
   --d-purple-bg: rgba(106, 27, 154, 0.1);
 
+  /* Border Radius */
   --d-radius-sm: 8px;
   --d-radius: 16px;
   --d-radius-lg: 24px;
-  --d-shadow: 0 8px 32px rgba(46, 125, 50, 0.04);
-  --d-shadow-lg: 0 16px 48px rgba(46, 125, 50, 0.08);
+  
+  /* Shadows - Enhanced */
+  --d-shadow: 0 8px 24px rgba(46, 125, 50, 0.05), 0 2px 6px rgba(46, 125, 50, 0.02);
+  --d-shadow-lg: 0 16px 40px rgba(46, 125, 50, 0.08), 0 4px 12px rgba(46, 125, 50, 0.03);
+  --d-shadow-glow: 0 0 20px rgba(46, 125, 50, 0.15);
+  --d-shadow-glow-red: 0 0 20px rgba(211, 47, 47, 0.15);
+  --d-gradient-surface: linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(246,250,246,1) 100%);
+  --d-shadow-xl: 0 24px 64px rgba(46, 125, 50, 0.1);
+  --d-shadow-glow: 0 0 24px rgba(46, 125, 50, 0.15);
+  
+  /* Transitions - Smooth & Professional */
+  --d-transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --d-transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  --d-transition-slow: all 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Backdrop */
+  --d-backdrop-blur: blur(16px);
+  --d-backdrop-strong-blur: blur(24px);
 }
 
 /* â”€â”€ GLOBAL RESET for dispatcher pages â”€â”€ */
@@ -48,7 +75,9 @@
   box-sizing: border-box;
 }
 .dp-page {
-  font-family: "Public Sans", sans-serif;
+  font-family: "Inter", "Public Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -787,7 +816,7 @@
 
 .dp-clock {
   font-size: 0.75rem;
-  font-family: "DM Mono", monospace;
+  font-family: 'JetBrains Mono', 'DM Mono', monospace;
   color: var(--d-text-sub);
   background: #f6faf6;
   padding: 0.34rem 0.75rem;
@@ -2622,29 +2651,15 @@
   min-height: 86px;
 }
 
-.dp-rescue-kpi-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: var(--d-primary);
-}
+.dp-rescue-kpi-card::before { content: none; }
 
-.dp-rescue-kpi-card.active {
-  background: linear-gradient(135deg, rgba(46, 125, 50, 0.1), #fff 62%);
-}
+.dp-rescue-kpi-card.active { background: var(--d-surface); }
 
-.dp-rescue-kpi-card.resolved {
-  background: linear-gradient(135deg, rgba(25, 118, 210, 0.1), #fff 62%);
-}
+.dp-rescue-kpi-card.resolved { background: var(--d-surface); }
 
-.dp-rescue-kpi-card.resolved::before {
-  background: var(--d-blue);
-}
+.dp-rescue-kpi-card.resolved::before { content: none; }
 
-.dp-rescue-kpi-card.situation::before {
-  background: var(--d-border-strong);
-}
+.dp-rescue-kpi-card.situation::before { content: none; }
 
 .dp-rescue-kpi-top {
   display: flex;
@@ -3596,7 +3611,9 @@
 }
 
 .dp-map-incident-tooltip {
-  font-family: "Public Sans", sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-width: 180px;
 }
 
@@ -3631,7 +3648,9 @@
 }
 
 .dp-map-popup {
-  font-family: "Public Sans", sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-width: 190px;
 }
 
@@ -3888,7 +3907,7 @@
 }
 
 .dp-incident-overview-id {
-  font-family: "DM Mono", monospace;
+  font-family: 'JetBrains Mono', 'DM Mono', monospace;
   font-size: 0.77rem;
   font-weight: 800;
   color: var(--d-primary);
@@ -5297,7 +5316,7 @@
 }
 
 .dp-live-activity-id {
-  font-family: "DM Mono", monospace;
+  font-family: 'JetBrains Mono', 'DM Mono', monospace;
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--d-text-sub);
@@ -5708,4 +5727,87 @@
   display: flex;
   gap: 0.45rem;
   flex-shrink: 0;
+}
+
+/* ============================
+   ENHANCED ANIMATIONS
+   ============================ */
+@keyframes dp-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dp-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes dp-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes dp-critical-pulse {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(211, 47, 47, 0.04); }
+}
+
+@keyframes dp-shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+@keyframes dp-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dp-count-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Stat value animated entrance */
+.dp-stat-value {
+  animation: dp-count-up 0.4s ease-out;
+}
+
+/* Empty state enhancement */
+.dp-empty-state {
+  animation: dp-fade-in 0.4s ease-out;
+}
+
+/* Button press micro-interaction */
+.dp-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Smoother avatar dropdown */
+.dp-avatar-dropdown {
+  animation: dp-fade-in 0.15s ease-out;
+}
+
+/* Filter pill hover */
+.dp-filter-pill:hover {
+  border-color: var(--d-primary);
+  color: var(--d-primary);
+}
+
+/* Modal close button hover */
+.dp-modal-close:hover {
+  background: var(--d-surface-mid);
+  border-color: var(--d-border-strong);
+  color: var(--d-text);
 }

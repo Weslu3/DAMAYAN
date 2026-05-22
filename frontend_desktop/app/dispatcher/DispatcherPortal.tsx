@@ -101,8 +101,58 @@ function Modal({
   );
 }
 
-function Toast({ msg }: { msg: string }) {
-  return <div className="dp-toast">{msg}</div>;
+function CountUp({ end, duration = 1000 }: { end: number | string; duration?: number }) {
+  const [count, setCount] = useState(0);
+  const numEnd = typeof end === 'string' ? parseInt(end.replace(/,/g, ''), 10) : end;
+  
+  useEffect(() => {
+    if (isNaN(numEnd)) return;
+    let startTimestamp: number | null = null;
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      setCount(Math.floor(progress * numEnd));
+      if (progress < 1) {
+        window.requestAnimationFrame(step);
+      } else {
+        setCount(numEnd);
+      }
+    };
+    window.requestAnimationFrame(step);
+  }, [numEnd, duration]);
+  
+  if (isNaN(numEnd)) return <>{end}</>;
+  return <>{count.toLocaleString()}</>;
+}
+
+function Toast({ msg, type = "success", duration = 3000 }: { msg: string; type?: "success" | "error" | "warning"; duration?: number }) {
+  const [show, setShow] = useState(true);
+  const [isExiting, setIsExiting] = useState(false);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsExiting(true);
+      setTimeout(() => setShow(false), 300);
+    }, duration);
+    return () => clearTimeout(timer);
+  }, [duration]);
+  
+  if (!show) return null;
+  
+  const iconMap = {
+    success: "✓",
+    error: "✕",
+    warning: ""
+  };
+  
+  const classNames = `dp-toast dp-toast-${type}${isExiting ? " dp-toast-exiting" : ""}`;
+  
+  return (
+    <div className={classNames}>
+      <span className="dp-toast-icon">{iconMap[type]}</span>
+      <span className="dp-toast-message">{msg}</span>
+    </div>
+  );
 }
 
 function QueueFilterDropdown<T extends string>({
@@ -195,11 +245,15 @@ function addMins(timeStr: string, mins: number): string {
 
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
-  const show = (m: string) => {
+  const [type, setType] = useState<"success" | "error" | "warning">("success");
+  
+  const show = (m: string, t: "success" | "error" | "warning" = "success") => {
     setMsg(m);
-    setTimeout(() => setMsg(null), 2800);
+    setType(t);
+    setTimeout(() => setMsg(null), 3200);
   };
-  return { msg, show };
+  
+  return { msg, type, show };
 }
 
 function formatDateForInput(dateLike: string) {
@@ -511,7 +565,7 @@ function LoginPage({
                     </button>
                   </div>
                   <div className="dp-login-note">
-                    ⏳ After submission, wait for admin approval before
+                     After submission, wait for admin approval before
                     accessing the portal.
                   </div>
                   <p className="dp-login-switch">
@@ -905,7 +959,7 @@ function DutyStatusNotificationListener() {
       // Randomly trigger a notification every 15 seconds (for demo)
       if (Math.random() > 0.7) {
         const notification = notifications[Math.floor(Math.random() * notifications.length)];
-        toast.show(`🔔 NOTIFICATION: ${notification.name} ${notification.status}`);
+        toast.show(` NOTIFICATION: ${notification.name} ${notification.status}`);
         setLastNotification({
           name: notification.name,
           status: notification.statusType,
@@ -1330,7 +1384,6 @@ function ResourceMapPage({
   const [selectedBarangay, setSelectedBarangay] = useState<BarangayDemographics | null>(
     MOCK_BARANGAY_DATA[0] ?? null,
   );
-  const [mapSearch, setMapSearch] = useState("");
   const [selInc, setSelInc] = useState<Incident | null>(dispatchTarget);
   const [assigned, setAssigned] = useState<string[]>(
     dispatchTarget?.assignedUnits ?? [],
@@ -1404,18 +1457,14 @@ function ResourceMapPage({
   const filteredMapUnits = units.filter((u) => {
     if (filterType !== "All" && u.type !== filterType) return false;
     if (showAvailableOnly && u.status !== "Available") return false;
-    if (!mapSearch.trim()) return true;
-    const haystack = [u.id, u.name, u.station, u.teamLeader].join(" ").toLowerCase();
-    return haystack.includes(mapSearch.trim().toLowerCase());
+    return true;
   });
 
   const filteredMapIncidents = incidents.filter((i) => {
     if (districtFilter && i.city !== districtFilter && i.barangay !== districtFilter) {
       return false;
     }
-    if (!mapSearch.trim()) return true;
-    const haystack = [i.id, i.type, i.location, i.address].join(" ").toLowerCase();
-    return haystack.includes(mapSearch.trim().toLowerCase());
+    return true;
   });
 
   const mapStats = {
@@ -1551,12 +1600,6 @@ function ResourceMapPage({
             />
             Available only
           </label>
-          <input
-            className="dp-input dp-map-search"
-            placeholder="Search volunteer, station, incident..."
-            value={mapSearch}
-            onChange={(e) => setMapSearch(e.target.value)}
-          />
           {mapMode === "dispatch" && selInc && assigned.length > 0 && (
             <button
               className="dp-btn dp-btn-green dp-btn-sm"
@@ -2009,7 +2052,7 @@ function RescueMonitoringPage({
   const [suppressAutoSelect, setSuppressAutoSelect] = useState(false);
   const [backupModal, setBackupModal] = useState<Incident | null>(null);
   const [escalateModal, setEscalateModal] = useState<Incident | null>(null);
-  const [backupNote, setBackupNote] = useState("");
+  const [selectedVolunteers, setSelectedVolunteers] = useState<string[]>([]);
   const [mapKey, setMapKey] = useState(0);
   const [afterCalamityInc, setAfterCalamityInc] = useState<Incident | null>(
     null,
@@ -2067,7 +2110,7 @@ function RescueMonitoringPage({
 
   const resolvedCount = incidents.filter((i) => i.status === "Resolved").length;
   const situationCounts = (
-    ["Under Control", "Escalating", "Critical"] as SituationType[]
+    ["Escalating", "Critical"] as SituationType[]
   ).map((s) => ({
     label: s,
     color: situationColor(s),
@@ -2129,9 +2172,9 @@ function RescueMonitoringPage({
       <div className="dp-rescue-content-grid">
         <div className="dp-incidents-map">
           <div className="dp-map-header">
-            <span className="dp-map-header-title">🛡 Rescue Monitoring</span>
+            <span className="dp-map-header-title"> Rescue Monitoring</span>
           </div>
-          <div style={{ flex: selInc ? "0 0 45%" : "1", minHeight: 0 }}>
+          <div style={{ flex: "1", minHeight: 0 }}>
             <LiveMap
               mode="rescue"
               incidents={incidents}
@@ -2141,19 +2184,6 @@ function RescueMonitoringPage({
               height="100%"
             />
           </div>
-          {selInc && (
-            <div style={{ flex: 1, overflowY: "auto", background: "var(--d-bg)" }}>
-              <RescueDetailPanel
-                inc={selInc}
-                units={units}
-                onBackup={() => setBackupModal(selInc)}
-                onEscalate={() => setEscalateModal(selInc)}
-                onResolve={() => handleResolve(selInc)}
-                onClose={() => setSelInc(null)}
-                status={status}
-              />
-            </div>
-          )}
         </div>
 
         <div className="dp-incidents-list">
@@ -2249,9 +2279,9 @@ function RescueMonitoringPage({
           title={`Request Backup — ${shortenId(backupModal.id)}`}
           onClose={() => {
             setBackupModal(null);
-            setBackupNote("");
+            setSelectedVolunteers([]);
           }}
-          width={460}
+          width={520}
         >
           <div
             className="dp-alert dp-alert-amber"
@@ -2260,15 +2290,122 @@ function RescueMonitoringPage({
             {backupModal.type} · {backupModal.address} — Situation:{" "}
             {backupModal.situationType}
           </div>
-          <label className="dp-label">Backup request note</label>
-          <textarea
-            className="dp-textarea"
-            rows={3}
-            value={backupNote}
-            onChange={(e) => setBackupNote(e.target.value)}
-            placeholder="Describe why backup is needed..."
-            style={{ width: "100%", marginBottom: "1rem" }}
-          />
+          <label className="dp-label">Available Volunteers for Deployment</label>
+          <div style={{ marginBottom: "1rem" }}>
+            {(() => {
+              const availableUnits = units.filter((u) => u.status === "Available" && !backupModal.assignedUnits.includes(u.id));
+              if (availableUnits.length === 0) {
+                return (
+                  <div
+                    style={{
+                      padding: "1rem",
+                      background: "var(--d-surface-low)",
+                      borderRadius: "0.6rem",
+                      textAlign: "center",
+                      color: "var(--d-text-sub)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    No available volunteers at this time. All units are deployed.
+                  </div>
+                );
+              }
+              return (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr",
+                    gap: "0.6rem",
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {availableUnits.map((unit) => (
+                    <div
+                      key={unit.id}
+                      onClick={() => {
+                        setSelectedVolunteers((prev) =>
+                          prev.includes(unit.id)
+                            ? prev.filter((id) => id !== unit.id)
+                            : [...prev, unit.id]
+                        );
+                      }}
+                      style={{
+                        padding: "0.85rem",
+                        background: selectedVolunteers.includes(unit.id)
+                          ? "var(--d-primary-light)"
+                          : "var(--d-surface)",
+                        border: selectedVolunteers.includes(unit.id)
+                          ? "2px solid var(--d-primary)"
+                          : "1px solid var(--d-border)",
+                        borderRadius: "0.6rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                          marginBottom: "0.4rem",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedVolunteers.includes(unit.id)}
+                          onChange={() => {}}
+                          style={{ cursor: "pointer" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
+                            {unit.name}
+                          </div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)" }}>
+                            {unit.station}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            color: "#2e7d32",
+                            background: "rgba(46, 125, 50, 0.1)",
+                            padding: "0.3rem 0.6rem",
+                            borderRadius: "12px",
+                          }}
+                        >
+                          {unit.status}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr 1fr",
+                          gap: "0.5rem",
+                          fontSize: "0.75rem",
+                          color: "var(--d-text-muted)",
+                        }}
+                      >
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Personnel:</span> {unit.personnel}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Distance:</span> {unit.distance}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>ETA:</span> {unit.eta}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: "0.4rem", fontSize: "0.75rem", color: "var(--d-text-muted)" }}>
+                        <strong>Leader:</strong> {unit.teamLeader} · <strong>Contact:</strong> {unit.contact}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
           <div
             style={{
               display: "flex",
@@ -2280,22 +2417,29 @@ function RescueMonitoringPage({
               className="dp-btn dp-btn-ghost"
               onClick={() => {
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
               Cancel
             </button>
             <button
               className="dp-btn dp-btn-orange"
-              disabled={!backupNote.trim()}
+              disabled={selectedVolunteers.length === 0}
               onClick={() => {
-                onUpdate(backupModal.id, { situationType: "Escalating" });
-                toast.show(`Backup requested for ${shortenId(backupModal.id)}`);
+                const selectedUnitNames = selectedVolunteers
+                  .map((id) => units.find((u) => u.id === id)?.name)
+                  .filter(Boolean)
+                  .join(", ");
+                onUpdate(backupModal.id, { 
+                  situationType: "Escalating",
+                  assignedUnits: [...new Set([...backupModal.assignedUnits, ...selectedVolunteers])]
+                });
+                toast.show(`Backup requested: ${selectedUnitNames}`);
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
-              Send Volunteer Backup Request
+              Deploy Selected Volunteers ({selectedVolunteers.length})
             </button>
           </div>
         </Modal>
@@ -2353,6 +2497,27 @@ function RescueMonitoringPage({
             >
               Confirm Escalation
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Incident Detail Modal */}
+      {selInc && (
+        <Modal
+          title={`${shortenId(selInc.id)} — ${selInc.type}`}
+          onClose={() => setSelInc(null)}
+          width={820}
+        >
+          <div style={{ maxHeight: "75vh", overflowY: "auto" }}>
+            <CompactIncidentDetails
+              inc={selInc}
+              units={units}
+              onBackup={() => setBackupModal(selInc)}
+              onEscalate={() => setEscalateModal(selInc)}
+              onResolve={() => handleResolve(selInc)}
+              onClose={() => setSelInc(null)}
+              status={status}
+            />
           </div>
         </Modal>
       )}
@@ -2638,6 +2803,270 @@ function RescueMonitoringPage({
   );
 }
 
+// Compact incident details — optimized for modal display
+function CompactIncidentDetails({
+  inc,
+  units,
+  onBackup,
+  onEscalate,
+  onResolve,
+  onClose,
+  status,
+}: {
+  inc: Incident;
+  units: Unit[];
+  onBackup: () => void;
+  onEscalate: () => void;
+  onResolve: () => void;
+  onClose: () => void;
+  status: "active" | "inactive";
+}) {
+  const isInactive = status === "inactive";
+  const assigned = inc.assignedUnits
+    .map((id) => units.find((u) => u.id === id))
+    .filter(Boolean) as Unit[];
+  const sc = situationColor(inc.situationType);
+
+  // Victims
+  const victimData = [
+    { name: "Victim 1", condition: "Critical", color: "#c62828", status: "Trapped" },
+    { name: "Victim 2", condition: "Injured", color: "#c77700", status: "Awaiting rescue" },
+    { name: "Victim 3", condition: "Safe", color: "#2e7d32", status: "Evacuated" },
+  ].slice(0, inc.category === "MEDIC" ? 2 : 3);
+
+  // Hospitals
+  const hospitals = [
+    { name: "UERM Medical Center", dist: "1.2 km", eta: "4 mins", cap: "Available", capColor: "#2e7d32" },
+    { name: "UST Hospital", dist: "2.1 km", eta: "7 mins", cap: "Available", capColor: "#2e7d32" },
+  ];
+
+  return (
+    <div style={{ background: "var(--d-bg)", borderRadius: "0.75rem" }}>
+      {/* Action Buttons — Top Priority */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: "0.8rem",
+          padding: "1rem",
+          background: "var(--d-surface-low)",
+          borderRadius: "0.75rem",
+          marginBottom: "1rem",
+        }}
+      >
+        {inc.situationType !== "Critical" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", alignItems: "center" }}>
+            <button
+              className="dp-btn dp-btn-sm dp-btn-outline-amber"
+              disabled={isInactive}
+              style={{ fontSize: "0.85rem", fontWeight: 600, opacity: isInactive ? 0.5 : 1, padding: "0.6rem 0.8rem", textAlign: "center", width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+              onClick={onBackup}
+            >
+              Request Backup
+            </button>
+            <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", textAlign: "center" }}>
+              Deploy additional units
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", alignItems: "center" }}>
+          <button
+            className="dp-btn dp-btn-sm dp-btn-outline-red"
+            disabled={isInactive}
+            style={{ fontSize: "0.85rem", fontWeight: 600, opacity: isInactive ? 0.5 : 1, padding: "0.6rem 0.8rem", textAlign: "center", width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={onEscalate}
+          >
+            Escalate Priority
+          </button>
+          <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", textAlign: "center" }}>
+            Alert command center
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", alignItems: "center" }}>
+          <button
+            className="dp-btn dp-btn-sm dp-btn-outline-green"
+            disabled={isInactive}
+            style={{ fontSize: "0.85rem", fontWeight: 600, opacity: isInactive ? 0.5 : 1, padding: "0.6rem 0.8rem", textAlign: "center", width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={onResolve}
+          >
+            Close Incident
+          </button>
+          <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", textAlign: "center" }}>
+            Mark as resolved
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Status Indicators */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: "0.6rem",
+          marginBottom: "1rem",
+        }}
+      >
+        {[
+          { label: "Situation", val: inc.situationType, color: sc },
+          { label: "Active", val: `${inc.timeActive} min`, color: "var(--d-text)" },
+          { label: "Volunteers", val: assigned.length.toString(), color: "var(--d-text)" },
+          { label: "Victims", val: victimData.length.toString(), color: "#c62828" },
+        ].map((s) => (
+          <div
+            key={s.label}
+            style={{
+              padding: "0.75rem",
+              background: "var(--d-surface)",
+              borderRadius: "0.6rem",
+              textAlign: "center",
+              border: "1px solid var(--d-border)",
+            }}
+          >
+            <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", marginBottom: "0.3rem" }}>
+              {s.label}
+            </div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 800, color: s.color }}>
+              {s.val}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Location & Critical Details */}
+      <div
+        style={{
+          padding: "0.85rem",
+          background: "var(--d-surface)",
+          borderRadius: "0.6rem",
+          marginBottom: "1rem",
+          border: "1px solid var(--d-border)",
+        }}
+      >
+        <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.4rem", fontWeight: 700 }}>
+          LOCATION & DETAILS
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+          {[
+            ["Incident", inc.type],
+            ["Address", inc.address + ", " + inc.city],
+            ["Time Reported", `${inc.dateReported} ${inc.timeReported}`],
+          ].map(([l, v]) => (
+            <div key={l} style={{ display: "flex", gap: "0.5rem", fontSize: "0.8rem" }}>
+              <span style={{ minWidth: 70, color: "var(--d-text-sub)", flexShrink: 0, fontWeight: 700 }}>
+                {l}
+              </span>
+              <span style={{ color: "var(--d-text)", fontWeight: 500 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Victims Status */}
+      {victimData.length > 0 && (
+        <div
+          style={{
+            padding: "0.85rem",
+            background: "var(--d-surface)",
+            borderRadius: "0.6rem",
+            marginBottom: "1rem",
+            border: "1px solid var(--d-border)",
+          }}
+        >
+          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.5rem", fontWeight: 700 }}>
+            VICTIM STATUS ({victimData.length})
+          </div>
+          {victimData.map((v, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: v.color,
+                  flexShrink: 0,
+                }}
+              />
+              <div style={{ flex: 1 }}>
+                <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--d-text)" }}>{v.name}</span>
+                <span style={{ fontSize: "0.7rem", color: "var(--d-text-sub)", marginLeft: "0.5rem" }}>
+                  {v.condition} · {v.status}
+                </span>
+              </div>
+              {hospitals[0] && (
+                <div style={{ fontSize: "0.7rem", color: "var(--d-text-sub)", textAlign: "right" }}>
+                  <div style={{ fontWeight: 700 }}>{hospitals[0].name}</div>
+                  <div>{hospitals[0].dist} · {hospitals[0].eta}</div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Assigned Teams */}
+      {assigned.length > 0 && (
+        <div
+          style={{
+            padding: "0.85rem",
+            background: "var(--d-surface)",
+            borderRadius: "0.6rem",
+            marginBottom: "1rem",
+            border: "1px solid var(--d-border)",
+          }}
+        >
+          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.5rem", fontWeight: 700 }}>
+            ASSIGNED VOLUNTEERS ({assigned.length})
+          </div>
+          {assigned.map((u) => {
+            const uc = unitTypeColor(u.type);
+            return (
+              <div
+                key={u.id}
+                style={{
+                  padding: "0.6rem",
+                  background: "var(--d-surface-low)",
+                  borderLeft: `3px solid ${uc}`,
+                  borderRadius: 6,
+                  marginBottom: "0.5rem",
+                  fontSize: "0.8rem",
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: "0.2rem" }}>
+                  {UNIT_TYPE_ICON[u.type]} {u.name}
+                </div>
+                <div style={{ color: "var(--d-text-sub)", fontSize: "0.75rem" }}>
+                  Leader: {u.teamLeader} · {u.personnel} personnel · {u.station}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Description */}
+      {inc.description && (
+        <div
+          style={{
+            padding: "0.85rem",
+            background: "var(--d-surface)",
+            borderRadius: "0.6rem",
+            marginBottom: "1rem",
+            border: "1px solid var(--d-border)",
+            fontSize: "0.8rem",
+            color: "var(--d-text)",
+            lineHeight: 1.55,
+          }}
+        >
+          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.4rem", fontWeight: 700 }}>
+            DESCRIPTION
+          </div>
+          {inc.description}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Rescue detail panel — comprehensive real-time rescue monitoring view
 function RescueDetailPanel({
   inc,
@@ -2744,7 +3173,7 @@ function RescueDetailPanel({
           msg: inc.notes,
           actor: "Field Officer",
           color: "#6a1b9a",
-          icon: "📝",
+          icon: "",
         },
       ]
       : []),
@@ -2780,7 +3209,7 @@ function RescueDetailPanel({
           type: "alert",
           time: addMins(dispatchTime, 8),
           from: "System Alert",
-          msg: `⚠ Situation escalated to CRITICAL at ${inc.location}. All nearby volunteers on standby.`,
+          msg: ` Situation escalated to CRITICAL at ${inc.location}. All nearby volunteers on standby.`,
         },
       ]
       : []),
@@ -2833,7 +3262,7 @@ function RescueDetailPanel({
     ...assigned
       .filter((u) => u.type === "FIELD")
       .map((u) => ({
-        icon: "🚒",
+        icon: "",
         name: u.name,
         status: "On Scene",
         detail: `${u.personnel} firefighters · Hydraulic tools, breathing apparatus`,
@@ -3470,7 +3899,7 @@ function RescueDetailPanel({
                 disabled={isInactive}
                 onClick={() => { }}
               >
-                <span style={{ fontSize: "1.1rem" }}>↗</span>
+                <span style={{ fontSize: "1.1rem" }}></span>
                 <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>
                   Redirect Teams
                 </span>
@@ -3532,16 +3961,7 @@ function IncidentsPage({
   onDispatch: (inc: Incident) => void;
   status: "active" | "inactive";
 }) {
-  type IncidentQueueFilter =
-    | "All"
-    | "Needs Action"
-    | "In Progress"
-    | "Completed"
-    | "Invalid"
-    | "Critical"
-    | "High"
-    | "Medium"
-    | "Low";
+  type IncidentQueueFilter = "All" | string; // "All" or specific incident type from database
 
   const VISIBLE_INCIDENT_LIMIT = 6;
   const [queueFilter, setQueueFilter] = useState<IncidentQueueFilter>("All");
@@ -3552,8 +3972,16 @@ function IncidentsPage({
   const [suppressAutoSelect, setSuppressAutoSelect] = useState(false);
   const [backupModal, setBackupModal] = useState<Incident | null>(null);
   const [escalateModal, setEscalateModal] = useState<Incident | null>(null);
-  const [backupNote, setBackupNote] = useState("");
+  const [selectedVolunteers, setSelectedVolunteers] = useState<string[]>([]);
   const toast = useToast();
+
+  // Get unique incident types from the database
+  const uniqueIncidentTypes = Array.from(new Set(incidents.map((i) => i.type))).sort();
+  
+  const incidentTypeOptions = [
+    { value: "All", label: "All incidents" },
+    ...uniqueIncidentTypes.map((type) => ({ value: type, label: type })),
+  ];
 
   const clearIncidentFilters = () => {
     setSearchText("");
@@ -3576,14 +4004,8 @@ function IncidentsPage({
     }
     if (priorityFilter !== "All" && i.priority !== priorityFilter) return false;
     if (statusFilter !== "All" && i.status !== statusFilter) return false;
-    if (queueFilter === "Needs Action") return ["New", "Waiting", "Dispatched"].includes(i.status);
-    if (queueFilter === "In Progress") return ["In Progress", "Dispatched"].includes(i.status);
-    if (queueFilter === "Completed") return i.status === "Resolved";
-    if (queueFilter === "Invalid") return i.status === "Invalid";
-    if (queueFilter === "Critical") return i.priority === "CRITICAL";
-    if (queueFilter === "High") return i.priority === "HIGH";
-    if (queueFilter === "Medium") return i.priority === "MEDIUM";
-    if (queueFilter === "Low") return i.priority === "LOW";
+    // Filter by incident type from database
+    if (queueFilter !== "All" && i.type !== queueFilter) return false;
     return true;
   });
 
@@ -3722,17 +4144,7 @@ function IncidentsPage({
                 className="dp-incidents-filter-select"
                 value={queueFilter}
                 onChange={setQueueFilter}
-                options={[
-                  { value: "All", label: "All incidents" },
-                  { value: "Needs Action", label: "Needs action" },
-                  { value: "In Progress", label: "In progress" },
-                  { value: "Completed", label: "Completed" },
-                  { value: "Invalid", label: "Invalid" },
-                  { value: "Critical", label: "Critical" },
-                  { value: "High", label: "High" },
-                  { value: "Medium", label: "Medium" },
-                  { value: "Low", label: "Low" },
-                ]}
+                options={incidentTypeOptions}
               />
               <QueueFilterDropdown<IncidentPriority | "All">
                 className="dp-incidents-filter-select"
@@ -3756,8 +4168,6 @@ function IncidentsPage({
                   { value: "Waiting", label: "Waiting" },
                   { value: "Dispatched", label: "Dispatched" },
                   { value: "In Progress", label: "In Progress" },
-                  { value: "Resolved", label: "Resolved" },
-                  { value: "Invalid", label: "Invalid" },
                 ]}
               />
               <button
@@ -3848,7 +4258,6 @@ function IncidentsPage({
                       </div>
                       <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
                         <Badge label={inc.priority} cls={priorityClass(inc.priority)} />
-                        <Badge label={inc.status} cls={statusClass(inc.status)} />
                         <div style={{ marginLeft: "auto", display: "flex", gap: "0.4rem" }}>
                           <button
                             className="dp-btn dp-btn-ghost dp-btn-sm"
@@ -3869,7 +4278,7 @@ function IncidentsPage({
                           >Assign</button>
                           <button
                             className="dp-btn dp-btn-green dp-btn-sm"
-                            onClick={(e) => { e.stopPropagation(); if (inc.status === "Resolved" || inc.status === "Invalid") { toast.show("Already closed"); return; } if (status === "inactive") { toast.show("Action locked: go On Duty to update incidents."); return; } onUpdate(inc.id, { status: "Resolved", resolvedAt: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }) }); toast.show(`${shortenId(inc.id)} resolved`); if (selInc?.id === inc.id) setSelInc(null); }}
+                            onClick={async (e) => { e.stopPropagation(); if (inc.status === "Resolved" || inc.status === "Invalid") { toast.show("Already closed"); return; } if (status === "inactive") { toast.show("Action locked: go On Duty to update incidents."); return; } try { await onUpdate(inc.id, { status: "Resolved", resolvedAt: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }) }); toast.show(`${shortenId(inc.id)} resolved`); if (selInc?.id === inc.id) setSelInc(null); } catch (err) { console.error("Quick Resolve failed:", err); toast.show("Failed to resolve incident"); } }}
                           >Quick Resolve</button>
                         </div>
                       </div>
@@ -3915,9 +4324,9 @@ function IncidentsPage({
           title={`Request Backup — ${shortenId(backupModal.id)}`}
           onClose={() => {
             setBackupModal(null);
-            setBackupNote("");
+            setSelectedVolunteers([]);
           }}
-          width={460}
+          width={520}
         >
           <div
             className="dp-alert dp-alert-amber"
@@ -3926,15 +4335,122 @@ function IncidentsPage({
             {backupModal.type} · {backupModal.address} — Situation:{" "}
             {backupModal.situationType}
           </div>
-          <label className="dp-label">Backup request note</label>
-          <textarea
-            className="dp-textarea"
-            rows={3}
-            value={backupNote}
-            onChange={(e) => setBackupNote(e.target.value)}
-            placeholder="Describe why backup is needed..."
-            style={{ width: "100%", marginBottom: "1rem" }}
-          />
+          <label className="dp-label">Available Volunteers for Deployment</label>
+          <div style={{ marginBottom: "1rem" }}>
+            {(() => {
+              const availableUnits = units.filter((u) => u.status === "Available" && !backupModal.assignedUnits.includes(u.id));
+              if (availableUnits.length === 0) {
+                return (
+                  <div
+                    style={{
+                      padding: "1rem",
+                      background: "var(--d-surface-low)",
+                      borderRadius: "0.6rem",
+                      textAlign: "center",
+                      color: "var(--d-text-sub)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    No available volunteers at this time. All units are deployed.
+                  </div>
+                );
+              }
+              return (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr",
+                    gap: "0.6rem",
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {availableUnits.map((unit) => (
+                    <div
+                      key={unit.id}
+                      onClick={() => {
+                        setSelectedVolunteers((prev) =>
+                          prev.includes(unit.id)
+                            ? prev.filter((id) => id !== unit.id)
+                            : [...prev, unit.id]
+                        );
+                      }}
+                      style={{
+                        padding: "0.85rem",
+                        background: selectedVolunteers.includes(unit.id)
+                          ? "var(--d-primary-light)"
+                          : "var(--d-surface)",
+                        border: selectedVolunteers.includes(unit.id)
+                          ? "2px solid var(--d-primary)"
+                          : "1px solid var(--d-border)",
+                        borderRadius: "0.6rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                          marginBottom: "0.4rem",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedVolunteers.includes(unit.id)}
+                          onChange={() => {}}
+                          style={{ cursor: "pointer" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
+                            {unit.name}
+                          </div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)" }}>
+                            {unit.station}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            color: "#2e7d32",
+                            background: "rgba(46, 125, 50, 0.1)",
+                            padding: "0.3rem 0.6rem",
+                            borderRadius: "12px",
+                          }}
+                        >
+                          {unit.status}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr 1fr",
+                          gap: "0.5rem",
+                          fontSize: "0.75rem",
+                          color: "var(--d-text-muted)",
+                        }}
+                      >
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Personnel:</span> {unit.personnel}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Distance:</span> {unit.distance}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>ETA:</span> {unit.eta}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: "0.4rem", fontSize: "0.75rem", color: "var(--d-text-muted)" }}>
+                        <strong>Leader:</strong> {unit.teamLeader} · <strong>Contact:</strong> {unit.contact}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
           <div
             style={{
               display: "flex",
@@ -3946,22 +4462,29 @@ function IncidentsPage({
               className="dp-btn dp-btn-ghost"
               onClick={() => {
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
               Cancel
             </button>
             <button
               className="dp-btn dp-btn-orange"
-              disabled={!backupNote.trim()}
+              disabled={selectedVolunteers.length === 0}
               onClick={() => {
-                onUpdate(backupModal.id, { situationType: "Escalating" });
-                toast.show(`Backup requested for ${shortenId(backupModal.id)}`);
+                const selectedUnitNames = selectedVolunteers
+                  .map((id) => units.find((u) => u.id === id)?.name)
+                  .filter(Boolean)
+                  .join(", ");
+                onUpdate(backupModal.id, { 
+                  situationType: "Escalating",
+                  assignedUnits: [...new Set([...backupModal.assignedUnits, ...selectedVolunteers])]
+                });
+                toast.show(`Backup requested: ${selectedUnitNames}`);
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
-              Send Volunteer Backup Request
+              Deploy Selected Volunteers ({selectedVolunteers.length})
             </button>
           </div>
         </Modal>
@@ -4831,7 +5354,7 @@ function ResourcesPage({
               <div key={team.id} className="dp-archive-card">
                 <div className="dp-archive-info">
                   <div className="dp-archive-name">
-                    👥 [Team] {team.name}
+                     [Team] {team.name}
                   </div>
                   <div className="dp-archive-meta">
                     Leader: {team.leader} · Contact: {team.contact} · Station: {team.station}
@@ -5912,7 +6435,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       return;
     }
     const session = loadSession();
-    if (!session?.accessToken) return;
+    if (!session?.accessToken) {
+      toast.show("Session expired. Please log in again.");
+      return;
+    }
 
     // Map frontend values back to backend expectations
     const backendPatch: any = {};
@@ -5941,19 +6467,14 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     if (patch.location) backendPatch.location = patch.location;
 
     try {
-      // Find the real backend ID (since we might have shortened it for display)
-      // Actually, for now, we assume the shortened ID is unique enough or we keep the full ID in the state
-      // In mapBackendToFrontendIncident, I used report.id.split("-")[0].
-      // I should probably keep the full ID in a hidden property or use the full ID.
-
-      // I'll update mapBackendToFrontendIncident to keep the full ID but display shortened.
-      // Wait, I'll just use the full ID for now to be safe.
-
-      await updateIncidentReport(session.accessToken, id, backendPatch);
+      // Update state immediately for responsive UI
       setIncidents((p) => p.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+      
+      // Then try to sync with backend
+      await updateIncidentReport(session.accessToken, id, backendPatch);
     } catch (err) {
       console.error("Failed to update incident:", err);
-      toast.show("Failed to sync update to server.");
+      toast.show("Update saved locally. Backend sync failed.");
     }
   };
 
@@ -6176,7 +6697,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 setBroadcastModal(true);
               }}
             >
-              ⚠ Broadcast
+               Broadcast
             </button>
             <button
               className="dp-live-activity-btn"
@@ -6333,7 +6854,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       {/* Broadcast modal */}
       {broadcastModal && (
         <Modal
-          title="⚠ System-Wide Broadcast Alert"
+          title=" System-Wide Broadcast Alert"
           onClose={() => {
             setBroadcastModal(false);
             setBroadcastMsg("");
