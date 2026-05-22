@@ -38,6 +38,8 @@ import { UpdateFamilyDto } from '../../registrations/dto/update-family.dto.js';
 import { CreateIncidentAttachmentUploadDto } from '../../uploads/dto/create-incident-attachment-upload.dto.js';
 import { CreateObjectViewUrlDto } from '../../uploads/dto/create-object-view-url.dto.js';
 import { ApiCenterService } from '../../apicenter/apicenter.service.js';
+import { FamilyGroupsService } from '../../family-groups/family-groups.service.js';
+import { CheckInService } from '../../check-in/check-in.service.js';
 
 @Controller('site-manager')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -46,6 +48,8 @@ export class SiteManagerController {
   constructor(
     @Inject(SiteManagerProxyService) private readonly siteManagerProxyService: SiteManagerProxyService,
     @Inject(ApiCenterService) private readonly apiCenterService: ApiCenterService,
+    @Inject(FamilyGroupsService) private readonly familyGroupsService: FamilyGroupsService,
+    @Inject(CheckInService) private readonly checkInService: CheckInService,
   ) {}
 
   @Get('geo/geocode')
@@ -371,6 +375,18 @@ export class SiteManagerController {
   @Post('uploads/view-url')
   createObjectViewUrl(@Body() createObjectViewUrlDto: CreateObjectViewUrlDto) {
     return this.siteManagerProxyService.createObjectViewUrl(createObjectViewUrlDto);
+  }
+
+  @Get('family-group')
+  async getFamilyGroupByQrCode(@Query('qrCode') qrCode: string) {
+    if (!qrCode) return null;
+    return this.familyGroupsService.getGroupByQrCode(qrCode);
+  }
+
+  @Post('check-ins/family-checkout')
+  async checkOutFamilyGroup(@Body() body: { familyQrCode: string }) {
+    if (!body.familyQrCode) return { checkedOut: 0 };
+    return this.checkInService.checkOutFamilyGroup(body.familyQrCode);
   }
 
   @Get('check-ins')

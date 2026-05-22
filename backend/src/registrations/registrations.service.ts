@@ -159,7 +159,7 @@ export class RegistrationsService {
           updateCitizenDto.firstName,
           updateCitizenDto.lastName,
           updateCitizenDto.middleName,
-        ),
+        ) || existing.fullName || null,
         birth_date: updateCitizenDto.birthDate ?? existing.birthDate ?? null,
         gender: updateCitizenDto.gender ?? existing.gender ?? null,
         registration_type: updateCitizenDto.registrationType ?? existing.registrationType ?? null,

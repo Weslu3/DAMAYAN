@@ -41,6 +41,35 @@ export class UploadsService {
     return this.createSignedUploadUrl(bucket, objectPath);
   }
 
+  async createProfilePhotoUploadUrl(userId: string, fileName: string) {
+    // Reuse the government-ids bucket which already exists — avoids bucket-creation issues
+    const bucket =
+      this.configService.get<string>('SUPABASE_GOVERNMENT_IDS_BUCKET') ?? 'government-ids';
+    const sanitizedFileName = fileName
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-');
+    if (!sanitizedFileName) {
+      throw new BadRequestException('A valid file name is required');
+    }
+    const objectPath = `profile-photos/${userId}/${Date.now()}-${sanitizedFileName}`;
+    return this.createSignedUploadUrl(bucket, objectPath);
+  }
+
+  async createCitizenIncidentPhotoUploadUrl(userId: string, fileName: string) {
+    const bucket =
+      this.configService.get<string>('SUPABASE_INCIDENT_ATTACHMENTS_BUCKET') ?? 'incident-attachments';
+    const sanitizedFileName = fileName
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-');
+    if (!sanitizedFileName) {
+      throw new BadRequestException('A valid file name is required');
+    }
+    const objectPath = `citizens/${userId}/${Date.now()}-${sanitizedFileName}`;
+    return this.createSignedUploadUrl(bucket, objectPath);
+  }
+
   async createObjectViewUrl(createObjectViewUrlDto: CreateObjectViewUrlDto) {
     const supabase = this.supabaseService.getClient();
     const expiresIn = createObjectViewUrlDto.expiresIn ?? 3600;
