@@ -224,6 +224,8 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
             onBack={() => { setTargetStep("dashboard"); setActiveNav("Overview"); }}
             personalQrCodeId={citizenProfile?.qrCodeId}
             citizenDisplayName={displayName !== 'Citizen' ? displayName : undefined}
+            citizenProfile={citizenProfile}
+            onRefreshProfile={loadUserData}
           />
         ) : (
           <>

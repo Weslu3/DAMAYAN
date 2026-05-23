@@ -21,18 +21,29 @@ import {
   addFamilyGroupMember,
   removeFamilyGroupMember,
   deleteFamilyGroup,
+  registerCitizen,
+  type CitizenProfile,
   type FamilyGroup,
 } from "../../api";
 import { loadSession } from "../../session";
 import { CitizenFamilyGroupScannerScreen } from "./CitizenFamilyGroupScannerScreen";
+import { generateQrCodeId } from "../../site-manager/qr/qr-utils";
 
 interface CitizenFamilyGroupScreenProps {
   onBack: () => void;
   personalQrCodeId?: string;
   citizenDisplayName?: string;
+  citizenProfile?: CitizenProfile | null;
+  onRefreshProfile?: () => Promise<void>;
 }
 
-export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisplayName }: CitizenFamilyGroupScreenProps) {
+export function CitizenFamilyGroupScreen({
+  onBack,
+  personalQrCodeId,
+  citizenDisplayName,
+  citizenProfile,
+  onRefreshProfile,
+}: CitizenFamilyGroupScreenProps) {
   const [token, setToken] = useState<string | null>(null);
   const [group, setGroup] = useState<FamilyGroup | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,8 +52,11 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
+  const [generatingPersonalQr, setGeneratingPersonalQr] = useState(false);
+  const [generatedPersonalQrCodeId, setGeneratedPersonalQrCodeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"family" | "personal">("family");
+  const effectivePersonalQrCodeId = generatedPersonalQrCodeId ?? personalQrCodeId;
 
   const loadGroup = useCallback(async (tok: string) => {
     try {
@@ -62,6 +76,17 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
       loadGroup(s.accessToken);
     });
   }, []);
+
+  useEffect(() => {
+    if (!token || activeTab !== "family") return;
+
+    // Keep family membership in sync across multiple devices/sessions.
+    const intervalId = setInterval(() => {
+      loadGroup(token);
+    }, 4000);
+
+    return () => clearInterval(intervalId);
+  }, [token, activeTab, loadGroup]);
 
   const handleCreate = async () => {
     if (!token) return;
@@ -85,8 +110,8 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
     setAddingMember(true);
     setError(null);
     try {
-      const member = await addFamilyGroupMember(token, { citizenQrCodeId: qrCode });
-      setGroup((prev) => prev ? { ...prev, members: [...prev.members, member] } : prev);
+      await addFamilyGroupMember(token, { citizenQrCodeId: qrCode });
+      await loadGroup(token);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to add member.";
       setError(msg);
@@ -141,6 +166,42 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
         },
       ],
     );
+  };
+
+  const handleGeneratePersonalQr = async () => {
+    if (!token) return;
+
+    try {
+      setGeneratingPersonalQr(true);
+      setError(null);
+
+      const qrCodeId = generateQrCodeId();
+      const fullName =
+        citizenProfile?.fullName
+        || [citizenProfile?.firstName, citizenProfile?.lastName].filter(Boolean).join(" ")
+        || citizenDisplayName
+        || "Citizen";
+
+      await registerCitizen(token, {
+        fullName,
+        birthDate: citizenProfile?.birthDate,
+        gender: citizenProfile?.gender,
+        bloodType: citizenProfile?.bloodType,
+        medicalConditions: citizenProfile?.medicalConditions,
+        registrationType: (citizenProfile?.registrationType as "Individual" | "Household") || "Individual",
+        qrCodeId,
+      });
+
+      setGeneratedPersonalQrCodeId(qrCodeId);
+      if (onRefreshProfile) {
+        await onRefreshProfile();
+      }
+      Alert.alert("QR ID Generated", "Your personal QR ID is now ready for check-in.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate personal QR ID.");
+    } finally {
+      setGeneratingPersonalQr(false);
+    }
   };
 
   if (showScanner) {
@@ -216,7 +277,7 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
       {/* Personal QR Tab */}
       {activeTab === "personal" && (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          {personalQrCodeId ? (
+          {effectivePersonalQrCodeId ? (
             <View style={styles.personalQrCard}>
               <View style={styles.qrCardBadge}>
                 <View style={styles.qrBadgeDot} />
@@ -227,9 +288,9 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
               )}
               <Text style={styles.qrSubtitle}>Show this QR at evacuation centers for personal check-in</Text>
               <View style={styles.qrWrapper}>
-                <QRCode value={personalQrCodeId} size={200} backgroundColor="#fff" color="#000" />
+                <QRCode value={effectivePersonalQrCodeId} size={200} backgroundColor="#fff" color="#000" />
               </View>
-              <Text style={styles.qrCodeId}>{personalQrCodeId}</Text>
+              <Text style={styles.qrCodeId}>{effectivePersonalQrCodeId}</Text>
               <Text style={styles.qrHint}>Keep this accessible during emergencies</Text>
             </View>
           ) : (
@@ -241,6 +302,20 @@ export function CitizenFamilyGroupScreen({ onBack, personalQrCodeId, citizenDisp
               <Text style={styles.emptyDesc}>
                 Complete your registration to receive a personal Digital ID QR code for evacuation check-in.
               </Text>
+              <TouchableOpacity
+                style={[styles.createBtn, generatingPersonalQr && { opacity: 0.7 }]}
+                onPress={handleGeneratePersonalQr}
+                disabled={generatingPersonalQr}
+              >
+                {generatingPersonalQr ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="qr-code-outline" size={22} color="#fff" style={{ marginRight: 10 }} />
+                    <Text style={styles.createBtnText}>GENERATE MY QR ID</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
           )}
           <View style={{ height: 60 }} />

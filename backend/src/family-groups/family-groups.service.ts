@@ -58,6 +58,67 @@ export class FamilyGroupsService {
     return this.toGroup(data as FamilyGroupRow, members);
   }
 
+  async getGroupByUser(userId: string) {
+    const headGroup = await this.getGroupByHeadUser(userId);
+    if (headGroup) {
+      return headGroup;
+    }
+
+    const supabase = this.supabaseService.getClient() as any;
+
+    // First try direct linkage by member_user_id.
+    const { data: memberRowByUser } = await supabase
+      .from('family_group_members')
+      .select('family_group_id')
+      .eq('member_user_id', userId)
+      .order('added_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let familyGroupId: string | null = memberRowByUser?.family_group_id ?? null;
+
+    // Fallback for older rows that may not have member_user_id populated.
+    if (!familyGroupId) {
+      const { data: citizen } = await supabase
+        .from('register_citizens')
+        .select('qr_code_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (citizen?.qr_code_id) {
+        const { data: memberRowByQr } = await supabase
+          .from('family_group_members')
+          .select('family_group_id')
+          .eq('citizen_qr_code_id', citizen.qr_code_id)
+          .order('added_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        familyGroupId = memberRowByQr?.family_group_id ?? null;
+      }
+    }
+
+    if (!familyGroupId) {
+      return null;
+    }
+
+    const { data: groupRow, error: groupError } = await supabase
+      .from('family_groups')
+      .select('*')
+      .eq('id', familyGroupId)
+      .maybeSingle();
+
+    if (groupError) throw new NotFoundException(groupError.message);
+    if (!groupRow) return null;
+
+    const [members, headInfo] = await Promise.all([
+      this.getMembersForGroup((groupRow as FamilyGroupRow).id),
+      this.getHeadCitizenInfo((groupRow as FamilyGroupRow).head_user_id),
+    ]);
+
+    return this.toGroup(groupRow as FamilyGroupRow, members, headInfo);
+  }
+
   async getGroupByQrCode(familyQrCodeId: string) {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
@@ -109,6 +170,13 @@ export class FamilyGroupsService {
       .single();
 
     if (error) throw new BadRequestException(error.message);
+
+    // Keep citizen profile linkage in sync so member-side views can reflect family association.
+    await supabase
+      .from('register_citizens')
+      .update({ family_id: dto.familyGroupId })
+      .eq('qr_code_id', dto.citizenQrCodeId);
+
     return this.toMember(data as FamilyGroupMemberRow);
   }
 
@@ -121,6 +189,11 @@ export class FamilyGroupsService {
       .eq('citizen_qr_code_id', citizenQrCodeId);
 
     if (error) throw new BadRequestException(error.message);
+
+    await supabase
+      .from('register_citizens')
+      .update({ family_id: null })
+      .eq('qr_code_id', citizenQrCodeId);
   }
 
   async deleteGroup(headUserId: string) {

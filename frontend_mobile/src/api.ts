@@ -511,11 +511,11 @@ export async function getProfile(token: string) {
 }
 
 export async function registerCitizen(token: string, payload: {
-  fullName: string;
-  birthDate: string;
-  gender: string;
-  bloodType: string;
-  medicalConditions: string;
+  fullName?: string;
+  birthDate?: string;
+  gender?: string;
+  bloodType?: string;
+  medicalConditions?: string;
   registrationType: "Individual" | "Household";
   qrCodeId: string;
 }) {
