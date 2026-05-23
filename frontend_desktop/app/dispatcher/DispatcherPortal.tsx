@@ -16,7 +16,6 @@ import {
   MOCK_DISPATCHER,
   MOCK_BARANGAY_DATA,
   MOCK_REPORTS,
-  MOCK_TEAMS,
   priorityClass,
   statusClass,
   situationClass,
@@ -32,12 +31,23 @@ import {
 } from "./data";
 import LiveMap, { MapMode } from "./LiveMap";
 import {
+  geocodeDispatcherAddress,
+  getDispatcherOverview,
+  getDispatcherProfile,
   getDispatcherIncidents,
   getDispatcherVolunteers,
+  sendDispatcherBroadcast,
   updateIncidentReport,
 } from "../lib/api";
 import { loadSession } from "../lib/session";
-import { IncidentReport, Organization } from "../lib/types";
+import type {
+  DispatchOrder,
+  DispatcherProfile as BackendDispatcherProfile,
+  DispatcherVolunteerTeam,
+  DispatcherVolunteerUnit,
+  IncidentReport,
+  Organization,
+} from "../lib/types";
 import { Icon, IconName } from "./components/ui/Icon";
 
 function volunteerIconName(type: UnitType): IconName {
@@ -586,7 +596,6 @@ function AwaitingPage({ onProceed }: { onProceed: () => void }) {
 function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: {
   incidents: Incident[];
   units: Unit[];
-  teams: Team[];
   onDispatch: (inc: Incident) => void;
   onMarkInvalid: (inc: Incident, reason: string) => void;
   status: "active" | "inactive";
@@ -598,14 +607,25 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
   const critical  = incidents.filter(i => (i.priority === "CRITICAL" || i.priority === "HIGH") && i.status !== "Resolved" && i.status !== "Invalid");
   const avail     = units.filter(u => u.status === "Available").length;
   const deployed  = units.filter(u => u.status !== "Available" && u.status !== "Offline").length;
+  const [queueSearch, setQueueSearch] = useState("");
+  const [queuePriority, setQueuePriority] = useState<"ALL" | IncidentPriority>("ALL");
+  const [queueStatus, setQueueStatus] = useState<"ALL" | IncidentStatus>("ALL");
+  const [districtFilter, setDistrictFilter] = useState<string | null>(null);
 
-  const stats = [
-    { label: "New Incidents",    value: newInc.length,    color: "var(--d-red)",     icon: "N" },
-    { label: "Active Response",  value: activeInc.length, color: "var(--d-primary)", icon: "A" },
-    { label: "Resolved Today",   value: resolved.length,  color: "var(--d-green)",   icon: "R" },
-    { label: "Critical / High",  value: critical.length,  color: "#c77700",          icon: "!" },
-    { label: "Units Available",  value: avail,            color: "var(--d-blue)",    icon: "U", sub: `${deployed} deployed` },
-    { label: "Total Units",      value: units.length,     color: "var(--d-text)",    icon: "T" },
+  const stats: Array<{
+    label: string;
+    value: number;
+    color: string;
+    bgColor: string;
+    icon: IconName;
+    desc: string;
+  }> = [
+    { label: "New Incidents",    value: newInc.length,    color: "var(--d-red)",     bgColor: "rgba(198, 40, 40, 0.10)", icon: "ticket",   desc: "Awaiting review" },
+    { label: "Active Response",  value: activeInc.length, color: "var(--d-primary)", bgColor: "rgba(46, 125, 50, 0.10)", icon: "activity", desc: "Dispatch ongoing" },
+    { label: "Resolved Today",   value: resolved.length,  color: "var(--d-green)",   bgColor: "rgba(46, 125, 50, 0.10)", icon: "check",    desc: "Closed incidents" },
+    { label: "Critical / High",  value: critical.length,  color: "#c77700",          bgColor: "rgba(199, 119, 0, 0.12)",  icon: "warning",  desc: "Needs attention" },
+    { label: "Units Available",  value: avail,            color: "var(--d-blue)",    bgColor: "rgba(21, 101, 192, 0.10)", icon: "users",    desc: `${deployed} deployed` },
+    { label: "Total Units",      value: units.length,     color: "var(--d-text)",    bgColor: "rgba(45, 49, 45, 0.08)",   icon: "map",      desc: "Registered responders" },
   ];
 
   const ACTIVITY = [
@@ -619,6 +639,30 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
 
   // Queue = New + Waiting + Dispatched (but NOT In Progress/Resolved/Invalid)
   const queueInc = incidents.filter(i => ["New","Waiting","Dispatched"].includes(i.status));
+  const pendingQueue = queueInc;
+  const filteredPendingQueue = pendingQueue.filter((inc) => {
+    const haystack = `${inc.id} ${inc.type} ${inc.location} ${inc.address} ${inc.barangay} ${inc.city}`.toLowerCase();
+    const matchesSearch = !queueSearch.trim() || haystack.includes(queueSearch.trim().toLowerCase());
+    const matchesPriority = queuePriority === "ALL" || inc.priority === queuePriority;
+    const matchesStatus = queueStatus === "ALL" || inc.status === queueStatus;
+    const matchesDistrict = !districtFilter || [inc.location, inc.address, inc.barangay, inc.city].some((part) =>
+      part?.toLowerCase().includes(districtFilter.toLowerCase()),
+    );
+    return matchesSearch && matchesPriority && matchesStatus && matchesDistrict;
+  });
+  const criticalAlerts = critical;
+  const responderGroups = (["FIELD", "MEDIC", "LOGISTICS"] as UnitType[]).map((type) => {
+    const groupUnits = units.filter((unit) => unit.type === type);
+    const available = groupUnits.filter((unit) => unit.status === "Available").length;
+    const total = groupUnits.length;
+    return {
+      label: UNIT_TYPE_LABEL[type],
+      available,
+      total,
+      pct: total ? Math.round((available / total) * 100) : 0,
+      color: unitTypeColor(type),
+    };
+  });
 
   return (
     <div className="dp-dashboard dp-fade-in">
@@ -854,7 +898,7 @@ function DutyStatusNotificationListener() {
     }, 15000);
 
     return () => clearInterval(mockNotificationInterval);
-  }, []);
+  }, [toast.show]);
 
   return null; // This component only handles side effects
 }
@@ -4212,6 +4256,8 @@ function ExpandedTicket({
 function ResourcesPage({
   units,
   setUnits,
+  teams = [],
+  setTeams,
   assignmentIncident,
   onVolunteerAssigned,
   onAssignmentComplete,
@@ -4219,6 +4265,8 @@ function ResourcesPage({
 }: {
   units: Unit[];
   setUnits: React.Dispatch<React.SetStateAction<Unit[]>>;
+  teams: Team[];
+  setTeams: React.Dispatch<React.SetStateAction<Team[]>>;
   assignmentIncident?: Incident | null;
   onVolunteerAssigned?: (unit: Unit, details: { incident: string; eta: string; status: UnitStatus; note: string }) => void;
   onAssignmentComplete?: () => void;
@@ -4226,7 +4274,6 @@ function ResourcesPage({
 }) {
   const isInactive = status === "inactive";
   const [tab, setTab] = useState<"teams"|"units">("teams");
-  const [teams, setTeams] = useState(MOCK_TEAMS);
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [addUnitModal, setAddUnitModal] = useState(false);
@@ -4520,8 +4567,8 @@ function ResourcesPage({
       {/* Teams */}
       {tab === "teams" && (
         <div className="dp-team-grid">
-          {filteredTeams.map((team) => (
-            <div key={team.id} className="dp-team-card">
+          {filteredTeams.map((team, index) => (
+            <div key={`${team.id}-${index}`} className="dp-team-card">
               <div className="dp-team-card-header">
                 <div>
                   <div className="dp-team-card-name">
@@ -4599,8 +4646,8 @@ function ResourcesPage({
               </tr>
             </thead>
             <tbody>
-              {filteredUnits.map((u) => (
-                <tr key={u.id}>
+              {filteredUnits.map((u, index) => (
+                <tr key={`${u.id}-${index}`}>
                   <td
                     style={{
                       fontFamily: "monospace",
@@ -5526,9 +5573,6 @@ function ProfilePage({
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN SHELL
-
-// ══════════════════════════════════════════════════════════════════════════════
-// MAIN SHELL
 // ══════════════════════════════════════════════════════════════════════════════
 function mapBackendToFrontendIncident(report: IncidentReport, dispatchOrders: DispatchOrder[] = []): Incident {
   const priorityMap: Record<string, IncidentPriority> = {
@@ -5558,25 +5602,6 @@ function mapBackendToFrontendIncident(report: IncidentReport, dispatchOrders: Di
     /food|water|relief|shortage|supply|transport|evacuat/.test(reportText) ? "LOGISTICS" :
     /bridge|collapse|structural|building|fire|flood|rescue|road|accident|collision/.test(reportText) ? "FIELD" :
     "Other";
-
-  const relatedOrders = dispatchOrders.filter((order) => order.reportId === report.id);
-  const latestOrder = relatedOrders[0];
-  const orderStatusMap: Record<string, IncidentStatus> = {
-    pending: "Dispatched",
-    accepted: "Dispatched",
-    in_progress: "In Progress",
-    completed: "Resolved",
-  };
-  const status =
-    latestOrder?.status ? orderStatusMap[latestOrder.status] ?? statusMap[report.status?.toLowerCase() || "pending"] :
-    statusMap[report.status?.toLowerCase() || "pending"] || "New";
-  const createdAt = new Date(report.createdAt);
-  const dispatchedAt = latestOrder?.createdAt
-    ? new Date(latestOrder.createdAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
-    : undefined;
-  const resolvedAt = latestOrder?.status === "completed" && latestOrder.updatedAt
-    ? new Date(latestOrder.updatedAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
-    : undefined;
 
   const relatedOrders = dispatchOrders.filter((order) => order.reportId === report.id);
   const latestOrder = relatedOrders[0];
@@ -5627,14 +5652,24 @@ function mapBackendToFrontendIncident(report: IncidentReport, dispatchOrders: Di
   };
 }
 
+function buildIncidentGeocodeQuery(incident: Incident): string {
+  const parts = [incident.address, incident.barangay, incident.city]
+    .map((part) => part?.trim())
+    .filter(Boolean);
+  const query = Array.from(new Set(parts)).join(", ");
+  if (!query) return "";
+  return /philippines/i.test(query) ? query : `${query}, Philippines`;
+}
+
+function mapBackendResponderType(type?: string): UnitType {
+  const normalized = type?.toLowerCase() ?? "";
+  if (["amb", "ambulance", "medical", "medic", "health"].includes(normalized)) return "MEDIC";
+  if (["logistics", "relief", "supply", "transport"].includes(normalized)) return "LOGISTICS";
+  return "FIELD";
+}
+
 function mapOrganizationToTeam(organization: Organization): Team {
-  const typeMap: Record<string, UnitType> = {
-    government: "POL",
-    lgu: "POL",
-    private: "AMB",
-    ngo: "FIRE",
-  };
-  const type = typeMap[organization.type?.toLowerCase()] ?? "POL";
+  const type = mapBackendResponderType(organization.type);
 
   return {
     id: organization.id,
@@ -5655,7 +5690,7 @@ function mapVolunteerRoleToTeam(role: DispatcherVolunteerTeam): Team {
   return {
     id: role.id,
     name: role.name,
-    type: role.type,
+    type: mapBackendResponderType(role.type),
     members: role.members,
     vehicles: role.vehicles,
     station: role.station,
@@ -5689,7 +5724,7 @@ function mapBackendProfile(profile: BackendDispatcherProfile) {
 function mapVolunteerUnit(unit: DispatcherVolunteerUnit): Unit {
   return {
     id: unit.id,
-    type: unit.type,
+    type: mapBackendResponderType(unit.type),
     name: unit.name,
     station: unit.station,
     status: unit.status,
@@ -5735,6 +5770,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const clock = useClock();
   const toast = useToast();
   const dropRef = useRef<HTMLDivElement>(null);
+  const geocodeCacheRef = useRef<Record<string, [number, number]>>({});
 
   const syncProfile = async () => {
     const session = loadSession();
@@ -5781,9 +5817,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     if (session?.accessToken) {
       getDispatcherOverview(session.accessToken)
         .then((data) => {
-          setIncidents(data.incidentReports.map((report) =>
+          const mappedIncidents = data.incidentReports.map((report) =>
             mapBackendToFrontendIncident(report, data.dispatchOrders),
-          ));
+          );
+          setIncidents(mappedIncidents);
+          void geocodeIncidentCoordinates(session.accessToken, mappedIncidents);
           setTeams(
             data.volunteerTeams?.length
               ? data.volunteerTeams.map(mapVolunteerRoleToTeam)
@@ -5807,6 +5845,41 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       onLogout();
     }
   }, []);
+
+  const geocodeIncidentCoordinates = async (token: string, sourceIncidents: Incident[]) => {
+    const updates = await Promise.all(
+      sourceIncidents.map(async (incident) => {
+        const query = buildIncidentGeocodeQuery(incident);
+        if (!query) return null;
+
+        const cacheKey = query.toLowerCase();
+        const cached = geocodeCacheRef.current[cacheKey];
+        if (cached) {
+          return { id: incident.id, lat: cached[0], lng: cached[1] };
+        }
+
+        try {
+          const result = await geocodeDispatcherAddress(token, query);
+          const coords: [number, number] = [result.latitude, result.longitude];
+          geocodeCacheRef.current[cacheKey] = coords;
+          return { id: incident.id, lat: coords[0], lng: coords[1] };
+        } catch (err) {
+          console.warn(`Failed to geocode incident ${incident.id}:`, err);
+          return null;
+        }
+      }),
+    );
+
+    const resolved = updates.filter((item): item is { id: string; lat: number; lng: number } => Boolean(item));
+    if (!resolved.length) return;
+
+    setIncidents((current) =>
+      current.map((incident) => {
+        const update = resolved.find((item) => item.id === incident.id);
+        return update ? { ...incident, lat: update.lat, lng: update.lng } : incident;
+      }),
+    );
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -6163,7 +6236,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <DashboardPage
               incidents={incidents}
               units={units}
-              teams={teams}
               onDispatch={handleDashboardDispatch}
               onMarkInvalid={handleDashboardMarkInvalid}
               status={status}
@@ -6200,6 +6272,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <ResourcesPage
               units={units}
               setUnits={setUnits}
+              teams={teams}
+              setTeams={setTeams}
               assignmentIncident={resourceAssignmentIncident}
               onVolunteerAssigned={handleVolunteerAssigned}
               onAssignmentComplete={() => setResourceAssignmentIncident(null)}

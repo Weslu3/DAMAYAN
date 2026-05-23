@@ -28,8 +28,4 @@ export class CreateDispatchOrderDto {
   @IsOptional()
   @IsString()
   status?: string;
-
-  @IsOptional()
-  @IsString()
-  disasterId?: string;
 }

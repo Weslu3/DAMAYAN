@@ -413,20 +413,6 @@ export async function getDispatcherVolunteers(token: string, search?: string) {
   return request<Organization[]>(`/dispatcher/volunteers${qs}`, {}, token);
 }
 
-export async function getDispatcherDispatchOrders(token: string) {
-  return request<Array<{
-    id: string;
-    reportId: string;
-    operationId: string;
-    assignedTo: string;
-    priority: string;
-    instructions?: string;
-    status: string;
-    createdAt?: string | Date;
-    updatedAt?: string | Date;
-  }>>("/dispatcher/dispatch-orders", {}, token);
-}
-
 export async function createDispatcherDispatchOrder(
   token: string,
   payload: {
@@ -454,6 +440,14 @@ export async function getDispatcherOverview(token: string, disasterId?: string) 
 
 export async function getDispatcherProfile(token: string) {
   return request<DispatcherProfile>("/dispatcher/profile", {}, token);
+}
+
+export async function geocodeDispatcherAddress(token: string, address: string): Promise<GeoAddressResult> {
+  return request<GeoAddressResult>(
+    `/dispatcher/geo/geocode?address=${encodeURIComponent(address)}`,
+    {},
+    token,
+  );
 }
 
 export async function getDispatcherDispatchOrders(token: string, disasterId?: string) {

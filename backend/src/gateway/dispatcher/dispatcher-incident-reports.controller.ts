@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/auth/roles.guard.js';
 import { Roles } from '../../common/auth/roles.decorator.js';
@@ -9,6 +9,7 @@ import { CreateDispatchOrderDto } from '../../dispatch-orders/dto/create-dispatc
 import { UpdateDispatchOrderDto } from '../../dispatch-orders/dto/update-dispatch-order.dto.js';
 import { DispatcherService } from './dispatcher.service.js';
 import { CreateDispatcherBroadcastDto } from './dto/create-dispatcher-broadcast.dto.js';
+import { ApiCenterService } from '../../apicenter/apicenter.service.js';
 
 interface RequestWithUser {
   user: {
@@ -25,6 +26,8 @@ export class DispatcherIncidentReportsController {
   constructor(
     @Inject(DispatcherService)
     private readonly dispatcherService: DispatcherService,
+    @Inject(ApiCenterService)
+    private readonly apiCenterService: ApiCenterService,
   ) {}
 
   @Get('overview')
@@ -38,6 +41,31 @@ export class DispatcherIncidentReportsController {
   @Get('profile')
   getProfile(@Req() request: RequestWithUser) {
     return this.dispatcherService.getProfile(request.user.sub);
+  }
+
+  @Get('geo/geocode')
+  async geocodeAddress(@Query('address') address?: string) {
+    const input = address?.trim();
+
+    if (!input) {
+      throw new BadRequestException('address query is required');
+    }
+
+    const result = await this.apiCenterService.geoGeocode(input);
+    const latitude = Number((result as any).latitude ?? (result as any).lat);
+    const longitude = Number((result as any).longitude ?? (result as any).lng);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new BadRequestException('Unable to geocode address');
+    }
+
+    return {
+      formattedAddress: (result as any).formattedAddress ?? (result as any).formatted_address ?? input,
+      latitude,
+      longitude,
+      placeId: (result as any).placeId ?? (result as any).place_id,
+      provider: (result as any).provider ?? 'apicenter',
+    };
   }
 
   @Get('incident-reports')
@@ -103,6 +131,11 @@ export class DispatcherIncidentReportsController {
 
   @Get('resources')
   findResources(@Query('search') search?: string) {
+    return this.dispatcherService.findResources(search);
+  }
+
+  @Get('volunteers')
+  findVolunteerOrganizations(@Query('search') search?: string) {
     return this.dispatcherService.findResources(search);
   }
 
