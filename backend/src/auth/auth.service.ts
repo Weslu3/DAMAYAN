@@ -32,6 +32,7 @@ interface UserProfileRow {
   role: string | null;
   status: string | null;
   auth_user_id?: string | null;
+  assigned_region_id?: string | null;
   profile_photo_key?: string | null;
   gender?: string | null;
   address?: string | null;
@@ -111,7 +112,14 @@ export class AuthService {
       throw new BadRequestException('Unable to create auth user');
     }
 
-    const { error: profileError } = await supabase
+    const assignedRegionId = await this.resolveAssignedRegionId(
+      supabase,
+      signupDto.assignedRegionId,
+      signupDto.municipality,
+      signupDto.province,
+    );
+
+    const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .insert({
         auth_user_id: authUser.id,
@@ -125,11 +133,14 @@ export class AuthService {
         barangay: signupDto.barangay ?? null,
         municipality: signupDto.municipality ?? null,
         province: signupDto.province ?? null,
-      });
+        assigned_region_id: assignedRegionId,
+      })
+      .select('id, first_name, last_name, phone, role, status, auth_user_id, assigned_region_id')
+      .single();
 
-    if (profileError) {
+    if (profileError || !profile) {
       throw new BadRequestException(
-        `Profile creation failed: ${profileError.message}`,
+        `Profile creation failed: ${profileError?.message ?? 'Unable to create profile'}`,
       );
     }
 
@@ -151,6 +162,7 @@ export class AuthService {
         email: signupDto.email,
         phone: formattedPhone,
         role: requestedRole,
+        assignedRegionId: (profile as UserProfileRow).assigned_region_id ?? null,
         accountStatus: 'pending',
       },
     };
@@ -232,7 +244,7 @@ export class AuthService {
     const { data: profile, error: profileError } = await this.withTimeout<any>(
       supabase
         .from('user_profiles')
-        .select('id, first_name, last_name, phone, role, status')
+        .select('id, first_name, last_name, phone, role, status, assigned_region_id')
         .eq('auth_user_id', userId)
         .maybeSingle(),
       'Profile lookup timed out during login.',
@@ -283,6 +295,7 @@ export class AuthService {
         email: loginDto.email,
         phone: profile?.phone ?? '',
         role: (profile?.role as AppRole | undefined) ?? AppRole.CITIZEN,
+        assignedRegionId: profile?.assigned_region_id ?? null,
         accountStatus: (profile?.status as string | undefined) ?? 'active',
       },
     };
@@ -296,7 +309,7 @@ export class AuthService {
         this.withTimeout<any>(
           supabase
             .from('user_profiles')
-            .select('id, first_name, last_name, phone, role, status, auth_user_id, profile_photo_key, gender, address, barangay, municipality, province')
+            .select('id, first_name, last_name, phone, role, status, auth_user_id, assigned_region_id, profile_photo_key, gender, address, barangay, municipality, province')
             .eq('auth_user_id', userId)
             .maybeSingle(),
           'Profile lookup timed out while loading the current user.',
@@ -328,6 +341,7 @@ export class AuthService {
         email,
         phone: resolvedProfile?.phone ?? '',
         role: (resolvedProfile?.role as AppRole | undefined) ?? AppRole.CITIZEN,
+        assignedRegionId: resolvedProfile?.assigned_region_id ?? null,
         accountStatus: (resolvedProfile?.status as string | undefined) ?? 'active',
         profilePhotoKey: resolvedProfile?.profile_photo_key ?? null,
         gender: resolvedProfile?.gender ?? null,
@@ -421,6 +435,92 @@ export class AuthService {
     }
   }
 
+  private normalizePlaceText(value?: string | null): string | null {
+    const normalized = String(value ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+    return normalized || null;
+  }
+
+  private async resolveAssignedRegionId(
+    supabase: any,
+    assignedRegionId?: string | null,
+    municipality?: string | null,
+    province?: string | null,
+  ): Promise<string | null> {
+    if (assignedRegionId?.trim()) {
+      const { data: region, error } = await supabase
+        .from('regions')
+        .select('id')
+        .eq('id', assignedRegionId.trim())
+        .maybeSingle();
+
+      if (error) {
+        throw new BadRequestException(`Region lookup failed: ${error.message}`);
+      }
+
+      if (region?.id) {
+        return region.id as string;
+      }
+
+      throw new BadRequestException('Selected region does not exist');
+    }
+
+    const city = this.normalizePlaceText(municipality);
+    const provinceText = this.normalizePlaceText(province);
+
+    if (!city) {
+      return null;
+    }
+
+    const { data: cityRows, error: cityError } = await supabase
+      .from('ph_city_catalog')
+      .select('region_id, city_name, province_name')
+      .ilike('city_name', municipality?.trim());
+
+    if (cityError) {
+      throw new BadRequestException(`Region lookup failed: ${cityError.message}`);
+    }
+
+    const matchedCity = (cityRows ?? []).find((row: any) => {
+      const rowCity = this.normalizePlaceText(row.city_name);
+      const rowProvince = this.normalizePlaceText(row.province_name);
+      if (rowCity !== city) {
+        return false;
+      }
+      if (!provinceText) {
+        return true;
+      }
+      return rowProvince === provinceText || row.province_name == null;
+    });
+
+    if (matchedCity?.region_id) {
+      return matchedCity.region_id as string;
+    }
+
+    const fallbackNames = [municipality, province]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(', ');
+
+    const { data: regionRows, error: regionError } = await supabase
+      .from('regions')
+      .select('id, name');
+
+    if (regionError) {
+      throw new BadRequestException(`Region lookup failed: ${regionError.message}`);
+    }
+
+    const matchedRegion = (regionRows ?? []).find((row: any) => {
+      const regionName = this.normalizePlaceText(row.name);
+      return regionName === city || regionName === this.normalizePlaceText(fallbackNames);
+    });
+
+    return matchedRegion?.id ?? null;
+  }
+
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
     const supabase = this.supabaseService.getClient() as any;
     const method: RecoveryMethod =
@@ -483,9 +583,7 @@ export class AuthService {
     return {
       message: 'Verification code sent',
       maskedContact: this.maskContact(normalizedContact, method),
-      ...(process.env.NODE_ENV !== 'production'
-        ? { debugVerificationCode: code }
-        : {}),
+      ...this.buildResetCodeDebugPayload(code),
     };
   }
 
@@ -579,7 +677,7 @@ export class AuthService {
       .eq('auth_user_id', resetUserAuthId)
       .maybeSingle();
 
-    if (profileError || !profile || profile.role !== AppRole.LINE_MANAGER) {
+    if (profileError || profile?.role !== AppRole.LINE_MANAGER) {
       return;
     }
 
@@ -623,6 +721,14 @@ export class AuthService {
         siteManagerAuthUserId: resetUserAuthId,
       },
     );
+  }
+
+  private buildResetCodeDebugPayload(code: string) {
+    if (process.env.NODE_ENV === 'production') {
+      return {};
+    }
+
+    return { debugVerificationCode: code };
   }
 
   private maskContact(contact: string, method: RecoveryMethod): string {

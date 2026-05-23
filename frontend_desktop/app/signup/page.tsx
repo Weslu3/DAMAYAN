@@ -4,7 +4,7 @@ import "./page.css";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { ApiError, signup, uploadGovernmentIdForSignup } from "../lib/api";
+import { ApiError, getPublicRegions, signup, uploadGovernmentIdForSignup } from "../lib/api";
 import { AppRole } from "../lib/types";
 
 function CustomSelect({ value, options, onChange, placeholder, disabled, icon }: any) {
@@ -98,15 +98,16 @@ export default function UnifiedSignupPage() {
   const [password, setPassword] = useState("");
   
   // Location Fields (Names for DB)
-  const [address, setAddress] = useState("");
   const [barangay, setBarangay] = useState("");
   const [municipality, setMunicipality] = useState("");
   const [province, setProvince] = useState("");
+  const [selectedRegionId, setSelectedRegionId] = useState("");
 
   // Location Fields (Codes for PSGC API)
   const [provinces, setProvinces] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
   const [barangays, setBarangays] = useState<any[]>([]);
+  const [regions, setRegions] = useState<any[]>([]);
   const [selectedProvinceCode, setSelectedProvinceCode] = useState("");
   const [selectedCityCode, setSelectedCityCode] = useState("");
 
@@ -124,6 +125,14 @@ export default function UnifiedSignupPage() {
         data.push({ code: "130000000", name: "METRO MANILA" });
         data.sort((a: any, b: any) => a.name.localeCompare(b.name));
         setProvinces(data);
+      })
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    getPublicRegions()
+      .then((data) => {
+        setRegions(data ?? []);
       })
       .catch(console.error);
   }, []);
@@ -180,8 +189,8 @@ export default function UnifiedSignupPage() {
     } 
     // Validate Step 2
     else if (step === 2) {
-      if (!address || !province || !municipality || !barangay) {
-        setError("Please provide your complete location information (Address, Province, City, and Barangay).");
+      if (!selectedRegionId || !province || !municipality || !barangay) {
+        setError("Please select your region and complete the location information.");
         return;
       }
       setStep(3);
@@ -227,10 +236,10 @@ export default function UnifiedSignupPage() {
         phone: formattedPhone,
         password,
         role,
-        address,
         barangay,
         municipality,
         province,
+        assignedRegionId: selectedRegionId,
         governmentIdKey: `${upload.bucket}/${upload.objectPath}`,
         governmentIdFileName: selectedIdFile.name,
       });
@@ -408,11 +417,14 @@ export default function UnifiedSignupPage() {
             {step === 2 && (
               <div style={{ animation: 'formSlideUp 0.4s ease forwards', position: 'relative', zIndex: 10 }}>
                 <div className="form-field">
-                  <label htmlFor="address">Street Address</label>
-                  <div className="form-input-wrap">
-                    <span className="material-symbols-outlined form-input-icon">home</span>
-                    <input id="address" type="text" className="form-input" placeholder="123 Mabini St., Phase 1" value={address} onChange={(e) => setAddress(e.target.value)} required />
-                  </div>
+                  <label htmlFor="region">Region</label>
+                  <CustomSelect
+                    icon="public"
+                    placeholder="Select Region"
+                    value={selectedRegionId}
+                    options={regions.map((region) => ({ value: region.id, label: region.name }))}
+                    onChange={(regionId: string) => setSelectedRegionId(regionId)}
+                  />
                 </div>
 
                 <div className="form-field">

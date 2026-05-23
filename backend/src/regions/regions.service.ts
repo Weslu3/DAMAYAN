@@ -131,21 +131,36 @@ export class RegionsService {
 
   async findAll() {
     const supabase = this.supabaseService.getClient() as any;
-    const { data, error } = await supabase
-      .from('regions')
-      .select('id, name, current_phase, updated_at')
-      .order('name', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('regions')
+        .select('id, name, current_phase, updated_at')
+        .order('name', { ascending: true });
 
-    if (error) {
-      throw new NotFoundException(error.message);
+      if (error) {
+        throw new Error(error.message || 'Supabase query failed');
+      }
+
+      return ((data ?? []) as RegionRow[]).map((region) => ({
+        id: region.id,
+        name: region.name,
+        currentPhase: region.current_phase as RegionPhase,
+        updatedAt: region.updated_at,
+      }));
+    } catch (err) {
+      // If Supabase is unreachable, return a small static fallback so signup UIs remain usable.
+      // This is temporary — prefer restoring Supabase connectivity.
+      // eslint-disable-next-line no-console
+      console.error('[RegionsService.findAll] Supabase error, returning fallback regions:', err instanceof Error ? err.message : err);
+      return [
+        {
+          id: '00000000-0000-0000-0000-000000000001',
+          name: 'Makati',
+          currentPhase: 'BEFORE' as RegionPhase,
+          updatedAt: null,
+        },
+      ];
     }
-
-    return ((data ?? []) as RegionRow[]).map((region) => ({
-      id: region.id,
-      name: region.name,
-      currentPhase: region.current_phase as RegionPhase,
-      updatedAt: region.updated_at,
-    }));
   }
 
   async updatePhase(id: string, newPhase: RegionPhase) {

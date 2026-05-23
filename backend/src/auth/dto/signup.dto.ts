@@ -66,4 +66,8 @@ export class SignupDto {
   @IsOptional()
   @IsString()
   province?: string;
+
+  @IsOptional()
+  @IsString()
+  assignedRegionId?: string;
 }

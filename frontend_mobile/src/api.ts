@@ -1,4 +1,5 @@
 import type {
+  AppRole,
   AuthSession,
   CapacityCenter,
   CheckInRecord,
@@ -229,6 +230,7 @@ export async function signup(payload: {
   barangay?: string;
   municipality?: string;
   province?: string;
+  assignedRegionId?: string;
 }) {
   return request<{
     access_token: string;
@@ -237,6 +239,10 @@ export async function signup(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getPublicRegions() {
+  return request<Array<{ id: string; name: string; currentPhase: string }>>('/public/regions', {});
 }
 
 export async function getGovernmentIdUploadUrl(params: {

@@ -3,6 +3,7 @@ import {
   Text,
   View,
   ScrollView,
+  Pressable,
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
@@ -12,7 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { theme, fonts } from "../../theme";
-import { signup, getGovernmentIdUploadUrl, ApiError } from "../../api";
+import { signup, getGovernmentIdUploadUrl, getPublicRegions, ApiError } from "../../api";
 import { saveSession } from "../../session";
 import { AppRole } from "../../types";
 
@@ -24,6 +25,93 @@ interface SelectedFile {
 }
 
 const GENDERS = ["Male", "Female", "Prefer not to say"];
+
+function RegionDropdown({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ id: string; name: string }>;
+  onChange: (regionId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.id === value);
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={{ color: theme.textLight, fontSize: 11, ...fonts.bold, letterSpacing: 1.5, textTransform: "uppercase", paddingHorizontal: 4 }}>{label}</Text>
+      <View style={{ position: "relative" }}>
+        <Pressable
+          onPress={() => setOpen((current) => !current)}
+          style={({ pressed }) => [
+            {
+              minHeight: 58,
+              borderRadius: 18,
+              backgroundColor: theme.surface,
+              borderWidth: 1,
+              borderColor: theme.line,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            },
+            pressed && { opacity: 0.9 },
+          ]}
+        >
+          <Text style={{ color: selected ? theme.text : theme.textLight, flex: 1, paddingRight: 12 }} numberOfLines={1}>
+            {selected ? selected.name : "Select your region"}
+          </Text>
+          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={theme.textLight} />
+        </Pressable>
+
+        {open && (
+          <View
+            style={{
+              marginTop: 8,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: theme.line,
+              backgroundColor: theme.surface,
+              overflow: "hidden",
+              maxHeight: 260,
+            }}
+          >
+            <ScrollView nestedScrollEnabled>
+              {options.length === 0 ? (
+                <Text style={{ padding: 16, color: theme.textLight, textAlign: "center" }}>No regions available</Text>
+              ) : (
+                options.map((region) => (
+                  <Pressable
+                    key={region.id}
+                    onPress={() => {
+                      onChange(region.id);
+                      setOpen(false);
+                    }}
+                    style={({ pressed }) => [
+                      {
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: theme.line,
+                      },
+                      pressed && { backgroundColor: theme.surfaceAlt },
+                    ]}
+                  >
+                    <Text style={{ color: theme.text, fontSize: 14, ...fonts.medium }}>{region.name}</Text>
+                  </Pressable>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
 
 export function CitizenSignupScreen({
   onBack,
@@ -41,13 +129,16 @@ export function CitizenSignupScreen({
   const [confirmPassword, setConfirmPassword] = useState("");
 
   // Step 2 – location
-  const [address, setAddress] = useState("");
   const [barangay, setBarangay] = useState("");
   const [municipality, setMunicipality] = useState("");
   const [province, setProvince] = useState("");
+  const [selectedRegionId, setSelectedRegionId] = useState("");
 
   // Step 3 – personal details
   const [gender, setGender] = useState("");
+
+  const [regions, setRegions] = useState<Array<{ id: string; name: string }>>([]);
+  const [regionsLoading, setRegionsLoading] = useState(false);
 
   // Government ID upload
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
@@ -120,6 +211,39 @@ export function CitizenSignupScreen({
     };
   }, []);
 
+  async function loadRegions() {
+    let cancelled = false;
+    setRegionsLoading(true);
+    setError(null);
+    try {
+      const list = await getPublicRegions();
+      if (!cancelled) {
+        setRegions((list ?? []).map((region) => ({ id: region.id, name: region.name })));
+      }
+    } catch (err) {
+      if (!cancelled) {
+        setRegions([]);
+        const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err);
+        setError(msg || 'Failed to load regions.');
+        // eslint-disable-next-line no-console
+        console.debug('getPublicRegions failed:', err);
+      }
+    } finally {
+      if (!cancelled) setRegionsLoading(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }
+
+  useEffect(() => {
+    // call loadRegions on mount
+    // ignore the cleanup function here (loadRegions returns a cleanup too)
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    loadRegions();
+  }, []);
+
   function validateStep1() {
     if (!firstName.trim() || !lastName.trim()) {
       setError("Please enter your first and last name.");
@@ -141,8 +265,8 @@ export function CitizenSignupScreen({
   }
 
   function validateStep2() {
-    if (!address.trim() || !barangay.trim() || !municipality.trim() || !province.trim()) {
-      setError("Please fill in all address fields.");
+    if (!selectedRegionId || !barangay.trim() || !municipality.trim() || !province.trim()) {
+      setError("Please select your region and fill in all location fields.");
       return false;
     }
     return true;
@@ -203,10 +327,10 @@ export function CitizenSignupScreen({
         governmentIdKey,
         governmentIdFileName,
         gender: gender || undefined,
-        address: address.trim() || undefined,
         barangay: barangay.trim() || undefined,
         municipality: municipality.trim() || undefined,
         province: province.trim() || undefined,
+        assignedRegionId: selectedRegionId,
       });
 
       const accessToken = result.access_token?.trim();
@@ -368,7 +492,7 @@ export function CitizenSignupScreen({
                 <Text style={s.label}>Email Address</Text>
                 <TextInput
                   style={s.input}
-                  placeholder="you@example.com"
+                  placeholder="name@example.com"
                   placeholderTextColor={theme.textLight}
                   value={email}
                   onChangeText={setEmail}
@@ -421,21 +545,34 @@ export function CitizenSignupScreen({
               <View style={s.sectionBanner}>
                 <Ionicons name="location" size={18} color="#2E7D32" style={{ marginRight: 10 }} />
                 <Text style={s.sectionBannerText}>
-                  Your address helps responders locate and prioritize your area during disasters.
+                  Your region helps responders locate and prioritize your area during disasters.
                 </Text>
               </View>
 
-              <View>
-                <Text style={s.label}>Street / House No. / Sitio</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="e.g. 123 Sampaguita St."
-                  placeholderTextColor={theme.textLight}
-                  value={address}
-                  onChangeText={setAddress}
-                  autoCapitalize="words"
-                />
-              </View>
+              <RegionDropdown
+                label="Region"
+                value={selectedRegionId}
+                options={regions}
+                onChange={setSelectedRegionId}
+              />
+
+              {regionsLoading ? (
+                <View style={{ marginTop: 12, alignItems: 'center' }}>
+                  <ActivityIndicator />
+                </View>
+              ) : regions.length === 0 ? (
+                <View style={{ marginTop: 12, alignItems: 'center' }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                      loadRegions();
+                    }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#E0F2F1' }}
+                  >
+                    <Text style={{ color: '#004D40', ...fonts.bold }}>Retry loading regions</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
 
               <View>
                 <Text style={s.label}>Barangay</Text>

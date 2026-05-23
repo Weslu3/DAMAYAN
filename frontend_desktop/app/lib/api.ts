@@ -183,6 +183,7 @@ export async function signup(payload: {
   bloodType?: string;
   medicalConditions?: string;
   familyMembers?: any[];
+  assignedRegionId?: string;
 }) {
   return request<{
     access_token: string;
@@ -191,6 +192,10 @@ export async function signup(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getPublicRegions() {
+  return request<Array<{ id: string; name: string; currentPhase: string }>>('/public/regions', {});
 }
 
 export async function createGovernmentIdUploadUrl(payload: {

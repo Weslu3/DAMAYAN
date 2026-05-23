@@ -3673,8 +3673,10 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
       try {
         const list = await getRegions(authToken);
         if (!cancelled) setRegions(list ?? []);
-      } catch {
-        // ignore
+      } catch (err: any) {
+        if (!cancelled) {
+          showToast("error", "Regions failed to load", err?.message ?? "Unable to load regions from backend.");
+        }
       }
     }
     void loadRegions();
@@ -3691,8 +3693,10 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
       try {
         const list = await getRegionsGeo(authToken);
         if (!cancelled) setRegionsGeo(list ?? []);
-      } catch {
-        // ignore
+      } catch (err: any) {
+        if (!cancelled) {
+          showToast("error", "Region map failed to load", err?.message ?? "Unable to load region geometry from backend.");
+        }
       }
     }
     void loadGeo();
@@ -3709,8 +3713,10 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
       try {
         const list = await getRegionShelters(authToken, regionId);
         if (!cancelled) setShelters(list ?? []);
-      } catch {
-        // ignore
+      } catch (err: any) {
+        if (!cancelled) {
+          showToast("error", "Region shelters failed to load", err?.message ?? "Unable to load shelters for the selected region.");
+        }
       }
     }
     void loadShelters();
@@ -3841,7 +3847,7 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(380px, 1.15fr)', gap: '1rem', alignItems: 'start' }}>
         <div>
           <div style={{ maxWidth: '100%' }}>
             <div className="admin-card" style={{ marginBottom: "0.9rem" }}>
@@ -4033,11 +4039,11 @@ function RegionPersonaControlsPage({ authToken, showToast }: { authToken?: strin
         </div>
 
         <aside>
-          <div className="admin-card">
+          <div className="admin-card" style={{ minHeight: 'calc(100vh - 7rem)' }}>
             <div className="admin-card-header"><div className="admin-card-title">Region Directory</div></div>
-            <div className="admin-card-body">
+            <div className="admin-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
               <MiniRegionMap regionsGeo={regionsGeo} shelters={shelters} selectedRegionId={regionId} onSelectRegion={(id) => setRegionId(id)} />
-              <div style={{ marginTop: 8, maxHeight: 120, overflowY: 'auto' }}>
+              <div style={{ marginTop: 4, maxHeight: 240, overflowY: 'auto' }}>
                 {regions.length === 0 ? (
                   <div style={{ color: 'var(--admin-text-soft)' }}>No regions found.</div>
                 ) : (
