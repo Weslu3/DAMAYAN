@@ -6467,6 +6467,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [page, setPage] = useState<NavPage>("dashboard");
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const incidentsRef = useRef<Incident[]>([]);
   incidentsRef.current = incidents;
   const [units, setUnits] = useState<Unit[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -6502,7 +6503,6 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const toast = useToast();
   const dropRef = useRef<HTMLDivElement>(null);
   const geocodeCacheRef = useRef<Record<string, [number, number]>>({});
-  const incidentsRef = useRef<Incident[]>([]);
 
   const syncProfile = async () => {
     const session = loadSession();

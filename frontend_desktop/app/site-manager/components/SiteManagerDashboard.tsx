@@ -448,6 +448,11 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
   })();
 
   const displayName = session?.user.name?.trim() || "Site Manager";
+  const nextPhase = {
+    before: "during",
+    during: "after",
+    after: "before",
+  }[phase];
   const activeAlerts = overview?.incidentReports.highSeverityReports;
 
   return (

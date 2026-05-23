@@ -8,7 +8,7 @@ export interface TopbarProps {
   onLogout: () => void;
 }
 
-export function Topbar({ onBroadcast, onLogout }: TopbarProps) {
+export function Topbar({ onBroadcast, onLogout }: Readonly<TopbarProps>) {
   const clock = useClock();
   const { status, currentUser, connectionStatus } = useDispatcher();
 
@@ -50,6 +50,7 @@ export function Topbar({ onBroadcast, onLogout }: TopbarProps) {
         >
           <Icon name="logout" size={18} />
         </button>
+        <div className="dp-topbar-logo" aria-hidden="true" />
       </div>
     </header>
   );
