@@ -16,7 +16,6 @@ import {
   MOCK_DISPATCHER,
   MOCK_BARANGAY_DATA,
   MOCK_REPORTS,
-  MOCK_TEAMS,
   priorityClass,
   statusClass,
   situationClass,
@@ -32,12 +31,23 @@ import {
 } from "./data";
 import LiveMap, { MapMode } from "./LiveMap";
 import {
+  geocodeDispatcherAddress,
+  getDispatcherOverview,
+  getDispatcherProfile,
   getDispatcherIncidents,
   getDispatcherVolunteers,
+  sendDispatcherBroadcast,
   updateIncidentReport,
 } from "../lib/api";
 import { loadSession } from "../lib/session";
-import { IncidentReport, Organization } from "../lib/types";
+import type {
+  DispatchOrder,
+  DispatcherProfile as BackendDispatcherProfile,
+  DispatcherVolunteerTeam,
+  DispatcherVolunteerUnit,
+  IncidentReport,
+  Organization,
+} from "../lib/types";
 import { Icon, IconName } from "./components/ui/Icon";
 
 function volunteerIconName(type: UnitType): IconName {
@@ -635,104 +645,79 @@ function AwaitingPage({ onProceed }: { onProceed: () => void }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // DASHBOARD PAGE
 // ══════════════════════════════════════════════════════════════════════════════
-function DashboardPage({
-  incidents,
-  units,
-  onDispatch,
-  onMarkInvalid,
-  status,
-}: {
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: {
   incidents: Incident[];
   units: Unit[];
   onDispatch: (inc: Incident) => void;
   onMarkInvalid: (inc: Incident, reason: string) => void;
   status: "active" | "inactive";
 }) {
-  const today = new Date().toLocaleDateString("en-PH", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
-  const pendingQueue = incidents.filter((i) =>
-    ["New", "Waiting", "Dispatched"].includes(i.status),
-  );
-  const [deployModal, setDeployModal] = useState<Unit | null>(null);
-  const [deployDetails, setDeployDetails] = useState<{ incident: string; eta: string; status: UnitStatus; note: string }>({ incident: "", eta: "", status: "On Route", note: "" });
+  const today = new Date().toLocaleDateString("en-PH", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const newInc    = incidents.filter(i => i.status === "New" || i.status === "Waiting");
+  const activeInc = incidents.filter(i => i.status === "In Progress" || i.status === "Dispatched");
+  const resolved  = incidents.filter(i => i.status === "Resolved");
+  const critical  = incidents.filter(i => (i.priority === "CRITICAL" || i.priority === "HIGH") && i.status !== "Resolved" && i.status !== "Invalid");
+  const avail     = units.filter(u => u.status === "Available").length;
+  const deployed  = units.filter(u => u.status !== "Available" && u.status !== "Offline").length;
   const [queueSearch, setQueueSearch] = useState("");
-  const [districtFilter, setDistrictFilter] = useState<string | null>(null);
-  const [queuePriority, setQueuePriority] = useState<
-    "ALL" | IncidentPriority
-  >("ALL");
+  const [queuePriority, setQueuePriority] = useState<"ALL" | IncidentPriority>("ALL");
   const [queueStatus, setQueueStatus] = useState<"ALL" | IncidentStatus>("ALL");
+  const [districtFilter, setDistrictFilter] = useState<string | null>(null);
 
-  const filteredPendingQueue = pendingQueue.filter((inc) => {
-    const matchesSearch =
-      queueSearch.trim() === "" ||
-      [inc.id, inc.type, inc.location, inc.address]
-        .join(" ")
-        .toLowerCase()
-        .includes(queueSearch.toLowerCase());
-    const matchesPriority =
-      queuePriority === "ALL" || inc.priority === queuePriority;
-    const matchesStatus = queueStatus === "ALL" || inc.status === queueStatus;
-    const matchesDistrict = !districtFilter || inc.city === districtFilter || inc.barangay === districtFilter;
-    return matchesSearch && matchesPriority && matchesStatus && matchesDistrict;
-  });
-  const activeIncidents = incidents.filter((i) =>
-    ["In Progress", "Dispatched"].includes(i.status),
-  );
-  const criticalAlerts = incidents.filter(
-    (i) => ["CRITICAL", "HIGH"].includes(i.priority) && !["Resolved", "Invalid"].includes(i.status),
-  );
-
-  const availableUnits = units.filter((u) => u.status === "Available");
-
-  const stats = [
-    {
-      label: "Pending Queue",
-      value: pendingQueue.length,
-      color: "var(--d-amber)",
-      bgColor: "var(--d-amber-bg)",
-      icon: "megaphone" as IconName,
-      desc: "Awaiting review",
-    },
-    {
-      label: "Active Incidents",
-      value: activeIncidents.length,
-      color: "var(--d-primary)",
-      bgColor: "var(--d-primary-light)",
-      icon: "activity" as IconName,
-      desc: "Ongoing responses",
-    },
-    {
-      label: "Critical Alerts",
-      value: criticalAlerts.length,
-      color: "var(--d-red)",
-      bgColor: "var(--d-red-bg)",
-      icon: "warning" as IconName,
-      desc: "Immediate threats",
-    },
-    {
-      label: "Volunteers Ready",
-      value: `${availableUnits.length}/${units.length}`,
-      color: "var(--d-blue)",
-      bgColor: "var(--d-blue-bg)",
-      icon: "users" as IconName,
-      desc: "Available now",
-    },
+  const stats: Array<{
+    label: string;
+    value: number;
+    color: string;
+    bgColor: string;
+    icon: IconName;
+    desc: string;
+  }> = [
+    { label: "New Incidents",    value: newInc.length,    color: "var(--d-red)",     bgColor: "rgba(198, 40, 40, 0.10)", icon: "ticket",   desc: "Awaiting review" },
+    { label: "Active Response",  value: activeInc.length, color: "var(--d-primary)", bgColor: "rgba(46, 125, 50, 0.10)", icon: "activity", desc: "Dispatch ongoing" },
+    { label: "Resolved Today",   value: resolved.length,  color: "var(--d-green)",   bgColor: "rgba(46, 125, 50, 0.10)", icon: "check",    desc: "Closed incidents" },
+    { label: "Critical / High",  value: critical.length,  color: "#c77700",          bgColor: "rgba(199, 119, 0, 0.12)",  icon: "warning",  desc: "Needs attention" },
+    { label: "Units Available",  value: avail,            color: "var(--d-blue)",    bgColor: "rgba(21, 101, 192, 0.10)", icon: "users",    desc: `${deployed} deployed` },
+    { label: "Total Units",      value: units.length,     color: "var(--d-text)",    bgColor: "rgba(45, 49, 45, 0.08)",   icon: "map",      desc: "Registered responders" },
   ];
 
-  const responderGroups = [
-    { type: "FIELD" as const, label: "Rescue", color: "var(--d-red)" },
-    { type: "MEDIC" as const, label: "Medical", color: "var(--d-blue)" },
-    { type: "LOGISTICS" as const, label: "Logistics", color: "var(--d-primary)" },
-  ].map((group) => {
-    const total = units.filter((u) => u.type === group.type).length;
-    const available = units.filter((u) => u.type === group.type && u.status === "Available").length;
-    const pct = total > 0 ? Math.round((available / total) * 100) : 0;
-    return { ...group, total, available, pct };
+  const ACTIVITY = [
+    { time: "09:45 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-03 dispatched to INC-0148 — Lacson Avenue" },
+    { time: "09:37 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-03 & POL-04 dispatched to INC-0149 — Cayco St." },
+    { time: "09:30 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "3 units dispatched to INC-0150 — Aurora Blvd." },
+    { time: "08:23 AM", type: "RESOLVED",  color: "var(--d-green)",   msg: "INC-0138 resolved — Structure fire, Flores St." },
+    { time: "07:58 AM", type: "ON SCENE",  color: "var(--d-primary)", msg: "FIRE-03 on scene at Sta. Mesa incident" },
+    { time: "07:43 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-01 dispatched to INC-0139 — Dagupan St." },
+  ];
+
+  // Queue = New + Waiting + Dispatched (but NOT In Progress/Resolved/Invalid)
+  const queueInc = incidents.filter(i => ["New","Waiting","Dispatched"].includes(i.status));
+  const pendingQueue = queueInc;
+  const filteredPendingQueue = pendingQueue.filter((inc) => {
+    const haystack = `${inc.id} ${inc.type} ${inc.location} ${inc.address} ${inc.barangay} ${inc.city}`.toLowerCase();
+    const matchesSearch = !queueSearch.trim() || haystack.includes(queueSearch.trim().toLowerCase());
+    const matchesPriority = queuePriority === "ALL" || inc.priority === queuePriority;
+    const matchesStatus = queueStatus === "ALL" || inc.status === queueStatus;
+    const matchesDistrict = !districtFilter || [inc.location, inc.address, inc.barangay, inc.city].some((part) =>
+      part?.toLowerCase().includes(districtFilter.toLowerCase()),
+    );
+    return matchesSearch && matchesPriority && matchesStatus && matchesDistrict;
+  });
+  const criticalAlerts = critical;
+  const responderGroups = (["FIELD", "MEDIC", "LOGISTICS"] as UnitType[]).map((type) => {
+    const groupUnits = units.filter((unit) => unit.type === type);
+    const available = groupUnits.filter((unit) => unit.status === "Available").length;
+    const total = groupUnits.length;
+    return {
+      label: UNIT_TYPE_LABEL[type],
+      available,
+      total,
+      pct: total ? Math.round((available / total) * 100) : 0,
+      color: unitTypeColor(type),
+    };
   });
 
   return (
@@ -969,7 +954,7 @@ function DutyStatusNotificationListener() {
     }, 15000);
 
     return () => clearInterval(mockNotificationInterval);
-  }, []);
+  }, [toast.show]);
 
   return null; // This component only handles side effects
 }
@@ -1424,17 +1409,32 @@ function ResourceMapPage({
 
   const confirmDispatch = () => {
     if (isInactive) return;
-    // Move incident to Dispatched/In Progress
-    if (selInc) {
-      onUpdate(selInc.id, {
-        status: "Dispatched",
-        assignedUnits: assigned,
-        dispatchedAt: new Date().toLocaleTimeString("en-PH", {
+    const patch: Partial<Incident> = {
+      status: "Dispatched",
+      assignedUnits: assigned,
+      dispatchedAt: new Date().toLocaleTimeString("en-PH", {
           hour: "2-digit",
           minute: "2-digit",
         }),
-      });
+    };
+
+    const session = loadSession();
+    if (session?.accessToken && selInc) {
+      const apiPatch: Record<string, any> = { status: "actioned" };
+      if (assigned.length > 0) {
+        apiPatch.content = `Dispatched: ${assigned.join(", ")} to ${selInc.type}s`;
+      }
+      void updateIncidentReport(session.accessToken, selInc.id, apiPatch)
+        .then(() => { onUpdate(selInc.id, patch); })
+        .catch((err) => {
+          console.error("Failed to persist dispatch:", err);
+          toast.show(err?.message || "Failed to sync dispatch to server.");
+          onUpdate(selInc.id, patch);
+        });
+    } else if (selInc) {
+      onUpdate(selInc.id, patch);
     }
+
     setMapMode("monitoring");
     setSelInc(null);
     setAssigned([]);
@@ -4781,6 +4781,8 @@ function ExpandedTicket({
 function ResourcesPage({
   units,
   setUnits,
+  teams = [],
+  setTeams,
   assignmentIncident,
   onVolunteerAssigned,
   onAssignmentComplete,
@@ -4788,14 +4790,15 @@ function ResourcesPage({
 }: {
   units: Unit[];
   setUnits: React.Dispatch<React.SetStateAction<Unit[]>>;
+  teams: Team[];
+  setTeams: React.Dispatch<React.SetStateAction<Team[]>>;
   assignmentIncident?: Incident | null;
   onVolunteerAssigned?: (unit: Unit, details: { incident: string; eta: string; status: UnitStatus; note: string }) => void;
   onAssignmentComplete?: () => void;
   status: "active" | "inactive";
 }) {
   const isInactive = status === "inactive";
-  const [tab, setTab] = useState<"teams" | "units">("teams");
-  const [teams, setTeams] = useState(MOCK_TEAMS);
+  const [tab, setTab] = useState<"teams"|"units">("teams");
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [addUnitModal, setAddUnitModal] = useState(false);
@@ -4856,9 +4859,20 @@ function ResourcesPage({
     return true;
   });
 
-  const filteredTeams = teams.filter(
-    (t) => typeFilter === "All" || t.type === typeFilter,
-  );
+  const filteredTeams = teams.filter(t => typeFilter==="All"||t.type===typeFilter);
+  const resourceStats = tab === "teams"
+    ? [
+        { l:"Volunteer Roles",v:teams.length,c:"var(--d-text)" },
+        { l:"Ready Roles",v:teams.filter(t=>t.status==="Ready").length,c:"var(--d-green)" },
+        { l:"Filled Slots",v:teams.reduce((sum,t)=>sum+t.members,0),c:"var(--d-primary)" },
+        { l:"Open Slots",v:teams.reduce((sum,t)=>sum+t.vehicles,0),c:"var(--d-text-sub)" },
+      ]
+    : [
+        { l:"Approved Volunteers",v:units.length,c:"var(--d-text)" },
+        { l:"Available",v:units.filter(u=>u.status==="Available").length,c:"var(--d-green)" },
+        { l:"Deployed",v:units.filter(u=>["On Route","On Scene"].includes(u.status)).length,c:"var(--d-primary)" },
+        { l:"Offline",v:units.filter(u=>u.status==="Offline").length,c:"var(--d-text-sub)" },
+      ];
 
   const TEAM_STATUS_CLS: Record<string, string> = {
     Ready: "dp-badge-green",
@@ -5082,8 +5096,8 @@ function ResourcesPage({
       {/* Teams */}
       {tab === "teams" && (
         <div className="dp-team-grid">
-          {filteredTeams.map((team) => (
-            <div key={team.id} className="dp-team-card">
+          {filteredTeams.map((team, index) => (
+            <div key={`${team.id}-${index}`} className="dp-team-card">
               <div className="dp-team-card-header">
                 <div>
                   <div className="dp-team-card-name">
@@ -5094,19 +5108,11 @@ function ResourcesPage({
                 <Badge label={team.status} cls={TEAM_STATUS_CLS[team.status]} />
               </div>
               <div className="dp-team-card-grid">
-                {[
-                  ["Leader", team.leader],
-                  ["Contact", team.contact],
-                  ["Members", `${team.members} personnel`],
-                  ["Vehicles", `${team.vehicles} units`],
-                  ["Coverage", team.coverage],
-                ].map(([l, v]) => (
-                  <div key={l}>
-                    <div className="dp-team-card-item-label">{l}</div>
-                    <div className="dp-team-card-item-val">{v}</div>
-                  </div>
+                {[["Source",team.leader],["Schedule",team.contact],["Filled Slots",`${team.members} volunteers`],["Open Slots",`${team.vehicles} slots`],["Location",team.coverage]].map(([l,v])=>(
+                  <div key={l}><div className="dp-team-card-item-label">{l}</div><div className="dp-team-card-item-val">{v}</div></div>
                 ))}
               </div>
+              <div className="dp-team-card-item-label">Requirements / Tasks</div>
               <div className="dp-equipment-list">
                 {team.equipment.map((e) => (
                   <span key={e} className="dp-equipment-tag">
@@ -5143,6 +5149,7 @@ function ResourcesPage({
               </div>
             </div>
           ))}
+          {filteredTeams.length===0&&<div className="dp-card" style={{ gridColumn:"1 / -1",padding:"2rem",textAlign:"center",color:"var(--d-text-sub)" }}>No Bayanihub volunteer roles match your filters.</div>}
         </div>
       )}
 
@@ -5165,8 +5172,8 @@ function ResourcesPage({
               </tr>
             </thead>
             <tbody>
-              {filteredUnits.map((u) => (
-                <tr key={u.id}>
+              {filteredUnits.map((u, index) => (
+                <tr key={`${u.id}-${index}`}>
                   <td
                     style={{
                       fontFamily: "monospace",
@@ -5882,30 +5889,18 @@ function ProfilePage({
 
   useEffect(() => {
     const session = loadSession();
-    if (session?.user) {
-      const u = session.user;
-      const initials =
-        `${u.firstName?.[0] || ""}${u.lastName?.[0] || ""}`.toUpperCase() ||
-        "DS";
-      const name =
-        u.name ||
-        `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
-        "Daniel Santos";
-      const email = u.email || "d.santos@ndrrmc.gov.ph";
-      const phone = u.phone || "+63 917 345 6789";
-      const username = u.email ? u.email.split("@")[0] : "d.santos";
+    if (!session?.accessToken) return;
 
-      const realProfile = {
-        ...MOCK_DISPATCHER,
-        name,
-        username,
-        email,
-        phone,
-        initials,
-      };
-      setProfile(realProfile);
-      setDraft(realProfile);
-    }
+    getDispatcherProfile(session.accessToken)
+      .then((data) => {
+        const realProfile = mapBackendProfile(data);
+        setProfile(realProfile);
+        setDraft(realProfile);
+      })
+      .catch((err) => {
+        console.error("Failed to load dispatcher profile:", err);
+        toast.show(err?.message || "Failed to load profile");
+      });
   }, []);
 
   const save = async () => {
@@ -6280,11 +6275,8 @@ function ProfilePage({
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN SHELL
-
 // ══════════════════════════════════════════════════════════════════════════════
-// MAIN SHELL
-// ══════════════════════════════════════════════════════════════════════════════
-function mapBackendToFrontendIncident(report: IncidentReport): Incident {
+function mapBackendToFrontendIncident(report: IncidentReport, dispatchOrders: DispatchOrder[] = []): Incident {
   const priorityMap: Record<string, IncidentPriority> = {
     low: "LOW",
     moderate: "MEDIUM",
@@ -6313,6 +6305,25 @@ function mapBackendToFrontendIncident(report: IncidentReport): Incident {
         /bridge|collapse|structural|building|fire|flood|rescue|road|accident|collision/.test(reportText) ? "FIELD" :
           "Other";
 
+  const relatedOrders = dispatchOrders.filter((order) => order.reportId === report.id);
+  const latestOrder = relatedOrders[0];
+  const orderStatusMap: Record<string, IncidentStatus> = {
+    pending: "Dispatched",
+    accepted: "Dispatched",
+    in_progress: "In Progress",
+    completed: "Resolved",
+  };
+  const status =
+    latestOrder?.status ? orderStatusMap[latestOrder.status] ?? statusMap[report.status?.toLowerCase() || "pending"] :
+    statusMap[report.status?.toLowerCase() || "pending"] || "New";
+  const createdAt = new Date(report.createdAt);
+  const dispatchedAt = latestOrder?.createdAt
+    ? new Date(latestOrder.createdAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
+    : undefined;
+  const resolvedAt = latestOrder?.status === "completed" && latestOrder.updatedAt
+    ? new Date(latestOrder.updatedAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
+    : undefined;
+
   return {
     id: report.id,
     type: inferredType,
@@ -6325,19 +6336,109 @@ function mapBackendToFrontendIncident(report: IncidentReport): Incident {
     location: report.location,
     lat: 14.6042,
     lng: 120.9822,
-    timeReported: new Date(report.createdAt).toLocaleTimeString("en-PH", {
+    timeReported: createdAt.toLocaleTimeString("en-PH", {
       hour: "2-digit",
       minute: "2-digit",
     }),
-    dateReported: new Date(report.createdAt).toLocaleDateString("en-PH"),
+    dateReported: createdAt.toLocaleDateString("en-PH"),
     priority:
       priorityMap[report.severity?.toLowerCase() || "moderate"] || "MEDIUM",
-    status: statusMap[report.status?.toLowerCase() || "pending"] || "New",
-    situationType: "Under Control",
+    status,
+    situationType: report.severity?.toLowerCase() === "critical" ? "Critical" : latestOrder ? "Escalating" : "Under Control",
     assignedUnits: [],
     description: report.content,
-    notes: "",
-    timeActive: 0,
+    notes: latestOrder?.instructions ?? "",
+    timeActive: Math.max(0, Math.round((Date.now() - createdAt.getTime()) / 60000)),
+    dispatchedAt,
+    resolvedAt,
+  };
+}
+
+function buildIncidentGeocodeQuery(incident: Incident): string {
+  const parts = [incident.address, incident.barangay, incident.city]
+    .map((part) => part?.trim())
+    .filter(Boolean);
+  const query = Array.from(new Set(parts)).join(", ");
+  if (!query) return "";
+  return /philippines/i.test(query) ? query : `${query}, Philippines`;
+}
+
+function mapBackendResponderType(type?: string): UnitType {
+  const normalized = type?.toLowerCase() ?? "";
+  if (["amb", "ambulance", "medical", "medic", "health"].includes(normalized)) return "MEDIC";
+  if (["logistics", "relief", "supply", "transport"].includes(normalized)) return "LOGISTICS";
+  return "FIELD";
+}
+
+function mapOrganizationToTeam(organization: Organization): Team {
+  const type = mapBackendResponderType(organization.type);
+
+  return {
+    id: organization.id,
+    name: organization.name,
+    type,
+    members: organization.verified ? 10 : 4,
+    vehicles: organization.verified ? 2 : 1,
+    station: organization.address || "Unassigned station",
+    contact: organization.contactPhone || organization.contactEmail || "No contact listed",
+    leader: organization.contactEmail || "Coordinator pending",
+    status: organization.verified ? "Ready" : "Standby",
+    equipment: [organization.type || "resource partner"],
+    coverage: organization.address || "Coverage not listed",
+  };
+}
+
+function mapVolunteerRoleToTeam(role: DispatcherVolunteerTeam): Team {
+  return {
+    id: role.id,
+    name: role.name,
+    type: mapBackendResponderType(role.type),
+    members: role.members,
+    vehicles: role.vehicles,
+    station: role.station,
+    contact: role.contact,
+    leader: role.leader,
+    status: role.status,
+    equipment: role.equipment.length ? role.equipment : ["No requirements listed"],
+    coverage: role.coverage,
+  };
+}
+
+function mapBackendProfile(profile: BackendDispatcherProfile) {
+  return {
+    ...MOCK_DISPATCHER,
+    id: profile.id,
+    name: profile.name,
+    username: profile.username,
+    email: profile.email,
+    phone: profile.phone,
+    badge: profile.badge,
+    rank: profile.rank,
+    cluster: profile.cluster,
+    station: profile.station,
+    initials: profile.initials,
+    joinedDate: profile.joinedDate,
+    totalDispatches: profile.totalDispatches,
+    resolvedToday: profile.resolvedToday,
+  };
+}
+
+function mapVolunteerUnit(unit: DispatcherVolunteerUnit): Unit {
+  return {
+    id: unit.id,
+    type: mapBackendResponderType(unit.type),
+    name: unit.name,
+    station: unit.station,
+    status: unit.status,
+    lat: unit.lat,
+    lng: unit.lng,
+    personnel: unit.personnel,
+    distance: unit.distance,
+    eta: unit.eta,
+    teamLeader: unit.teamLeader,
+    contact: unit.contact,
+    plateNumber: unit.plateNumber,
+    lastActive: unit.lastActive,
   };
 }
 
@@ -6346,6 +6447,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [dropdown, setDropdown] = useState(false);
   const [broadcastModal, setBroadcastModal] = useState(false);
   const [liveActivityModal, setLiveActivityModal] = useState(false);
@@ -6370,9 +6472,27 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const clock = useClock();
   const toast = useToast();
   const dropRef = useRef<HTMLDivElement>(null);
+  const geocodeCacheRef = useRef<Record<string, [number, number]>>({});
 
-  const syncProfile = () => {
+  const syncProfile = async () => {
     const session = loadSession();
+    if (session?.accessToken) {
+      try {
+        const profile = await getDispatcherProfile(session.accessToken);
+        setDispUser({
+          name: profile.name,
+          initials: profile.initials,
+          rank: profile.rank,
+          badge: profile.badge,
+          cluster: profile.cluster,
+          station: profile.station,
+        });
+        return;
+      } catch (err) {
+        console.error("Failed to sync dispatcher profile:", err);
+      }
+    }
+
     if (session?.user) {
       const u = session.user;
       const initials =
@@ -6383,12 +6503,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
         "Dispatcher User";
       setDispUser({
-        name,
-        initials,
-        rank: "Senior Dispatcher",
-        badge: "DS-3042",
-        cluster: "Metro Cluster 3",
-        station: "Sampaloc Command Center",
+        name: u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Dispatcher",
+        initials: `${u.firstName?.[0] || ""}${u.lastName?.[0] || ""}`.toUpperCase() || "DS",
+        rank: "Dispatcher I",
+        badge: "Not assigned",
+        cluster: u.municipality || u.province || u.barangay || "Unassigned Cluster",
+        station: u.address || "Unassigned Command Center",
       });
     }
   };
@@ -6397,13 +6517,21 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     syncProfile();
     const session = loadSession();
     if (session?.accessToken) {
-      Promise.all([
-        getDispatcherIncidents(session.accessToken),
-        getDispatcherVolunteers(session.accessToken),
-      ])
-        .then(([incidentData, volunteerData]) => {
-          setIncidents(incidentData.map(mapBackendToFrontendIncident));
-          setUnits(volunteerData.map(mapOrganizationToUnit));
+      getDispatcherOverview(session.accessToken)
+        .then((data) => {
+          const mappedIncidents = data.incidentReports.map((report) =>
+            mapBackendToFrontendIncident(report, data.dispatchOrders),
+          );
+          setIncidents(mappedIncidents);
+          void geocodeIncidentCoordinates(session.accessToken, mappedIncidents);
+          setTeams(
+            data.volunteerTeams?.length
+              ? data.volunteerTeams.map(mapVolunteerRoleToTeam)
+              : data.organizations.map(mapOrganizationToTeam),
+          );
+          if (data.volunteerUnits?.length) {
+            setUnits(data.volunteerUnits.map(mapVolunteerUnit));
+          }
         })
         .catch((err) => {
           console.error("Failed to fetch incidents:", err);
@@ -6419,6 +6547,41 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       onLogout();
     }
   }, []);
+
+  const geocodeIncidentCoordinates = async (token: string, sourceIncidents: Incident[]) => {
+    const updates = await Promise.all(
+      sourceIncidents.map(async (incident) => {
+        const query = buildIncidentGeocodeQuery(incident);
+        if (!query) return null;
+
+        const cacheKey = query.toLowerCase();
+        const cached = geocodeCacheRef.current[cacheKey];
+        if (cached) {
+          return { id: incident.id, lat: cached[0], lng: cached[1] };
+        }
+
+        try {
+          const result = await geocodeDispatcherAddress(token, query);
+          const coords: [number, number] = [result.latitude, result.longitude];
+          geocodeCacheRef.current[cacheKey] = coords;
+          return { id: incident.id, lat: coords[0], lng: coords[1] };
+        } catch (err) {
+          console.warn(`Failed to geocode incident ${incident.id}:`, err);
+          return null;
+        }
+      }),
+    );
+
+    const resolved = updates.filter((item): item is { id: string; lat: number; lng: number } => Boolean(item));
+    if (!resolved.length) return;
+
+    setIncidents((current) =>
+      current.map((incident) => {
+        const update = resolved.find((item) => item.id === incident.id);
+        return update ? { ...incident, lat: update.lat, lng: update.lng } : incident;
+      }),
+    );
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -6809,6 +6972,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <ResourcesPage
               units={units}
               setUnits={setUnits}
+              teams={teams}
+              setTeams={setTeams}
               assignmentIncident={resourceAssignmentIncident}
               onVolunteerAssigned={handleVolunteerAssigned}
               onAssignmentComplete={() => setResourceAssignmentIncident(null)}
@@ -6896,10 +7061,27 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <button
               className="dp-btn dp-btn-red"
               disabled={!broadcastMsg.trim()}
-              onClick={() => {
-                toast.show("Broadcast sent to all volunteers and citizens");
-                setBroadcastModal(false);
-                setBroadcastMsg("");
+              onClick={async () => {
+                const session = loadSession();
+                if (!session?.accessToken) {
+                  toast.show("Session expired. Please log in again.");
+                  onLogout();
+                  return;
+                }
+
+                try {
+                  const result = await sendDispatcherBroadcast(session.accessToken, {
+                    message: broadcastMsg,
+                    severity: "critical",
+                    type: "Emergency",
+                  });
+                  toast.show(`Broadcast saved and sent to ${result.deliveredInApp} users`);
+                  setBroadcastModal(false);
+                  setBroadcastMsg("");
+                } catch (err: any) {
+                  console.error("Failed to send broadcast:", err);
+                  toast.show(err?.message || "Failed to send broadcast");
+                }
               }}
             >
               Send Broadcast Now

@@ -3,6 +3,10 @@ import { IsOptional, IsString } from 'class-validator';
 export class UpdateDispatchOrderDto {
   @IsOptional()
   @IsString()
+  disasterId?: string;
+
+  @IsOptional()
+  @IsString()
   reportId?: string;
 
   @IsOptional()

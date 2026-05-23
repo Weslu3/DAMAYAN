@@ -139,6 +139,67 @@ export interface IncidentReport {
   createdAt: string;
 }
 
+export interface DispatchOrder {
+  id: string;
+  disasterId?: string;
+  reportId: string;
+  operationId: string;
+  assignedTo: string;
+  priority: string;
+  instructions?: string;
+  status: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface DispatcherProfile {
+  id: string;
+  authUserId: string;
+  name: string;
+  username: string;
+  email: string;
+  phone: string;
+  badge: string;
+  rank: string;
+  cluster: string;
+  station: string;
+  initials: string;
+  joinedDate: string;
+  totalDispatches: number;
+  resolvedToday: number;
+}
+
+export interface DispatcherVolunteerUnit {
+  id: string;
+  type: "FIRE" | "AMB" | "POL";
+  name: string;
+  station: string;
+  status: "Available" | "On Route" | "On Scene" | "Offline";
+  lat: number;
+  lng: number;
+  personnel: number;
+  distance: string;
+  eta: string;
+  teamLeader: string;
+  contact: string;
+  plateNumber: string;
+  lastActive: string;
+}
+
+export interface DispatcherVolunteerTeam {
+  id: string;
+  type: "FIRE" | "AMB" | "POL";
+  name: string;
+  station: string;
+  status: "Ready" | "Deployed" | "Standby" | "Offline";
+  leader: string;
+  contact: string;
+  members: number;
+  vehicles: number;
+  coverage: string;
+  equipment: string[];
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -146,4 +207,28 @@ export interface Organization {
   verified: boolean;
   contactEmail?: string;
   contactPhone?: string;
+  address?: string;
+  createdAt?: string;
+}
+
+export interface DispatcherOverview {
+  generatedAt: string;
+  incidentReports: IncidentReport[];
+  dispatchOrders: DispatchOrder[];
+  organizations: Organization[];
+  disasterEvents: DisasterEvent[];
+  volunteerUnits: DispatcherVolunteerUnit[];
+  volunteerTeams?: DispatcherVolunteerTeam[];
+  reliefOperations: Array<{
+    id: string;
+    disasterId: string;
+    name: string;
+    description?: string;
+    startDate: string;
+    endDate?: string;
+    leadAgencyId?: string;
+    leadOfficerId: string;
+    status: string;
+    createdAt: string;
+  }>;
 }

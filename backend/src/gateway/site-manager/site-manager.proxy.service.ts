@@ -336,11 +336,12 @@ export class SiteManagerProxyService {
     );
   }
 
-  findDispatchOrders(search?: string, operationId?: string) {
+  findDispatchOrders(search?: string, operationId?: string, disasterId?: string) {
     return firstValueFrom(
       this.operationsClient.send(DISPATCH_ORDER_PATTERNS.FIND_ALL, {
         search,
         operationId,
+        disasterId,
       }),
     );
   }
