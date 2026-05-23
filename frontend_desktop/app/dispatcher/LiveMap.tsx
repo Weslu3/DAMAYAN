@@ -43,6 +43,7 @@ export default function LiveMap({
   const mks = useRef<any[]>([]);
   const prevMode = useRef<string>("");
   const prevSelId = useRef<string>("");
+  const prevBoundsKey = useRef<string>("");
   const assignedKey = assignedUnits.join("|");
 
   useEffect(() => {
@@ -324,6 +325,7 @@ export default function LiveMap({
     }
 
     if (mode === "rescue") {
+      const rescueIncidents = filteredIncidents.filter((i) => i.status !== "Invalid");
       // Zoom in tight to selected incident, otherwise show overview
       if (selectedIncident) {
         if (prevMode.current !== mode || prevSelId.current !== selectedIncident.id) {
@@ -331,13 +333,19 @@ export default function LiveMap({
           prevMode.current = mode;
           prevSelId.current = selectedIncident.id;
         }
-      } else if (prevMode.current !== mode) {
-        map.setView(PH, 13);
+      } else {
+        const boundsKey = rescueIncidents.map((i) => `${i.id}:${i.lat.toFixed(5)},${i.lng.toFixed(5)}`).join("|");
+        if (rescueIncidents.length && (prevMode.current !== mode || prevBoundsKey.current !== boundsKey)) {
+          const bounds = L.latLngBounds(rescueIncidents.map((i) => [i.lat, i.lng]));
+          map.fitBounds(bounds, { padding: [42, 42], maxZoom: 15 });
+          prevBoundsKey.current = boundsKey;
+        } else if (prevMode.current !== mode) {
+          map.setView(PH, 13);
+        }
         prevMode.current = mode;
         prevSelId.current = "";
       }
-      filteredIncidents
-        .filter((i) => ["Dispatched", "In Progress"].includes(i.status))
+      rescueIncidents
         .forEach((i) => {
           const sc = situationColor(i.situationType);
           const html = `<div style="background:${sc};color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer;font-family: 'Public Sans',sans-serif">${shortenId(i.id)}</div>`;

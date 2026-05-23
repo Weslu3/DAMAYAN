@@ -192,8 +192,9 @@ export class SiteManagerController {
   findDispatchOrders(
     @Query('search') search?: string,
     @Query('operationId') operationId?: string,
+    @Query('disasterId') disasterId?: string,
   ) {
-    return this.siteManagerProxyService.findDispatchOrders(search, operationId);
+    return this.siteManagerProxyService.findDispatchOrders(search, operationId, disasterId);
   }
 
   @Get('dispatch-orders/stats')

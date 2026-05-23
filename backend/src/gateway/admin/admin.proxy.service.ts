@@ -445,8 +445,8 @@ export class AdminProxyService {
     return this.siteManagerProxyService.getDisasterEventStats();
   }
 
-  findDispatchOrders(search?: string, operationId?: string) {
-    return this.siteManagerProxyService.findDispatchOrders(search, operationId);
+  findDispatchOrders(search?: string, operationId?: string, disasterId?: string) {
+    return this.siteManagerProxyService.findDispatchOrders(search, operationId, disasterId);
   }
 
   createDispatchOrder(createDispatchOrderDto: CreateDispatchOrderDto) {

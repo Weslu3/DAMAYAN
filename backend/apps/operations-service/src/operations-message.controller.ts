@@ -189,8 +189,8 @@ export class OperationsMessageController {
   }
 
   @MessagePattern(DISPATCH_ORDER_PATTERNS.FIND_ALL)
-  findDispatchOrders(@Payload() payload: { search?: string; operationId?: string }) {
-    return this.dispatchOrdersService.findAll(payload?.search, payload?.operationId);
+  findDispatchOrders(@Payload() payload: { search?: string; operationId?: string; disasterId?: string }) {
+    return this.dispatchOrdersService.findAll(payload?.search, payload?.operationId, payload?.disasterId);
   }
 
   @MessagePattern(DISPATCH_ORDER_PATTERNS.FIND_ONE)
