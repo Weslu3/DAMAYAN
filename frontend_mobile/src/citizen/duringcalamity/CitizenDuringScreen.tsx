@@ -120,6 +120,10 @@ export function CitizenDuringScreen({
   // Selected evacuation center (chosen on safe_zone_map, used in navigate_evacuation)
   const [selectedCenter, setSelectedCenter] = useState<EvacCenter>(EVAC_CENTERS[0]);
 
+  // Road route from OSRM (replaces straight-line polyline)
+  const [routeCoords, setRouteCoords] = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const [routeDistanceMeters, setRouteDistanceMeters] = useState<number | null>(null);
+
   // ── Fetch device GPS on mount ────────────────────────────────────────────
   useEffect(() => {
     (async () => {
@@ -174,6 +178,34 @@ export function CitizenDuringScreen({
     if (initialStep === "decision") setStep("rescue_decision");
     else if (initialStep) setStep(initialStep as DuringStep);
   }, [initialStep]);
+
+  // Fetch road route from OSRM when navigation step is active
+  useEffect(() => {
+    if (step !== "navigate_evacuation" || !userLocation) return;
+    let cancelled = false;
+
+    const { latitude: lat1, longitude: lon1 } = userLocation;
+    const { latitude: lat2, longitude: lon2 } = selectedCenter;
+    const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+
+    fetch(url)
+      .then((r) => r.json())
+      .then((data: any) => {
+        if (cancelled || !data.routes?.[0]) return;
+        const coords: Array<{ latitude: number; longitude: number }> =
+          data.routes[0].geometry.coordinates.map(([lon, lat]: [number, number]) => ({
+            latitude: lat,
+            longitude: lon,
+          }));
+        setRouteCoords(coords);
+        setRouteDistanceMeters(data.routes[0].distance);
+      })
+      .catch(() => {
+        // Network or OSRM unavailable — straight-line fallback stays in place
+      });
+
+    return () => { cancelled = true; };
+  }, [step, userLocation, selectedCenter]);
 
   async function handlePickPhoto() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -577,8 +609,10 @@ export function CitizenDuringScreen({
               <View style={{ flex: 1 }}>
                 <Text style={styles.infoRowText}>{selectedCenter.name}</Text>
                 <Text style={styles.infoRowSub}>
-                  {userLocation
-                    ? `${(manhattanDistanceMeters(userLocation, selectedCenter) / 1000).toFixed(1)} km away`
+                  {routeDistanceMeters !== null
+                    ? `${(routeDistanceMeters / 1000).toFixed(1)} km by road`
+                    : userLocation
+                    ? `~${(manhattanDistanceMeters(userLocation, selectedCenter) / 1000).toFixed(1)} km estimated`
                     : "Calculating distance…"}
                 </Text>
               </View>
@@ -595,6 +629,7 @@ export function CitizenDuringScreen({
                 userLocation={userLocation}
                 evacCenters={orderedCenters}
                 selectedCenter={selectedCenter}
+                routeCoords={routeCoords}
               />
             )}
 

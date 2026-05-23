@@ -16,6 +16,7 @@ export interface CitizenLiveMapProps {
   evacCenters: EvacCenter[];
   selectedCenter: EvacCenter;
   onCenterSelect?: (center: EvacCenter) => void;
+  routeCoords?: Array<{ latitude: number; longitude: number }>;
 }
 
 function midpointRegion(
@@ -38,6 +39,7 @@ export function CitizenLiveMap({
   evacCenters,
   selectedCenter,
   onCenterSelect,
+  routeCoords,
 }: CitizenLiveMapProps) {
   const fallbackCoord = { latitude: 14.5995, longitude: 120.9842 };
 
@@ -91,13 +93,14 @@ export function CitizenLiveMap({
           />
           {userLocation && (
             <Polyline
-              coordinates={[
-                userLocation,
-                { latitude: selectedCenter.latitude, longitude: selectedCenter.longitude },
-              ]}
+              coordinates={
+                routeCoords && routeCoords.length > 1
+                  ? routeCoords
+                  : [userLocation, { latitude: selectedCenter.latitude, longitude: selectedCenter.longitude }]
+              }
               strokeColor="#0061A4"
               strokeWidth={3}
-              lineDashPattern={[8, 4]}
+              lineDashPattern={routeCoords && routeCoords.length > 1 ? undefined : [8, 4]}
             />
           )}
         </>
