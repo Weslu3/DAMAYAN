@@ -194,9 +194,13 @@ export function CitizenDuringScreen({
     const { latitude: lat2, longitude: lon2 } = selectedCenter;
     const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
 
-    fetch(url, { signal: AbortSignal.timeout(6000) })
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    fetch(url, { signal: controller.signal })
       .then((r) => r.json())
       .then((data: any) => {
+        clearTimeout(timeoutId);
         if (cancelled || !data.routes?.[0]) return;
         const roadCoords: Array<{ latitude: number; longitude: number }> =
           data.routes[0].geometry.coordinates.map(([lon, lat]: [number, number]) => ({
@@ -207,10 +211,11 @@ export function CitizenDuringScreen({
         setRouteDistanceMeters(data.routes[0].distance);
       })
       .catch(() => {
+        clearTimeout(timeoutId);
         // OSRM unreachable — Manhattan grid route already shown, keep it
       });
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(timeoutId); };
   }, [step, userLocation, selectedCenter]);
 
   async function handlePickPhoto() {
