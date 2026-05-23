@@ -158,26 +158,125 @@ export class CheckInService {
 
   /** Check in all members of a family group at once. Returns the head's check-in record. */
   private async scanFamilyGroupQr(familyQrCodeId: string, scanQrDto: ScanQrDto): Promise<CheckIn> {
-    const memberQrCodes = await this.familyGroupsService.getMemberQrCodesByGroupQr(familyQrCodeId);
+    const supabase = this.supabaseService.getClient() as any;
 
-    if (!memberQrCodes.length) {
-      // No registered members — check in as a group entity instead
-      return this.createManual({ evacueeNumber: familyQrCodeId });
+    // Resolve the group row to get head_user_id
+    const { data: groupRow } = await supabase
+      .from('family_groups')
+      .select('id, head_user_id')
+      .eq('family_qr_code_id', familyQrCodeId)
+      .maybeSingle();
+
+    // Fetch head's citizen record and member QR codes in parallel
+    const [{ data: headCitizen }, { data: memberRows }] = await Promise.all([
+      groupRow
+        ? supabase.from('register_citizens').select('qr_code_id, full_name').eq('user_id', groupRow.head_user_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      groupRow
+        ? supabase.from('family_group_members').select('citizen_qr_code_id').eq('family_group_id', groupRow.id)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const memberQrCodes: string[] = (memberRows ?? []).map((m: any) => m.citizen_qr_code_id);
+    const results: CheckIn[] = [];
+
+    // Resolve head's display name — fall back to user_profiles when full_name is blank
+    let headFullName: string | null = headCitizen?.full_name?.trim() || null;
+    if (!headFullName && groupRow?.head_user_id) {
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('first_name, last_name')
+        .eq('auth_user_id', groupRow.head_user_id)
+        .maybeSingle();
+      if (profile) {
+        headFullName = `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || null;
+      }
     }
 
-    const results: CheckIn[] = [];
+    // Check in the family head first
+    if (headCitizen?.qr_code_id) {
+      // Head has a citizen registration — use the standard QR path, passing resolved name
+      try {
+        const checkIn = await this.createManual({
+          evacueeNumber: headCitizen.qr_code_id,
+          firstName: headFullName ?? undefined,
+          centerId: scanQrDto.centerId,
+        });
+        results.push(checkIn);
+      } catch (e) {
+        console.error('[FAM-QR] Head QR check-in failed:', e);
+      }
+    } else if (groupRow?.head_user_id) {
+      // Head has no QR code — check in directly via auth_user_id
+      try {
+        const checkIn = await this.checkInByAuthUserId(groupRow.head_user_id, headFullName, scanQrDto.centerId);
+        results.push(checkIn);
+      } catch (e) {
+        console.error('[FAM-QR] Head auth_user_id check-in failed:', e);
+      }
+    }
+
+    // Check in all registered members
     for (const qr of memberQrCodes) {
       try {
         const checkIn = await this.createManual({ evacueeNumber: qr, centerId: scanQrDto.centerId });
         results.push(checkIn);
-      } catch {
-        // Continue checking in other members even if one fails
+      } catch (e) {
+        console.error('[FAM-QR] Member check-in failed for QR', qr, ':', e);
       }
     }
 
-    // Return the first successful check-in as the primary result
     if (results.length > 0) return results[0];
     return this.createManual({ evacueeNumber: familyQrCodeId });
+  }
+
+  /** Check in a user directly by their auth_user_id when they have no citizen QR code. */
+  private async checkInByAuthUserId(authUserId: string, fullName: string | null, centerId?: string): Promise<CheckIn> {
+    const supabase = this.supabaseService.getClient() as any;
+    const activeDisasterId = await this.resolveActiveDisasterId(supabase);
+
+    const { data: existing } = await supabase
+      .from('evacuees')
+      .select('id, status, check_in_date')
+      .eq('auth_user_id', authUserId)
+      .maybeSingle();
+
+    if (existing && (existing.status === 'checked_in') && existing.check_in_date) {
+      return this.findOne(existing.id) as any;
+    }
+
+    if (existing) {
+      const { data, error } = await supabase
+        .from('evacuees')
+        .update({
+          check_in_date: this.localISOString(),
+          check_out_date: null,
+          status: 'checked_in',
+          ...(centerId ? { center_id: centerId } : {}),
+          ...(activeDisasterId && !existing.disaster_id ? { disaster_id: activeDisasterId } : {}),
+        })
+        .eq('id', existing.id)
+        .select('id')
+        .single();
+      if (error) throw new BadRequestException(error.message);
+      return this.findOne((data as any).id) as any;
+    }
+
+    if (!activeDisasterId) throw new BadRequestException('No active disaster found.');
+    const { data, error } = await supabase
+      .from('evacuees')
+      .insert({
+        auth_user_id: authUserId,
+        family_head: fullName || '',
+        disaster_id: activeDisasterId,
+        check_in_date: this.localISOString(),
+        status: 'checked_in',
+        ...(centerId ? { center_id: centerId } : {}),
+      })
+      .select('id')
+      .single();
+    if (error) throw new BadRequestException(error.message);
+    return this.findOne((data as any).id) as any;
   }
 
   async createManual(createCheckInDto: CreateCheckInDto): Promise<CheckIn> {
@@ -262,7 +361,7 @@ export class CheckInService {
         .from('evacuees')
         .insert({
           auth_user_id: authUserId,
-          family_head: citizenFullName ?? dtoFullName ?? evacueeNumber,
+          family_head: citizenFullName || dtoFullName || evacueeNumber,
           disaster_id: activeDisasterId,
           check_in_date: this.localISOString(),
           status: 'checked_in',
@@ -294,6 +393,36 @@ export class CheckInService {
       throw new NotFoundException(`Check-in with ID ${id} not found`);
     }
     return this.findOne(id);
+  }
+
+  async checkOutFamilyGroup(familyQrCodeId: string): Promise<{ checkedOut: number }> {
+    const supabase = this.supabaseService.getClient() as any;
+    const allQrCodes = await this.familyGroupsService.getMemberQrCodesByGroupQr(familyQrCodeId);
+    if (!allQrCodes.length) return { checkedOut: 0 };
+
+    let checkedOut = 0;
+    for (const qr of allQrCodes) {
+      const { data: citizen } = await supabase
+        .from('register_citizens')
+        .select('user_id')
+        .eq('qr_code_id', qr)
+        .maybeSingle();
+      if (!citizen?.user_id) continue;
+
+      const { data: evacuee } = await supabase
+        .from('evacuees')
+        .select('id')
+        .eq('auth_user_id', citizen.user_id)
+        .eq('status', 'checked_in')
+        .maybeSingle();
+      if (!evacuee) continue;
+
+      try {
+        await this.checkOut(evacuee.id);
+        checkedOut++;
+      } catch { /* continue with others */ }
+    }
+    return { checkedOut };
   }
 
   async getStats() {

@@ -44,25 +44,34 @@ export function useCalamityContext(): CalamityContextState {
       setIsLoading(false);
       return;
     }
+    const client = supabase;
 
-    // Hydrate current phase on mount
-    supabase
-      .from('system_settings')
-      .select('current_phase')
-      .limit(1)
-      .single()
-      .then(({ data }) => {
-        if (data?.current_phase) {
+    let cancelled = false;
+
+    async function hydrateCurrentPhase() {
+      try {
+        const { data } = await client
+          .from('system_settings')
+          .select('current_phase')
+          .limit(1)
+          .single();
+
+        if (!cancelled && data?.current_phase) {
           setCurrentPhase(normalisePhase((data as SystemSettingsRow).current_phase));
         }
-      })
-      .catch(() => {
+      } catch {
         // Keep default BEFORE phase on network failure
-      })
-      .finally(() => setIsLoading(false));
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void hydrateCurrentPhase();
 
     // Realtime subscription for live phase changes
-    const channel: RealtimeChannel = supabase
+    const channel: RealtimeChannel = client
       .channel('mobile-system-settings-phase')
       .on(
         'postgres_changes',
@@ -77,7 +86,8 @@ export function useCalamityContext(): CalamityContextState {
       .subscribe();
 
     return () => {
-      void supabase.removeChannel(channel);
+      cancelled = true;
+      void client.removeChannel(channel);
     };
   }, []);
 

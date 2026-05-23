@@ -4420,7 +4420,7 @@ export default function AdminPortal() {
       {/*  SIDEBAR  */}
       <div className="admin-sidebar">
         <div className="admin-sb-brand">
-          <div className="admin-sb-mark">D</div>
+          <img src="/damayan_logo.svg" alt="Damayan" className="admin-sb-mark" />
           <div className="admin-sb-brand-text">
             <strong>Damayan</strong>
             <span>Admin Console</span>

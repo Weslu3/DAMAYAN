@@ -46,7 +46,7 @@ export default function AuthLayout({
         <div className="auth-brand-inner">
           <div className="auth-logo" style={{ display: 'flex', alignItems: 'center' }}>
              <div style={{ width: '56px', height: '56px', marginRight: '16px', flexShrink: 0 }}>
-               <img src="/damayan_logo.png" alt="Damayan Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+               <img src="/damayan_logo.svg" alt="Damayan Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
              </div>
             <div>
               <span className="auth-logo-name" style={{ color: '#FFC107' }}>DAMAYAN</span>
@@ -68,7 +68,7 @@ export default function AuthLayout({
         <div className="auth-panel-inner">
           <div className="auth-mobile-logo" style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem', gap: '12px' }}>
              <div style={{ width: '42px', height: '42px', flexShrink: 0 }}>
-               <img src="/damayan_logo.png" alt="Damayan Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+               <img src="/damayan_logo.svg" alt="Damayan Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
              </div>
             <span className="auth-logo-name" style={{ color: '#FFC107' }}>DAMAYAN</span>
           </div>

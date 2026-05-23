@@ -1,6 +1,7 @@
 "use client";
 import "./dispatcher.css";
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   NavPage,
   Incident,
@@ -10,8 +11,10 @@ import {
   IncidentStatus,
   SituationType,
   UnitType,
+  UnitStatus,
+  BarangayDemographics,
   MOCK_DISPATCHER,
-  MOCK_TEAMS,
+  mapCityToBarangay,
   priorityClass,
   statusClass,
   situationClass,
@@ -27,12 +30,25 @@ import {
 } from "./data";
 import LiveMap, { MapMode } from "./LiveMap";
 import {
+  geocodeDispatcherAddress,
+  getDispatcherOverview,
+  getDispatcherProfile,
   getDispatcherIncidents,
   getDispatcherVolunteers,
+  getDispatcherCityData,
+  sendDispatcherBroadcast,
   updateIncidentReport,
+  createVolunteerDispatch,
 } from "../lib/api";
 import { loadSession } from "../lib/session";
-import { IncidentReport, Organization } from "../lib/types";
+import type {
+  DispatchOrder,
+  DispatcherProfile as BackendDispatcherProfile,
+  DispatcherVolunteerTeam,
+  DispatcherVolunteerUnit,
+  IncidentReport,
+  Organization,
+} from "../lib/types";
 import { Icon, IconName } from "./components/ui/Icon";
 
 function volunteerIconName(type: UnitType): IconName {
@@ -60,7 +76,24 @@ function Modal({
   width?: number;
   children: React.ReactNode;
 }) {
-  return (
+  const [mounted, setMounted] = useState(false);
+  const portalEl = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    if (!portalEl.current) {
+      portalEl.current = document.createElement("div");
+    }
+    const el = portalEl.current;
+    document.body.appendChild(el);
+    return () => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    };
+  }, []);
+
+  if (!mounted || !portalEl.current) return null;
+
+  return createPortal(
     <div
       className="dp-modal-overlay"
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -74,12 +107,63 @@ function Modal({
         </div>
         <div className="dp-modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    portalEl.current,
   );
 }
 
-function Toast({ msg }: { msg: string }) {
-  return <div className="dp-toast">{msg}</div>;
+function CountUp({ end, duration = 1000 }: { end: number | string; duration?: number }) {
+  const [count, setCount] = useState(0);
+  const numEnd = typeof end === 'string' ? parseInt(end.replace(/,/g, ''), 10) : end;
+  
+  useEffect(() => {
+    if (isNaN(numEnd)) return;
+    let startTimestamp: number | null = null;
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      setCount(Math.floor(progress * numEnd));
+      if (progress < 1) {
+        window.requestAnimationFrame(step);
+      } else {
+        setCount(numEnd);
+      }
+    };
+    window.requestAnimationFrame(step);
+  }, [numEnd, duration]);
+  
+  if (isNaN(numEnd)) return <>{end}</>;
+  return <>{count.toLocaleString()}</>;
+}
+
+function Toast({ msg, type = "success", duration = 3000 }: { msg: string; type?: "success" | "error" | "warning"; duration?: number }) {
+  const [show, setShow] = useState(true);
+  const [isExiting, setIsExiting] = useState(false);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsExiting(true);
+      setTimeout(() => setShow(false), 300);
+    }, duration);
+    return () => clearTimeout(timer);
+  }, [duration]);
+  
+  if (!show) return null;
+  
+  const iconMap = {
+    success: "✓",
+    error: "✕",
+    warning: ""
+  };
+  
+  const classNames = `dp-toast dp-toast-${type}${isExiting ? " dp-toast-exiting" : ""}`;
+  
+  return (
+    <div className={classNames}>
+      <span className="dp-toast-icon">{iconMap[type]}</span>
+      <span className="dp-toast-message">{msg}</span>
+    </div>
+  );
 }
 
 function QueueFilterDropdown<T extends string>({
@@ -172,11 +256,15 @@ function addMins(timeStr: string, mins: number): string {
 
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
-  const show = (m: string) => {
+  const [type, setType] = useState<"success" | "error" | "warning">("success");
+  
+  const show = (m: string, t: "success" | "error" | "warning" = "success") => {
     setMsg(m);
-    setTimeout(() => setMsg(null), 2800);
+    setType(t);
+    setTimeout(() => setMsg(null), 3200);
   };
-  return { msg, show };
+  
+  return { msg, type, show };
 }
 
 function formatDateForInput(dateLike: string) {
@@ -268,7 +356,9 @@ function LoginPage({
         <div className="dp-login-brand">
           <div>
             <div className="dp-login-logo">
-              <div className="dp-login-logo-mark">D</div>
+              <div className="dp-login-logo-mark">
+                <img src="/damayan_logo.svg" alt="Damayan Logo" style={{ width: '100%', height: '100%' }} />
+              </div>
               <div>
                 <span className="dp-login-logo-name">Damayan</span>
                 <p className="dp-login-logo-role">Dispatcher Portal</p>
@@ -486,7 +576,7 @@ function LoginPage({
                     </button>
                   </div>
                   <div className="dp-login-note">
-                    ⏳ After submission, wait for admin approval before
+                     After submission, wait for admin approval before
                     accessing the portal.
                   </div>
                   <p className="dp-login-switch">
@@ -556,100 +646,79 @@ function AwaitingPage({ onProceed }: { onProceed: () => void }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // DASHBOARD PAGE
 // ══════════════════════════════════════════════════════════════════════════════
-function DashboardPage({
-  incidents,
-  units,
-  onDispatch,
-  onMarkInvalid,
-  status,
-}: {
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: {
   incidents: Incident[];
   units: Unit[];
   onDispatch: (inc: Incident) => void;
   onMarkInvalid: (inc: Incident, reason: string) => void;
   status: "active" | "inactive";
 }) {
-  const today = new Date().toLocaleDateString("en-PH", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
-  const pendingQueue = incidents.filter((i) =>
-    ["New", "Waiting", "Dispatched"].includes(i.status),
-  );
+  const today = new Date().toLocaleDateString("en-PH", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const newInc    = incidents.filter(i => i.status === "New" || i.status === "Waiting");
+  const activeInc = incidents.filter(i => i.status === "In Progress" || i.status === "Dispatched");
+  const resolved  = incidents.filter(i => i.status === "Resolved");
+  const critical  = incidents.filter(i => (i.priority === "CRITICAL" || i.priority === "HIGH") && i.status !== "Resolved" && i.status !== "Invalid");
+  const avail     = units.filter(u => u.status === "Available").length;
+  const deployed  = units.filter(u => u.status !== "Available" && u.status !== "Offline").length;
   const [queueSearch, setQueueSearch] = useState("");
-  const [queuePriority, setQueuePriority] = useState<
-    "ALL" | IncidentPriority
-  >("ALL");
+  const [queuePriority, setQueuePriority] = useState<"ALL" | IncidentPriority>("ALL");
   const [queueStatus, setQueueStatus] = useState<"ALL" | IncidentStatus>("ALL");
+  const [districtFilter, setDistrictFilter] = useState<string | null>(null);
 
-  const filteredPendingQueue = pendingQueue.filter((inc) => {
-    const matchesSearch =
-      queueSearch.trim() === "" ||
-      [inc.id, inc.type, inc.location, inc.address]
-        .join(" ")
-        .toLowerCase()
-        .includes(queueSearch.toLowerCase());
-    const matchesPriority =
-      queuePriority === "ALL" || inc.priority === queuePriority;
-    const matchesStatus = queueStatus === "ALL" || inc.status === queueStatus;
-    return matchesSearch && matchesPriority && matchesStatus;
-  });
-  const activeIncidents = incidents.filter((i) =>
-    ["In Progress", "Dispatched"].includes(i.status),
-  );
-  const criticalAlerts = incidents.filter(
-    (i) => ["CRITICAL", "HIGH"].includes(i.priority) && !["Resolved", "Invalid"].includes(i.status),
-  );
-
-  const availableUnits = units.filter((u) => u.status === "Available");
-
-  const stats = [
-    {
-      label: "Pending Queue",
-      value: pendingQueue.length,
-      color: "var(--d-amber)",
-      bgColor: "var(--d-amber-bg)",
-      icon: "megaphone" as IconName,
-      desc: "Awaiting review",
-    },
-    {
-      label: "Active Incidents",
-      value: activeIncidents.length,
-      color: "var(--d-primary)",
-      bgColor: "var(--d-primary-light)",
-      icon: "activity" as IconName,
-      desc: "Ongoing responses",
-    },
-    {
-      label: "Critical Alerts",
-      value: criticalAlerts.length,
-      color: "var(--d-red)",
-      bgColor: "var(--d-red-bg)",
-      icon: "warning" as IconName,
-      desc: "Immediate threats",
-    },
-    {
-      label: "Volunteers Ready",
-      value: `${availableUnits.length}/${units.length}`,
-      color: "var(--d-blue)",
-      bgColor: "var(--d-blue-bg)",
-      icon: "users" as IconName,
-      desc: "Available now",
-    },
+  const stats: Array<{
+    label: string;
+    value: number;
+    color: string;
+    bgColor: string;
+    icon: IconName;
+    desc: string;
+  }> = [
+    { label: "New Incidents",    value: newInc.length,    color: "var(--d-red)",     bgColor: "rgba(198, 40, 40, 0.10)", icon: "ticket",   desc: "Awaiting review" },
+    { label: "Active Response",  value: activeInc.length, color: "var(--d-primary)", bgColor: "rgba(46, 125, 50, 0.10)", icon: "activity", desc: "Dispatch ongoing" },
+    { label: "Resolved Today",   value: resolved.length,  color: "var(--d-green)",   bgColor: "rgba(46, 125, 50, 0.10)", icon: "check",    desc: "Closed incidents" },
+    { label: "Critical / High",  value: critical.length,  color: "#c77700",          bgColor: "rgba(199, 119, 0, 0.12)",  icon: "warning",  desc: "Needs attention" },
+    { label: "Units Available",  value: avail,            color: "var(--d-blue)",    bgColor: "rgba(21, 101, 192, 0.10)", icon: "users",    desc: `${deployed} deployed` },
+    { label: "Total Units",      value: units.length,     color: "var(--d-text)",    bgColor: "rgba(45, 49, 45, 0.08)",   icon: "map",      desc: "Registered responders" },
   ];
 
-  const responderGroups = [
-    { type: "FIELD" as const, label: "Rescue", color: "var(--d-red)" },
-    { type: "MEDIC" as const, label: "Medical", color: "var(--d-blue)" },
-    { type: "LOGISTICS" as const, label: "Logistics", color: "var(--d-primary)" },
-  ].map((group) => {
-    const total = units.filter((u) => u.type === group.type).length;
-    const available = units.filter((u) => u.type === group.type && u.status === "Available").length;
-    const pct = total > 0 ? Math.round((available / total) * 100) : 0;
-    return { ...group, total, available, pct };
+  const ACTIVITY = [
+    { time: "09:45 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-03 dispatched to INC-0148 — Lacson Avenue" },
+    { time: "09:37 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-03 & POL-04 dispatched to INC-0149 — Cayco St." },
+    { time: "09:30 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "3 units dispatched to INC-0150 — Aurora Blvd." },
+    { time: "08:23 AM", type: "RESOLVED",  color: "var(--d-green)",   msg: "INC-0138 resolved — Structure fire, Flores St." },
+    { time: "07:58 AM", type: "ON SCENE",  color: "var(--d-primary)", msg: "FIRE-03 on scene at Sta. Mesa incident" },
+    { time: "07:43 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-01 dispatched to INC-0139 — Dagupan St." },
+  ];
+
+  // Queue = New + Waiting + Dispatched (but NOT In Progress/Resolved/Invalid)
+  const queueInc = incidents.filter(i => ["New","Waiting","Dispatched"].includes(i.status));
+  const pendingQueue = queueInc;
+  const filteredPendingQueue = pendingQueue.filter((inc) => {
+    const haystack = `${inc.id} ${inc.type} ${inc.location} ${inc.address} ${inc.barangay} ${inc.city}`.toLowerCase();
+    const matchesSearch = !queueSearch.trim() || haystack.includes(queueSearch.trim().toLowerCase());
+    const matchesPriority = queuePriority === "ALL" || inc.priority === queuePriority;
+    const matchesStatus = queueStatus === "ALL" || inc.status === queueStatus;
+    const matchesDistrict = !districtFilter || [inc.location, inc.address, inc.barangay, inc.city].some((part) =>
+      part?.toLowerCase().includes(districtFilter.toLowerCase()),
+    );
+    return matchesSearch && matchesPriority && matchesStatus && matchesDistrict;
+  });
+  const criticalAlerts = critical;
+  const responderGroups = (["FIELD", "MEDIC", "LOGISTICS"] as UnitType[]).map((type) => {
+    const groupUnits = units.filter((unit) => unit.type === type);
+    const available = groupUnits.filter((unit) => unit.status === "Available").length;
+    const total = groupUnits.length;
+    return {
+      label: UNIT_TYPE_LABEL[type],
+      available,
+      total,
+      pct: total ? Math.round((available / total) * 100) : 0,
+      color: unitTypeColor(type),
+    };
   });
 
   return (
@@ -685,13 +754,24 @@ function DashboardPage({
         </div>
 
         <div className="dp-queue-filters">
+          <QueueFilterDropdown<string | "ALL">
+            value={districtFilter || "ALL"}
+            onChange={(v) => setDistrictFilter(v === "ALL" ? null : v)}
+            options={[
+              { value: "ALL", label: "My Jurisdiction (All)" },
+              { value: "Sampaloc, Manila", label: "Sampaloc, Manila" },
+              { value: "Quezon City", label: "Quezon City" },
+              { value: "Mandaluyong", label: "Mandaluyong" },
+            ]}
+            className="dp-district-filter"
+          />
           <input
             className="dp-queue-filter-input"
             placeholder="Search ID, type, or location..."
             value={queueSearch}
             onChange={(e) => setQueueSearch(e.target.value)}
           />
-          <QueueFilterDropdown
+          <QueueFilterDropdown<"ALL" | IncidentPriority>
             value={queuePriority}
             onChange={(value) => setQueuePriority(value as IncidentPriority | "ALL")}
             options={[
@@ -702,7 +782,7 @@ function DashboardPage({
               { value: "LOW", label: "Low" },
             ]}
           />
-          <QueueFilterDropdown
+          <QueueFilterDropdown<"ALL" | IncidentStatus>
             value={queueStatus}
             onChange={(value) => setQueueStatus(value as IncidentStatus | "ALL")}
             options={[
@@ -803,8 +883,81 @@ function DashboardPage({
           </div>
         </div>
       </div>
+
+      {/* ═══ TEAM STATUS & ROLES (SHOW USER ROLES ON DASHBOARD) ═══ */}
+      <div className="dp-card dp-card-spacious">
+        <div className="dp-card-header">
+          <div>
+            <div className="dp-card-title">Team Status & User Roles</div>
+            <div className="dp-card-sub">Real-time duty status of Site Managers and coordinators</div>
+          </div>
+        </div>
+
+        <div className="dp-team-roles-list">
+          {/* Mock Site Manager data showing On-Duty/Off-Duty status */}
+          {[
+            { name: "Maria Santos", role: "Site Manager - Relief Center A", duty: "On Duty", color: "var(--d-green)" },
+            { name: "Juan Reyes", role: "Site Manager - Relief Center B", duty: "On Duty", color: "var(--d-green)" },
+            { name: "Ana Cruz", role: "Site Manager - Inventory Hub", duty: "Off Duty", color: "var(--d-text-sub)" },
+            { name: "Pedro Gonzales", role: "Line Manager - Operations", duty: "On Duty", color: "var(--d-green)" },
+          ].map((person, idx) => (
+            <div key={idx} className="dp-team-role-item">
+              <div className="dp-team-role-avatar" style={{ background: person.color + "15" }}>
+                <span style={{ color: person.color, fontWeight: 800 }}>
+                  {person.name.split(" ").map(n => n[0]).join("")}
+                </span>
+              </div>
+              <div className="dp-team-role-info">
+                <div className="dp-team-role-name">{person.name}</div>
+                <div className="dp-team-role-role">{person.role}</div>
+              </div>
+              <div className="dp-team-role-status" style={{ color: person.color }}>
+                <span className="dp-team-role-dot" style={{ background: person.color }} />
+                {person.duty}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Real-time notification listener for duty status changes */}
+      <DutyStatusNotificationListener />
     </div>
   );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// DUTY STATUS NOTIFICATION LISTENER
+// ════════════════════════════════════════════════════════════════════════════════
+function DutyStatusNotificationListener() {
+  const toast = useToast();
+  const [lastNotification, setLastNotification] = useState<{ name: string; status: string; time: number } | null>(null);
+
+  useEffect(() => {
+    // Simulate receiving notifications when Site Managers toggle duty status
+    // In production, this would be a WebSocket or real-time event listener
+    const mockNotificationInterval = setInterval(() => {
+      const notifications = [
+        { name: "Maria Santos (Site Manager - Relief Center A)", status: "toggled Off-Duty", statusType: "off-duty" },
+        { name: "Juan Reyes (Site Manager - Relief Center B)", status: "is now On-Duty", statusType: "on-duty" },
+      ];
+
+      // Randomly trigger a notification every 15 seconds (for demo)
+      if (Math.random() > 0.7) {
+        const notification = notifications[Math.floor(Math.random() * notifications.length)];
+        toast.show(` NOTIFICATION: ${notification.name} ${notification.status}`);
+        setLastNotification({
+          name: notification.name,
+          status: notification.statusType,
+          time: Date.now(),
+        });
+      }
+    }, 15000);
+
+    return () => clearInterval(mockNotificationInterval);
+  }, [toast.show]);
+
+  return null; // This component only handles side effects
 }
 // Queue row — dispatch navigates to Resource Map dispatch mode; invalid removes from queue
 function QueueRow({
@@ -1197,6 +1350,7 @@ function ResourceMapPage({
   dispatchTarget,
   onClearDispatchTarget,
   status,
+  cityData = [],
 }: {
   incidents: Incident[];
   units: Unit[];
@@ -1204,14 +1358,25 @@ function ResourceMapPage({
   dispatchTarget: Incident | null;
   onClearDispatchTarget: () => void;
   status: "active" | "inactive";
+  cityData?: Array<{ psgcCode: string; name: string; province: string | null; region: string | null; coordinates: [number, number] }>;
 }) {
   // If a dispatchTarget arrives from dashboard, start in dispatch mode
-  const [mapMode, setMapMode] = useState<"monitoring" | "dispatch">(
+  const [mapMode, setMapMode] = useState<MapMode>(
     dispatchTarget ? "dispatch" : "monitoring",
   );
   const [filterType, setFilterType] = useState("All");
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
-  const [mapSearch, setMapSearch] = useState("");
+  const [districtFilter, setDistrictFilter] = useState<string | null>(null);
+  const [showVulnerabilityHeatmap, setShowVulnerabilityHeatmap] = useState(false);
+  const [showPopulationDensity, setShowPopulationDensity] = useState(false);
+  const barangayData = cityData.map((city) => {
+    const count = incidents.filter(
+      (i) => i.location?.toLowerCase().includes(city.name.toLowerCase()) ||
+             (city.province && i.location?.toLowerCase().includes(city.province.toLowerCase()))
+    ).length;
+    return mapCityToBarangay(city, count);
+  });
+  const [selectedBarangay, setSelectedBarangay] = useState<BarangayDemographics | null>(null);
   const [selInc, setSelInc] = useState<Incident | null>(dispatchTarget);
   const [assigned, setAssigned] = useState<string[]>(
     dispatchTarget?.assignedUnits ?? [],
@@ -1252,17 +1417,32 @@ function ResourceMapPage({
 
   const confirmDispatch = () => {
     if (isInactive) return;
-    // Move incident to Dispatched/In Progress
-    if (selInc) {
-      onUpdate(selInc.id, {
-        status: "Dispatched",
-        assignedUnits: assigned,
-        dispatchedAt: new Date().toLocaleTimeString("en-PH", {
+    const patch: Partial<Incident> = {
+      status: "Dispatched",
+      assignedUnits: assigned,
+      dispatchedAt: new Date().toLocaleTimeString("en-PH", {
           hour: "2-digit",
           minute: "2-digit",
         }),
-      });
+    };
+
+    const session = loadSession();
+    if (session?.accessToken && selInc) {
+      const apiPatch: Record<string, any> = { status: "actioned" };
+      if (assigned.length > 0) {
+        apiPatch.content = `Dispatched: ${assigned.join(", ")} to ${selInc.type}s`;
+      }
+      void updateIncidentReport(session.accessToken, selInc.id, apiPatch)
+        .then(() => { onUpdate(selInc.id, patch); })
+        .catch((err) => {
+          console.error("Failed to persist dispatch:", err);
+          toast.show(err?.message || "Failed to sync dispatch to server.");
+          onUpdate(selInc.id, patch);
+        });
+    } else if (selInc) {
+      onUpdate(selInc.id, patch);
     }
+
     setMapMode("monitoring");
     setSelInc(null);
     setAssigned([]);
@@ -1285,15 +1465,14 @@ function ResourceMapPage({
   const filteredMapUnits = units.filter((u) => {
     if (filterType !== "All" && u.type !== filterType) return false;
     if (showAvailableOnly && u.status !== "Available") return false;
-    if (!mapSearch.trim()) return true;
-    const haystack = [u.id, u.name, u.station, u.teamLeader].join(" ").toLowerCase();
-    return haystack.includes(mapSearch.trim().toLowerCase());
+    return true;
   });
 
   const filteredMapIncidents = incidents.filter((i) => {
-    if (!mapSearch.trim()) return true;
-    const haystack = [i.id, i.type, i.location, i.address].join(" ").toLowerCase();
-    return haystack.includes(mapSearch.trim().toLowerCase());
+    if (districtFilter && i.city !== districtFilter && i.barangay !== districtFilter) {
+      return false;
+    }
+    return true;
   });
 
   const mapStats = {
@@ -1305,8 +1484,14 @@ function ResourceMapPage({
       ["On Route", "On Scene"].includes(u.status),
     ).length,
   };
+  const riskStats = {
+    total: barangayData.length,
+    highRisk: barangayData.filter((b) => b.riskLevel === "High").length,
+    mediumRisk: barangayData.filter((b) => b.riskLevel === "Medium").length,
+  };
 
   const LEGEND_MON: [string, string][] = [
+    ["Incident", "#c2440a"],
     ["Available", "#2e7d32"],
     ["On Route", "#1565c0"],
     ["On Scene", "#c62828"],
@@ -1323,7 +1508,7 @@ function ResourceMapPage({
       {/* Controls */}
       <div className="dp-map-controls">
         <div className="dp-map-mode-tabs">
-          {(["monitoring", "dispatch"] as const).map((m) => (
+          {(["monitoring", "dispatch", "risk-profile"] as const).map((m) => (
             <button
               key={m}
               className={`dp-map-tab ${mapMode === m ? "active" : ""}`}
@@ -1336,7 +1521,11 @@ function ResourceMapPage({
                 setMapMode(m);
               }}
             >
-              {m === "monitoring" ? "Live Monitoring" : "Dispatch Select"}
+              {m === "monitoring"
+                ? "Live Monitoring"
+                : m === "dispatch"
+                  ? "Dispatch Select"
+                  : "Risk Profile"}
             </button>
           ))}
         </div>
@@ -1373,6 +1562,39 @@ function ResourceMapPage({
             <option value="MEDIC">Medic Volunteer</option>
             <option value="LOGISTICS">Logistics Volunteer</option>
           </select>
+          <select
+            className="dp-input"
+            style={{
+              width: "auto",
+              padding: "0.4rem 0.7rem",
+              fontSize: "0.8rem",
+            }}
+            value={districtFilter ?? "ALL"}
+            onChange={(e) => setDistrictFilter(e.target.value === "ALL" ? null : e.target.value)}
+          >
+            <option value="ALL">All districts</option>
+            {barangayData.map((b) => (
+              <option key={b.name} value={b.name}>
+                {b.name}{b.province ? ` (${b.province})` : ""}
+              </option>
+            ))}
+          </select>
+          <label className="dp-map-toggle">
+            <input
+              type="checkbox"
+              checked={showVulnerabilityHeatmap}
+              onChange={(e) => setShowVulnerabilityHeatmap(e.target.checked)}
+            />
+            Vulnerability
+          </label>
+          <label className="dp-map-toggle">
+            <input
+              type="checkbox"
+              checked={showPopulationDensity}
+              onChange={(e) => setShowPopulationDensity(e.target.checked)}
+            />
+            Density
+          </label>
           <label className="dp-map-toggle">
             <input
               type="checkbox"
@@ -1381,12 +1603,6 @@ function ResourceMapPage({
             />
             Available only
           </label>
-          <input
-            className="dp-input dp-map-search"
-            placeholder="Search volunteer, station, incident..."
-            value={mapSearch}
-            onChange={(e) => setMapSearch(e.target.value)}
-          />
           {mapMode === "dispatch" && selInc && assigned.length > 0 && (
             <button
               className="dp-btn dp-btn-green dp-btn-sm"
@@ -1428,9 +1644,90 @@ function ResourceMapPage({
           <span className="dp-map-kpi-label">Deployed Volunteers</span>
           <span className="dp-map-kpi-value">{mapStats.deployed}</span>
         </div>
+        {mapMode === "risk-profile" && (
+          <>
+            <div className="dp-map-kpi">
+              <span className="dp-map-kpi-label">Cities Profiled</span>
+              <span className="dp-map-kpi-value">{riskStats.total}</span>
+            </div>
+            <div className="dp-map-kpi">
+              <span className="dp-map-kpi-label">High Risk Zones</span>
+              <span className="dp-map-kpi-value">{riskStats.highRisk}</span>
+            </div>
+            <div className="dp-map-kpi">
+              <span className="dp-map-kpi-label">Medium Risk Zones</span>
+              <span className="dp-map-kpi-value">{riskStats.mediumRisk}</span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="dp-map-body">
+        {mapMode === "risk-profile" && (
+          <div className="dp-dispatch-panel">
+            <div className="dp-dispatch-panel-header">
+              <div className="dp-dispatch-panel-title">Geographic Risk Profile</div>
+              <div className="dp-dispatch-panel-id">
+                {selectedBarangay?.name ?? "Select a barangay"}
+              </div>
+              <div className="dp-dispatch-panel-addr">
+                Cluster 3 demographic and vulnerability layers
+              </div>
+            </div>
+            {selectedBarangay ? (
+              <div className="dp-dispatch-units">
+                <div className="dp-risk-profile-grid">
+                  <div className="dp-risk-profile-stat">
+                    <span>City / Area</span>
+                    <strong>{selectedBarangay.name}</strong>
+                  </div>
+                  {selectedBarangay.province && (
+                    <div className="dp-risk-profile-stat">
+                      <span>Province</span>
+                      <strong>{selectedBarangay.province}</strong>
+                    </div>
+                  )}
+                  {selectedBarangay.region && (
+                    <div className="dp-risk-profile-stat">
+                      <span>Region</span>
+                      <strong>{selectedBarangay.region}</strong>
+                    </div>
+                  )}
+                  <div className="dp-risk-profile-stat">
+                    <span>Active Incidents</span>
+                    <strong>
+                      {incidents.filter(
+                        (i) => !["Resolved", "Invalid"].includes(i.status) &&
+                          i.location?.toLowerCase().includes(selectedBarangay.name.toLowerCase())
+                      ).length}
+                    </strong>
+                  </div>
+                </div>
+                <div className={`dp-risk-profile-level ${selectedBarangay.riskLevel.toLowerCase()}`}>
+                  {selectedBarangay.riskLevel} risk
+                </div>
+                <div className="dp-risk-profile-list">
+                  {barangayData.map((b) => (
+                    <button
+                      key={b.name}
+                      className={`dp-risk-zone-row ${selectedBarangay.name === b.name ? "active" : ""}`}
+                      onClick={() => setSelectedBarangay(b)}
+                    >
+                      <span>{b.name}</span>
+                      <strong>{b.riskLevel}</strong>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="dp-dispatch-panel-empty">
+                {barangayData.length === 0
+                  ? "Loading city data..."
+                  : "Click a city marker on the map to inspect its risk profile."}
+              </div>
+            )}
+          </div>
+        )}
         {/* Dispatch side panel */}
         {/* Dispatch side panel */}
         {mapMode === "dispatch" && (
@@ -1492,17 +1789,17 @@ function ResourceMapPage({
                   {incidents.filter((i) =>
                     ["New", "Waiting"].includes(i.status),
                   ).length === 0 && (
-                    <p
-                      style={{
-                        fontSize: "0.85rem",
-                        color: "var(--d-text-sub)",
-                        textAlign: "center",
-                        marginTop: "2rem",
-                      }}
-                    >
-                      No pending incidents.
-                    </p>
-                  )}
+                      <p
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "var(--d-text-sub)",
+                          textAlign: "center",
+                          marginTop: "2rem",
+                        }}
+                      >
+                        No pending incidents.
+                      </p>
+                    )}
                 </div>
               </div>
             ) : (
@@ -1670,7 +1967,7 @@ function ResourceMapPage({
         <div className="dp-map-container" style={{ flex: 1 }}>
           <div style={{ flex: 1, minHeight: 0 }}>
             <LiveMap
-              mode={mapMode === "dispatch" ? "dispatch" : "monitoring"}
+              mode={mapMode}
               incidents={filteredMapIncidents}
               units={filteredMapUnits}
               filterType={filterType}
@@ -1678,6 +1975,11 @@ function ResourceMapPage({
               assignedUnits={assigned}
               onUnitAssign={(uid) => (window as any).__dpAssign(uid)}
               onIncidentClick={(i) => setSelInc(i)}
+              districtFilter={districtFilter}
+              showVulnerabilityHeatmap={showVulnerabilityHeatmap || mapMode === "risk-profile"}
+              showPopulationDensity={showPopulationDensity}
+              onBarangayClick={setSelectedBarangay}
+              barangayData={barangayData}
               height="100%"
             />
           </div>
@@ -1766,9 +2068,10 @@ function RescueMonitoringPage({
   status: "active" | "inactive";
 }) {
   const [selInc, setSelInc] = useState<Incident | null>(null);
+  const [suppressAutoSelect, setSuppressAutoSelect] = useState(false);
   const [backupModal, setBackupModal] = useState<Incident | null>(null);
   const [escalateModal, setEscalateModal] = useState<Incident | null>(null);
-  const [backupNote, setBackupNote] = useState("");
+  const [selectedVolunteers, setSelectedVolunteers] = useState<string[]>([]);
   const [mapKey, setMapKey] = useState(0);
   const [afterCalamityInc, setAfterCalamityInc] = useState<Incident | null>(
     null,
@@ -1826,7 +2129,7 @@ function RescueMonitoringPage({
 
   const resolvedCount = incidents.filter((i) => i.status === "Resolved").length;
   const situationCounts = (
-    ["Under Control", "Escalating", "Critical"] as SituationType[]
+    ["Escalating", "Critical"] as SituationType[]
   ).map((s) => ({
     label: s,
     color: situationColor(s),
@@ -1836,38 +2139,50 @@ function RescueMonitoringPage({
   return (
     <div className="dp-incidents-page dp-rescue-monitoring-page dp-fade-in">
       <div className="dp-rescue-stats-grid">
-        <div className="dp-count-box" style={{ background: "var(--d-primary-light)" }}>
-          <div className="num" style={{ color: "var(--d-primary)" }}>
-            {activeInc.length}
+        <div className="dp-rescue-kpi-card active">
+          <div className="dp-rescue-kpi-top">
+            <span className="dp-rescue-kpi-icon">
+              <Icon name="activity" size={18} />
+            </span>
+            <span className="dp-rescue-kpi-label">Active Response</span>
           </div>
-          <div className="lbl" style={{ color: "var(--d-primary)" }}>
-            In Progress
+          <div className="dp-rescue-kpi-value">{activeInc.length}</div>
+          <div className="dp-rescue-kpi-sub">
+            In progress and dispatched incidents
           </div>
         </div>
-        <div className="dp-count-box" style={{ background: "rgba(21,101,192,0.08)" }}>
-          <div className="num" style={{ color: "var(--d-blue)" }}>
-            {resolvedCount}
+        <div className="dp-rescue-kpi-card resolved">
+          <div className="dp-rescue-kpi-top">
+            <span className="dp-rescue-kpi-icon">
+              <Icon name="check" size={18} />
+            </span>
+            <span className="dp-rescue-kpi-label">Closed Cases</span>
           </div>
-          <div className="lbl" style={{ color: "var(--d-blue)" }}>
-            Resolved
+          <div className="dp-rescue-kpi-value">{resolvedCount}</div>
+          <div className="dp-rescue-kpi-sub">
+            Resolved and documented
           </div>
         </div>
         {situationCounts.map((s) => (
-          <div key={s.label} className="dp-rescue-situation-card">
-            <div className="dp-rescue-situation-label">
+          <div key={s.label} className="dp-rescue-kpi-card situation">
+            <div className="dp-rescue-kpi-top">
               <span
+                className="dp-rescue-kpi-dot"
                 style={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: "50%",
                   background: s.color,
-                  display: "inline-block",
                 }}
               />
-              Situation {s.label}
+              <span className="dp-rescue-kpi-label">Situation {s.label}</span>
             </div>
-            <div className="dp-rescue-situation-count" style={{ color: s.color }}>
+            <div className="dp-rescue-kpi-value" style={{ color: s.color }}>
               {s.count}
+            </div>
+            <div className="dp-rescue-kpi-sub">
+              {s.label === "Under Control"
+                ? "Stable field conditions"
+                : s.label === "Escalating"
+                  ? "Needs close monitoring"
+                  : "Immediate intervention"}
             </div>
           </div>
         ))}
@@ -1878,7 +2193,7 @@ function RescueMonitoringPage({
           <div className="dp-map-header">
             <span className="dp-map-header-title">Rescue Monitoring</span>
           </div>
-          <div style={{ flex: selInc ? "0 0 45%" : "1", minHeight: 0 }}>
+          <div style={{ flex: "1", minHeight: 0 }}>
             <LiveMap
               mode="rescue"
               incidents={incidents}
@@ -1888,19 +2203,6 @@ function RescueMonitoringPage({
               height="100%"
             />
           </div>
-          {selInc && (
-            <div style={{ flex: 1, overflowY: "auto", background: "var(--d-bg)" }}>
-              <RescueDetailPanel
-                inc={selInc}
-                units={units}
-                onBackup={() => setBackupModal(selInc)}
-                onEscalate={() => setEscalateModal(selInc)}
-                onResolve={() => handleResolve(selInc)}
-                onClose={() => setSelInc(null)}
-                status={status}
-              />
-            </div>
-          )}
         </div>
 
         <div className="dp-incidents-list">
@@ -1928,25 +2230,33 @@ function RescueMonitoringPage({
             ) : (
               activeInc.map((inc) => {
                 const dotColor = situationColor(inc.situationType);
+                const assignedNames = inc.assignedUnits
+                  .map((uid) => units.find((u) => u.id === uid)?.name || uid)
+                  .slice(0, 2);
                 return (
                   <div
                     key={shortenId(inc.id)}
-                    className={`dp-incident-list-item ${selInc?.id === inc.id ? "active" : ""}`}
+                    className={`dp-incident-list-item dp-rescue-incident-card ${selInc?.id === inc.id ? "active" : ""}`}
                     onClick={() => handleSelect(inc)}
                   >
-                    <span
-                      className="dp-incident-list-dot"
-                      style={{ background: dotColor }}
-                    />
+                    <span className="dp-rescue-card-accent" style={{ background: dotColor }} />
                     <div className="dp-incident-list-body">
-                      <div className="dp-incident-list-id">
-                        {shortenId(inc.id)}
+                      <div className="dp-rescue-card-top">
+                        <div>
+                          <div className="dp-incident-list-id">
+                            {shortenId(inc.id)}
+                          </div>
+                          <div className="dp-incident-list-type">{inc.type}</div>
+                        </div>
+                        <div className="dp-rescue-card-time">
+                          <strong>{inc.timeActive}</strong>
+                          <span>min active</span>
+                        </div>
                       </div>
-                      <div className="dp-incident-list-type">{inc.type}</div>
-                      <div className="dp-incident-list-loc">
+                      <div className="dp-incident-list-loc dp-rescue-card-location">
                         {inc.location}, {inc.city}
                       </div>
-                      <div className="dp-incident-list-meta">
+                      <div className="dp-incident-list-meta dp-rescue-card-meta">
                         <Badge
                           label={inc.priority}
                           cls={priorityClass(inc.priority)}
@@ -1956,6 +2266,12 @@ function RescueMonitoringPage({
                           cls={situationClass(inc.situationType)}
                         />
                       </div>
+                      {assignedNames.length > 0 && (
+                        <div className="dp-rescue-card-units">
+                          {assignedNames.join(", ")}
+                          {inc.assignedUnits.length > assignedNames.length ? " +" : ""}
+                        </div>
+                      )}
                       <div
                         style={{
                           fontSize: "0.72rem",
@@ -1982,9 +2298,9 @@ function RescueMonitoringPage({
           title={`Request Backup — ${shortenId(backupModal.id)}`}
           onClose={() => {
             setBackupModal(null);
-            setBackupNote("");
+            setSelectedVolunteers([]);
           }}
-          width={460}
+          width={520}
         >
           <div
             className="dp-alert dp-alert-amber"
@@ -1993,15 +2309,122 @@ function RescueMonitoringPage({
             {backupModal.type} · {backupModal.address} — Situation:{" "}
             {backupModal.situationType}
           </div>
-          <label className="dp-label">Backup request note</label>
-          <textarea
-            className="dp-textarea"
-            rows={3}
-            value={backupNote}
-            onChange={(e) => setBackupNote(e.target.value)}
-            placeholder="Describe why backup is needed..."
-            style={{ width: "100%", marginBottom: "1rem" }}
-          />
+          <label className="dp-label">Available Volunteers for Deployment</label>
+          <div style={{ marginBottom: "1rem" }}>
+            {(() => {
+              const availableUnits = units.filter((u) => u.status === "Available" && !backupModal.assignedUnits.includes(u.id));
+              if (availableUnits.length === 0) {
+                return (
+                  <div
+                    style={{
+                      padding: "1rem",
+                      background: "var(--d-surface-low)",
+                      borderRadius: "0.6rem",
+                      textAlign: "center",
+                      color: "var(--d-text-sub)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    No available volunteers at this time. All units are deployed.
+                  </div>
+                );
+              }
+              return (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr",
+                    gap: "0.6rem",
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {availableUnits.map((unit) => (
+                    <div
+                      key={unit.id}
+                      onClick={() => {
+                        setSelectedVolunteers((prev) =>
+                          prev.includes(unit.id)
+                            ? prev.filter((id) => id !== unit.id)
+                            : [...prev, unit.id]
+                        );
+                      }}
+                      style={{
+                        padding: "0.85rem",
+                        background: selectedVolunteers.includes(unit.id)
+                          ? "var(--d-primary-light)"
+                          : "var(--d-surface)",
+                        border: selectedVolunteers.includes(unit.id)
+                          ? "2px solid var(--d-primary)"
+                          : "1px solid var(--d-border)",
+                        borderRadius: "0.6rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                          marginBottom: "0.4rem",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedVolunteers.includes(unit.id)}
+                          onChange={() => {}}
+                          style={{ cursor: "pointer" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
+                            {unit.name}
+                          </div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)" }}>
+                            {unit.station}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            color: "#2e7d32",
+                            background: "rgba(46, 125, 50, 0.1)",
+                            padding: "0.3rem 0.6rem",
+                            borderRadius: "12px",
+                          }}
+                        >
+                          {unit.status}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr 1fr",
+                          gap: "0.5rem",
+                          fontSize: "0.75rem",
+                          color: "var(--d-text-muted)",
+                        }}
+                      >
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Personnel:</span> {unit.personnel}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Distance:</span> {unit.distance}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>ETA:</span> {unit.eta}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: "0.4rem", fontSize: "0.75rem", color: "var(--d-text-muted)" }}>
+                        <strong>Leader:</strong> {unit.teamLeader} · <strong>Contact:</strong> {unit.contact}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
           <div
             style={{
               display: "flex",
@@ -2013,22 +2436,29 @@ function RescueMonitoringPage({
               className="dp-btn dp-btn-ghost"
               onClick={() => {
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
               Cancel
             </button>
             <button
               className="dp-btn dp-btn-orange"
-              disabled={!backupNote.trim()}
+              disabled={selectedVolunteers.length === 0}
               onClick={() => {
-                onUpdate(backupModal.id, { situationType: "Escalating" });
-                toast.show(`Backup requested for ${shortenId(backupModal.id)}`);
+                const selectedUnitNames = selectedVolunteers
+                  .map((id) => units.find((u) => u.id === id)?.name)
+                  .filter(Boolean)
+                  .join(", ");
+                onUpdate(backupModal.id, { 
+                  situationType: "Escalating",
+                  assignedUnits: [...new Set([...backupModal.assignedUnits, ...selectedVolunteers])]
+                });
+                toast.show(`Backup requested: ${selectedUnitNames}`);
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
-              Send Volunteer Backup Request
+              Deploy Selected Volunteers ({selectedVolunteers.length})
             </button>
           </div>
         </Modal>
@@ -2086,6 +2516,27 @@ function RescueMonitoringPage({
             >
               Confirm Escalation
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Incident Detail Modal */}
+      {selInc && (
+        <Modal
+          title={`${shortenId(selInc.id)} — ${selInc.type}`}
+          onClose={() => setSelInc(null)}
+          width={820}
+        >
+          <div style={{ maxHeight: "75vh", overflowY: "auto" }}>
+            <CompactIncidentDetails
+              inc={selInc}
+              units={units}
+              onBackup={() => setBackupModal(selInc)}
+              onEscalate={() => setEscalateModal(selInc)}
+              onResolve={() => handleResolve(selInc)}
+              onClose={() => setSelInc(null)}
+              status={status}
+            />
           </div>
         </Modal>
       )}
@@ -2371,8 +2822,8 @@ function RescueMonitoringPage({
   );
 }
 
-// Rescue detail panel — comprehensive real-time rescue monitoring view
-function RescueDetailPanel({
+// Compact incident details — optimized for modal display
+function CompactIncidentDetails({
   inc,
   units,
   onBackup,
@@ -2388,6 +2839,272 @@ function RescueDetailPanel({
   onResolve: () => void;
   onClose: () => void;
   status: "active" | "inactive";
+}) {
+  const isInactive = status === "inactive";
+  const assigned = inc.assignedUnits
+    .map((id) => units.find((u) => u.id === id))
+    .filter(Boolean) as Unit[];
+  const sc = situationColor(inc.situationType);
+
+  // Victims
+  const victimData = [
+    { name: "Victim 1", condition: "Critical", color: "#c62828", status: "Trapped" },
+    { name: "Victim 2", condition: "Injured", color: "#c77700", status: "Awaiting rescue" },
+    { name: "Victim 3", condition: "Safe", color: "#2e7d32", status: "Evacuated" },
+  ].slice(0, inc.category === "MEDIC" ? 2 : 3);
+
+  // Hospitals
+  const hospitals = [
+    { name: "UERM Medical Center", dist: "1.2 km", eta: "4 mins", cap: "Available", capColor: "#2e7d32" },
+    { name: "UST Hospital", dist: "2.1 km", eta: "7 mins", cap: "Available", capColor: "#2e7d32" },
+  ];
+
+  return (
+    <div style={{ background: "var(--d-bg)", borderRadius: "0.75rem" }}>
+      {/* Action Buttons — Top Priority */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: "0.8rem",
+          padding: "1rem",
+          background: "var(--d-surface-low)",
+          borderRadius: "0.75rem",
+          marginBottom: "1rem",
+        }}
+      >
+        {inc.situationType !== "Critical" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", alignItems: "center" }}>
+            <button
+              className="dp-btn dp-btn-sm dp-btn-outline-amber"
+              disabled={isInactive}
+              style={{ fontSize: "0.85rem", fontWeight: 600, opacity: isInactive ? 0.5 : 1, padding: "0.6rem 0.8rem", textAlign: "center", width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+              onClick={onBackup}
+            >
+              Request Backup
+            </button>
+            <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", textAlign: "center" }}>
+              Deploy additional units
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", alignItems: "center" }}>
+          <button
+            className="dp-btn dp-btn-sm dp-btn-outline-red"
+            disabled={isInactive}
+            style={{ fontSize: "0.85rem", fontWeight: 600, opacity: isInactive ? 0.5 : 1, padding: "0.6rem 0.8rem", textAlign: "center", width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={onEscalate}
+          >
+            Escalate Priority
+          </button>
+          <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", textAlign: "center" }}>
+            Alert command center
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", alignItems: "center" }}>
+          <button
+            className="dp-btn dp-btn-sm dp-btn-outline-green"
+            disabled={isInactive}
+            style={{ fontSize: "0.85rem", fontWeight: 600, opacity: isInactive ? 0.5 : 1, padding: "0.6rem 0.8rem", textAlign: "center", width: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={onResolve}
+          >
+            Close Incident
+          </button>
+          <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", textAlign: "center" }}>
+            Mark as resolved
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Status Indicators */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: "0.6rem",
+          marginBottom: "1rem",
+        }}
+      >
+        {[
+          { label: "Situation", val: inc.situationType, color: sc },
+          { label: "Active", val: `${inc.timeActive} min`, color: "var(--d-text)" },
+          { label: "Volunteers", val: assigned.length.toString(), color: "var(--d-text)" },
+          { label: "Victims", val: victimData.length.toString(), color: "#c62828" },
+        ].map((s) => (
+          <div
+            key={s.label}
+            style={{
+              padding: "0.75rem",
+              background: "var(--d-surface)",
+              borderRadius: "0.6rem",
+              textAlign: "center",
+              border: "1px solid var(--d-border)",
+            }}
+          >
+            <div style={{ fontSize: "0.65rem", color: "var(--d-text-sub)", marginBottom: "0.3rem" }}>
+              {s.label}
+            </div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 800, color: s.color }}>
+              {s.val}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Location & Critical Details */}
+      <div
+        style={{
+          padding: "0.85rem",
+          background: "var(--d-surface)",
+          borderRadius: "0.6rem",
+          marginBottom: "1rem",
+          border: "1px solid var(--d-border)",
+        }}
+      >
+        <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.4rem", fontWeight: 700 }}>
+          LOCATION & DETAILS
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+          {[
+            ["Incident", inc.type],
+            ["Address", inc.address + ", " + inc.city],
+            ["Time Reported", `${inc.dateReported} ${inc.timeReported}`],
+          ].map(([l, v]) => (
+            <div key={l} style={{ display: "flex", gap: "0.5rem", fontSize: "0.8rem" }}>
+              <span style={{ minWidth: 70, color: "var(--d-text-sub)", flexShrink: 0, fontWeight: 700 }}>
+                {l}
+              </span>
+              <span style={{ color: "var(--d-text)", fontWeight: 500 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Victims Status */}
+      {victimData.length > 0 && (
+        <div
+          style={{
+            padding: "0.85rem",
+            background: "var(--d-surface)",
+            borderRadius: "0.6rem",
+            marginBottom: "1rem",
+            border: "1px solid var(--d-border)",
+          }}
+        >
+          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.5rem", fontWeight: 700 }}>
+            VICTIM STATUS ({victimData.length})
+          </div>
+          {victimData.map((v, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: v.color,
+                  flexShrink: 0,
+                }}
+              />
+              <div style={{ flex: 1 }}>
+                <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--d-text)" }}>{v.name}</span>
+                <span style={{ fontSize: "0.7rem", color: "var(--d-text-sub)", marginLeft: "0.5rem" }}>
+                  {v.condition} · {v.status}
+                </span>
+              </div>
+              {hospitals[0] && (
+                <div style={{ fontSize: "0.7rem", color: "var(--d-text-sub)", textAlign: "right" }}>
+                  <div style={{ fontWeight: 700 }}>{hospitals[0].name}</div>
+                  <div>{hospitals[0].dist} · {hospitals[0].eta}</div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Assigned Teams */}
+      {assigned.length > 0 && (
+        <div
+          style={{
+            padding: "0.85rem",
+            background: "var(--d-surface)",
+            borderRadius: "0.6rem",
+            marginBottom: "1rem",
+            border: "1px solid var(--d-border)",
+          }}
+        >
+          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.5rem", fontWeight: 700 }}>
+            ASSIGNED VOLUNTEERS ({assigned.length})
+          </div>
+          {assigned.map((u) => {
+            const uc = unitTypeColor(u.type);
+            return (
+              <div
+                key={u.id}
+                style={{
+                  padding: "0.6rem",
+                  background: "var(--d-surface-low)",
+                  borderLeft: `3px solid ${uc}`,
+                  borderRadius: 6,
+                  marginBottom: "0.5rem",
+                  fontSize: "0.8rem",
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: "0.2rem" }}>
+                  {UNIT_TYPE_ICON[u.type]} {u.name}
+                </div>
+                <div style={{ color: "var(--d-text-sub)", fontSize: "0.75rem" }}>
+                  Leader: {u.teamLeader} · {u.personnel} personnel · {u.station}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Description */}
+      {inc.description && (
+        <div
+          style={{
+            padding: "0.85rem",
+            background: "var(--d-surface)",
+            borderRadius: "0.6rem",
+            marginBottom: "1rem",
+            border: "1px solid var(--d-border)",
+            fontSize: "0.8rem",
+            color: "var(--d-text)",
+            lineHeight: 1.55,
+          }}
+        >
+          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)", marginBottom: "0.4rem", fontWeight: 700 }}>
+            DESCRIPTION
+          </div>
+          {inc.description}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Rescue detail panel — comprehensive real-time rescue monitoring view
+function RescueDetailPanel({
+  inc,
+  units,
+  onBackup,
+  onEscalate,
+  onResolve,
+  onClose,
+  status,
+  dispatcherName = "Dispatcher",
+}: {
+  inc: Incident;
+  units: Unit[];
+  onBackup: () => void;
+  onEscalate: () => void;
+  onResolve: () => void;
+  onClose: () => void;
+  status: "active" | "inactive";
+  dispatcherName?: string;
 }) {
   const isInactive = status === "inactive";
   const assigned = inc.assignedUnits
@@ -2439,47 +3156,47 @@ function RescueDetailPanel({
     },
     ...(assigned.length > 0
       ? [
-          {
-            time: addMins(dispatchTime, 2),
-            msg: `${assigned[0]?.name} en route to scene.`,
-            actor: assigned[0]?.teamLeader || "",
-            color: "#1565c0",
-            icon: "→",
-          },
-        ]
+        {
+          time: addMins(dispatchTime, 2),
+          msg: `${assigned[0]?.name} en route to scene.`,
+          actor: assigned[0]?.teamLeader || "",
+          color: "#1565c0",
+          icon: "→",
+        },
+      ]
       : []),
     ...(inc.timeActive > 5
       ? [
-          {
-            time: addMins(dispatchTime, 5),
-            msg: "First responders arrived on scene.",
-            actor: assigned[0]?.name || "Unit",
-            color: "#2e7d32",
-            icon: "✓",
-          },
-        ]
+        {
+          time: addMins(dispatchTime, 5),
+          msg: "First responders arrived on scene.",
+          actor: assigned[0]?.name || "Unit",
+          color: "#2e7d32",
+          icon: "✓",
+        },
+      ]
       : []),
     ...(inc.timeActive > 10
       ? [
-          {
-            time: addMins(dispatchTime, 8),
-            msg: `Situation assessed: ${inc.situationType}. Rescue operations ongoing.`,
-            actor: "Field Lead",
-            color: situationColor(inc.situationType),
-            icon: "●",
-          },
-        ]
+        {
+          time: addMins(dispatchTime, 8),
+          msg: `Situation assessed: ${inc.situationType}. Rescue operations ongoing.`,
+          actor: "Field Lead",
+          color: situationColor(inc.situationType),
+          icon: "●",
+        },
+      ]
       : []),
     ...(inc.notes
       ? [
-          {
-            time: addMins(dispatchTime, inc.timeActive - 1),
-            msg: inc.notes,
-            actor: "Field Officer",
-            color: "#6a1b9a",
-            icon: "📝",
-          },
-        ]
+        {
+          time: addMins(dispatchTime, inc.timeActive - 1),
+          msg: inc.notes,
+          actor: "Field Officer",
+          color: "#6a1b9a",
+          icon: "",
+        },
+      ]
       : []),
   ];
 
@@ -2499,13 +3216,13 @@ function RescueDetailPanel({
     },
     ...(inc.timeActive > 8
       ? [
-          {
-            type: "radio",
-            time: addMins(dispatchTime, 6),
-            from: assigned[0]?.teamLeader || "Unit Lead",
-            msg: "On scene. Assessing situation. Requesting more details.",
-          },
-        ]
+        {
+          type: "radio",
+          time: addMins(dispatchTime, 6),
+          from: assigned[0]?.teamLeader || "Unit Lead",
+          msg: "On scene. Assessing situation. Requesting more details.",
+        },
+      ]
       : []),
     ...(inc.situationType === "Critical"
       ? [
@@ -2519,13 +3236,13 @@ function RescueDetailPanel({
       : []),
     ...(inc.timeActive > 12
       ? [
-          {
-            type: "update",
-            time: addMins(dispatchTime, 10),
-            from: "Field Lead",
-            msg: `Scene secured. ${victimData.filter((v) => v.condition !== "Safe").length} victim(s) still require assistance.`,
-          },
-        ]
+        {
+          type: "update",
+          time: addMins(dispatchTime, 10),
+          from: "Field Lead",
+          msg: `Scene secured. ${victimData.filter((v) => v.condition !== "Safe").length} victim(s) still require assistance.`,
+        },
+      ]
       : []),
   ];
 
@@ -2566,7 +3283,7 @@ function RescueDetailPanel({
     ...assigned
       .filter((u) => u.type === "FIELD")
       .map((u) => ({
-        icon: "🚒",
+        icon: "",
         name: u.name,
         status: "On Scene",
         detail: `${u.personnel} firefighters · Hydraulic tools, breathing apparatus`,
@@ -2601,26 +3318,26 @@ function RescueDetailPanel({
     },
     ...(inc.category === "FIELD"
       ? [
-          {
-            icon: "",
-            label: "Fire Spread Risk",
-            val: "Moderate — Wind pushing northeast. Adjacent structures at risk if not contained within 15 mins.",
-          },
-          {
-            icon: "",
-            label: "Structural Stability",
-            val: "Unknown — 3-storey building. Upper floors may be compromised. Entry only with full PPE.",
-          },
-        ]
+        {
+          icon: "",
+          label: "Fire Spread Risk",
+          val: "Moderate — Wind pushing northeast. Adjacent structures at risk if not contained within 15 mins.",
+        },
+        {
+          icon: "",
+          label: "Structural Stability",
+          val: "Unknown — 3-storey building. Upper floors may be compromised. Entry only with full PPE.",
+        },
+      ]
       : []),
     ...(inc.category === "Other"
       ? [
-          {
-            icon: "",
-            label: "Flood Risk",
-            val: "Rising water levels on main road. Evacuation routes may be blocked soon.",
-          },
-        ]
+        {
+          icon: "",
+          label: "Flood Risk",
+          val: "Rising water levels on main road. Evacuation routes may be blocked soon.",
+        },
+      ]
       : []),
     {
       icon: "",
@@ -2758,7 +3475,7 @@ function RescueDetailPanel({
               label: "Dispatched At",
               val: dispatchTime,
               color: "var(--d-text)",
-              sub: `By ${MOCK_DISPATCHER.name}`,
+              sub: `By ${dispatcherName}`,
             },
           ].map((s) => (
             <div key={s.label} className="dp-rescue-stat-box">
@@ -3201,9 +3918,9 @@ function RescueDetailPanel({
                   cursor: isInactive ? "not-allowed" : "pointer",
                 }}
                 disabled={isInactive}
-                onClick={() => {}}
+                onClick={() => { }}
               >
-                <span style={{ fontSize: "1.1rem" }}>↗</span>
+                <span style={{ fontSize: "1.1rem" }}></span>
                 <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>
                   Redirect Teams
                 </span>
@@ -3220,9 +3937,8 @@ function RescueDetailPanel({
                   cursor: isInactive ? "not-allowed" : "pointer",
                 }}
                 disabled={isInactive}
-                onClick={() => {}}
+                onClick={() => { }}
               >
-                <span style={{ fontSize: "1.1rem" }}>📢</span>
                 <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>
                   Send Alert / Instruction
                 </span>
@@ -3257,54 +3973,60 @@ function IncidentsPage({
   incidents,
   units,
   onUpdate,
+  onDispatch,
   status,
 }: {
   incidents: Incident[];
   units: Unit[];
   onUpdate: (id: string, p: Partial<Incident>) => void;
+  onDispatch: (inc: Incident) => void;
   status: "active" | "inactive";
 }) {
-  const [tab, setTab] = useState<
-    "All" | "In Progress" | "Completed" | "Invalid"
-  >("All");
-  const [searchId, setSearchId] = useState("");
-  const [searchType, setSearchType] = useState("");
-  const [searchLoc, setSearchLoc] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
-  const [priFilter, setPriFilter] = useState("All");
+  type IncidentQueueFilter = "All" | string; // "All" or specific incident type from database
+
+  const VISIBLE_INCIDENT_LIMIT = 6;
+  const [queueFilter, setQueueFilter] = useState<IncidentQueueFilter>("All");
+  const [priorityFilter, setPriorityFilter] = useState<IncidentPriority | "All">("All");
+  const [statusFilter, setStatusFilter] = useState<IncidentStatus | "All">("All");
+  const [searchText, setSearchText] = useState("");
   const [selInc, setSelInc] = useState<Incident | null>(null);
+  const [suppressAutoSelect, setSuppressAutoSelect] = useState(false);
   const [backupModal, setBackupModal] = useState<Incident | null>(null);
   const [escalateModal, setEscalateModal] = useState<Incident | null>(null);
-  const [backupNote, setBackupNote] = useState("");
+  const [selectedVolunteers, setSelectedVolunteers] = useState<string[]>([]);
   const toast = useToast();
+
+  // Get unique incident types from the database
+  const uniqueIncidentTypes = Array.from(new Set(incidents.map((i) => i.type))).sort();
+  
+  const incidentTypeOptions = [
+    { value: "All", label: "All incidents" },
+    ...uniqueIncidentTypes.map((type) => ({ value: type, label: type })),
+  ];
+
+  const clearIncidentFilters = () => {
+    setSearchText("");
+    setQueueFilter("All");
+    setPriorityFilter("All");
+    setStatusFilter("All");
+  };
 
   const inProgress = incidents.filter((i) =>
     ["In Progress", "Dispatched"].includes(i.status),
   );
   const completed = incidents.filter((i) => i.status === "Resolved");
-  const invalid = incidents.filter((i) => i.status === "Invalid");
+  const queued = incidents.filter((i) => ["New", "Waiting"].includes(i.status));
 
   const filtered = incidents.filter((i) => {
-    if (
-      tab === "In Progress" &&
-      !["In Progress", "Dispatched"].includes(i.status)
-    )
-      return false;
-    if (tab === "Completed" && i.status !== "Resolved") return false;
-    if (tab === "Invalid" && i.status !== "Invalid") return false;
-    if (searchId && !i.id.toLowerCase().includes(searchId.toLowerCase()))
-      return false;
-    if (searchType && !i.type.toLowerCase().includes(searchType.toLowerCase()))
-      return false;
-    if (
-      searchLoc &&
-      !i.address.toLowerCase().includes(searchLoc.toLowerCase()) &&
-      !i.location.toLowerCase().includes(searchLoc.toLowerCase())
-    )
-      return false;
-    if (dateFilter && formatDateForInput(i.dateReported) !== dateFilter)
-      return false;
-    if (priFilter !== "All" && i.priority !== priFilter) return false;
+    // text search (id, type, location, city, reporter)
+    if (searchText.trim()) {
+      const s = searchText.trim().toLowerCase();
+      if (!(`${i.id} ${i.type} ${i.location} ${i.city} ${i.reporter}`.toLowerCase().includes(s))) return false;
+    }
+    if (priorityFilter !== "All" && i.priority !== priorityFilter) return false;
+    if (statusFilter !== "All" && i.status !== statusFilter) return false;
+    // Filter by incident type from database
+    if (queueFilter !== "All" && i.type !== queueFilter) return false;
     return true;
   });
 
@@ -3320,16 +4042,28 @@ function IncidentsPage({
     if (sevDiff !== 0) return sevDiff;
     return b.id.localeCompare(a.id);
   });
+  const visibleIncidents = filteredSorted.slice(0, VISIBLE_INCIDENT_LIMIT);
 
   useEffect(() => {
     if (filteredSorted.length === 0) {
       if (selInc) setSelInc(null);
       return;
     }
-    if (!selInc || !filteredSorted.some((i) => i.id === selInc.id)) {
+    // If current selected incident is missing from the filtered list, pick the first.
+    if (selInc && !filteredSorted.some((i) => i.id === selInc.id)) {
+      setSelInc(filteredSorted[0]);
+      return;
+    }
+    // Auto-select first incident only when not suppressed and user is not actively filtering by text.
+    if (!selInc && !suppressAutoSelect && !searchText.trim()) {
       setSelInc(filteredSorted[0]);
     }
-  }, [filteredSorted.length, selInc?.id]);
+  }, [filteredSorted.length, selInc?.id, suppressAutoSelect, searchText]);
+
+  // Reset suppression when user interacts with filters.
+  useEffect(() => {
+    if (suppressAutoSelect) setSuppressAutoSelect(false);
+  }, [queueFilter, priorityFilter, statusFilter]);
 
   const incidentStats = [
     {
@@ -3349,12 +4083,12 @@ function IncidentsPage({
       desc: "Resolved incidents",
     },
     {
-      label: "Invalid",
-      value: invalid.length,
+      label: "Queued",
+      value: queued.length,
       color: "var(--d-text-sub)",
       bgColor: "var(--d-surface-mid)",
-      icon: "close" as IconName,
-      desc: "Closed as invalid",
+      icon: "clock" as IconName,
+      desc: "Awaiting triage",
     },
     {
       label: "Critical",
@@ -3372,11 +4106,27 @@ function IncidentsPage({
       icon: "ticket" as IconName,
       desc: "Priority queue",
     },
+    {
+      label: "Moderate",
+      value: filtered.filter((i) => i.priority === "MEDIUM").length,
+      color: "var(--d-green)",
+      bgColor: "var(--d-green-bg)",
+      icon: "shield" as IconName,
+      desc: "Standard priority",
+    },
+    {
+      label: "Low",
+      value: filtered.filter((i) => i.priority === "LOW").length,
+      color: "var(--d-text-sub)",
+      bgColor: "var(--d-surface-low)",
+      icon: "arrow-down" as IconName,
+      desc: "Lower priority",
+    },
   ];
 
   return (
     <div className="dp-rescue-monitoring-page dp-incidents-tab-page dp-fade-in">
-      <div className="dp-stats-row dp-stats-row-5col">
+      <div className="dp-stats-row dp-stats-row-7col">
         {incidentStats.map((s) => (
           <div key={s.label} className="dp-stat">
             <div
@@ -3395,206 +4145,199 @@ function IncidentsPage({
       </div>
 
       <div className="dp-rescue-content-grid dp-incidents-shared-content">
-      {/* ── Left: ticket detail (main) ── */}
-      <div className="dp-incidents-detail-panel">
-        {selInc ? (
-          <div className="dp-incidents-detail-scroll">
-            <div className="dp-incident-overview">
-              <div className="dp-incident-overview-top">
-                <div className="dp-incident-overview-id">{shortenId(selInc.id)}</div>
-                <div className="dp-incident-overview-badges">
-                  <Badge label={selInc.priority} cls={priorityClass(selInc.priority)} />
-                  <Badge label={selInc.status} cls={statusClass(selInc.status)} />
-                  <Badge label={selInc.situationType} cls={situationClass(selInc.situationType)} />
-                </div>
-              </div>
-              <div className="dp-incident-overview-title">{selInc.type}</div>
-              <div className="dp-incident-overview-meta">
-                <span>{selInc.location}, {selInc.city}</span>
-                <span>{selInc.dateReported} - {selInc.timeReported}</span>
-              </div>
-            </div>
-            <ExpandedTicket
-              inc={selInc}
-              units={units}
-              onBackup={() => setBackupModal(selInc)}
-              onEscalate={() => setEscalateModal(selInc)}
-              onResolve={() => {
-                onUpdate(selInc.id, {
-                  status: "Resolved",
-                  resolvedAt: new Date().toLocaleTimeString("en-PH", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
-                });
-                toast.show(`${shortenId(selInc.id)} resolved`);
-                setSelInc(null);
-              }}
-              onClose={() => setSelInc(null)}
-              status={status}
-            />
-          </div>
-        ) : filteredSorted.length === 0 ? (
-          <div className="dp-incidents-detail-empty">
-            <div className="dp-empty">
-              <div className="dp-empty-title">No incidents match filters</div>
-              <div className="dp-empty-sub">
-                Try adjusting priority, date, or search fields
-              </div>
+        {/* ── Incidents list (details open in modal) ── */}
+        <div className="dp-incidents-list">
+          <div className="dp-incidents-panel-head">
+            <div className="dp-incidents-panel-title">Incident Queue</div>
+            <div className="dp-incidents-panel-sub">
+              Prioritized list for dispatcher triage
             </div>
           </div>
-        ) : (
-          <div className="dp-incidents-detail-empty">
-            <div className="dp-empty">
-              <div className="dp-empty-title">Select an incident</div>
-              <div className="dp-empty-sub">
-                Click any ticket from the list to view its details
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Right: filters + list ── */}
-      <div className="dp-incidents-list">
-        <div className="dp-incidents-panel-head">
-          <div className="dp-incidents-panel-title">Incident Queue</div>
-          <div className="dp-incidents-panel-sub">
-            Prioritized list for dispatcher triage
-          </div>
-        </div>
-        <div className="dp-incidents-filters">
-          {/* Search fields */}
-          <div className="dp-search-box">
-            <span className="dp-search-icon">#</span>
-            <input
-              placeholder="Search Ticket ID..."
-              value={searchId}
-              onChange={(e) => setSearchId(e.target.value)}
-            />
-          </div>
-          <div className="dp-search-box">
-            <span className="dp-search-icon">S</span>
-            <input
-              placeholder="Filter by type..."
-              value={searchType}
-              onChange={(e) => setSearchType(e.target.value)}
-            />
-          </div>
-          <div className="dp-search-box">
-            <span className="dp-search-icon">L</span>
-            <input
-              placeholder="Filter by location..."
-              value={searchLoc}
-              onChange={(e) => setSearchLoc(e.target.value)}
-            />
-          </div>
-          <div className="dp-incidents-filter-row">
-            <input
-              type="date"
-              className="dp-input"
-              style={{ flex: 1, fontSize: "0.78rem", padding: "0.4rem 0.6rem" }}
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-            />
-            <select
-              className="dp-input"
-              style={{ flex: 1, fontSize: "0.78rem", padding: "0.4rem 0.6rem" }}
-              value={priFilter}
-              onChange={(e) => setPriFilter(e.target.value)}
-            >
-              <option value="All">All Priority</option>
-              <option value="CRITICAL">Critical</option>
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Status tabs */}
-        <div className="dp-incidents-tab-row">
-          {(["All", "In Progress", "Completed", "Invalid"] as const).map(
-            (t) => (
+          <div className="dp-incidents-filters">
+            <div className="dp-incidents-filter-row">
+              <input
+                className="dp-input dp-incidents-search"
+                placeholder="Search incidents by id, type, location, or reporter"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+              <QueueFilterDropdown<IncidentQueueFilter>
+                className="dp-incidents-filter-select"
+                value={queueFilter}
+                onChange={setQueueFilter}
+                options={incidentTypeOptions}
+              />
+              <QueueFilterDropdown<IncidentPriority | "All">
+                className="dp-incidents-filter-select"
+                value={priorityFilter}
+                onChange={setPriorityFilter}
+                options={[
+                  { value: "All", label: "All Priorities" },
+                  { value: "CRITICAL", label: "Critical" },
+                  { value: "HIGH", label: "High" },
+                  { value: "MEDIUM", label: "Medium" },
+                  { value: "LOW", label: "Low" },
+                ]}
+              />
+              <QueueFilterDropdown<IncidentStatus | "All">
+                className="dp-incidents-filter-select"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { value: "All", label: "All Statuses" },
+                  { value: "New", label: "New" },
+                  { value: "Waiting", label: "Waiting" },
+                  { value: "Dispatched", label: "Dispatched" },
+                  { value: "In Progress", label: "In Progress" },
+                ]}
+              />
               <button
-                key={t}
-                className={`dp-incidents-tab ${tab === t ? "active" : ""}`}
-                onClick={() => setTab(t)}
-                style={{ fontSize: "0.76rem" }}
+                type="button"
+                className="dp-btn dp-btn-ghost dp-btn-sm"
+                onClick={clearIncidentFilters}
               >
-                {t}
+                Clear
               </button>
-            ),
-          )}
-        </div>
-
-        <div className="dp-severity-summary">
-          <span className="dp-severity-pill critical">
-            Critical {filtered.filter((i) => i.priority === "CRITICAL").length}
-          </span>
-          <span className="dp-severity-pill high">
-            High {filtered.filter((i) => i.priority === "HIGH").length}
-          </span>
-          <span className="dp-severity-pill medium">
-            Medium {filtered.filter((i) => i.priority === "MEDIUM").length}
-          </span>
-          <span className="dp-severity-pill low">
-            Low {filtered.filter((i) => i.priority === "LOW").length}
-          </span>
-        </div>
-
-        <div className="dp-incidents-scroll">
-          {filteredSorted.length === 0 ? (
-            <div className="dp-empty">
-              <div className="dp-empty-title">No results</div>
-              <div className="dp-empty-sub">Try adjusting your filters</div>
             </div>
-          ) : (
-            filteredSorted.map((inc) => {
-              const dotColor =
-                inc.status === "Resolved"
-                  ? "#2e7d32"
-                  : inc.status === "Invalid"
-                    ? "#9e9e9e"
-                    : situationColor(inc.situationType);
-              return (
-                <div
-                  key={shortenId(inc.id)}
-                  className={`dp-incident-list-item ${selInc?.id === inc.id ? "active" : ""}`}
-                  style={{ borderLeft: `4px solid ${priorityColor(inc.priority)}` }}
-                  onClick={() => setSelInc(inc)}
+            <div className="dp-incidents-filter-chips">
+              {searchText && (
+                <button
+                  className="dp-filter-chip"
+                  onClick={() => setSearchText("")}
                 >
-                  <span
-                    className="dp-incident-list-dot"
-                    style={{ background: dotColor }}
-                  />
-                  <div className="dp-incident-list-body">
-                    <div className="dp-incident-list-id">
-                      {shortenId(inc.id)}
+                  Search: {searchText}
+                  <span>×</span>
+                </button>
+              )}
+              {priorityFilter !== "All" && (
+                <button
+                  className="dp-filter-chip"
+                  onClick={() => setPriorityFilter("All")}
+                >
+                  Priority: {priorityFilter}
+                  <span>×</span>
+                </button>
+              )}
+              {statusFilter !== "All" && (
+                <button
+                  className="dp-filter-chip"
+                  onClick={() => setStatusFilter("All")}
+                >
+                  Status: {statusFilter}
+                  <span>×</span>
+                </button>
+              )}
+              {queueFilter !== "All" && (
+                <button
+                  className="dp-filter-chip"
+                  onClick={() => setQueueFilter("All")}
+                >
+                  View: {queueFilter}
+                  <span>×</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="dp-incidents-visible-note">
+            Showing {visibleIncidents.length} of {filteredSorted.length} matching incidents
+          </div>
+
+          <div className="dp-incidents-scroll">
+            {filteredSorted.length === 0 ? (
+              <div className="dp-empty">
+                <div className="dp-empty-title">No results</div>
+                <div className="dp-empty-sub">Try another queue filter</div>
+              </div>
+            ) : (
+              visibleIncidents.map((inc) => {
+                const dotColor =
+                  inc.status === "Resolved"
+                    ? "#2e7d32"
+                    : inc.status === "Invalid"
+                      ? "#9e9e9e"
+                      : situationColor(inc.situationType);
+                return (
+                  <div
+                    key={shortenId(inc.id)}
+                    className={`dp-incident-list-item ${selInc?.id === inc.id ? "active" : ""}`}
+                    style={{ borderLeft: `4px solid ${priorityColor(inc.priority)}` }}
+                    onClick={() => setSelInc(inc)}
+                  >
+                    <span
+                      className="dp-incident-list-dot"
+                      style={{ background: dotColor }}
+                    />
+                    <div className="dp-incident-list-body">
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", alignItems: "center" }}>
+                        <div style={{ fontWeight: 700 }}>{inc.type}</div>
+                        <div style={{ fontSize: "0.85rem", color: "var(--d-text-sub)" }}>{inc.dateReported} {inc.timeReported}</div>
+                      </div>
+                      <div style={{ marginTop: "0.25rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        <div style={{ fontSize: "0.9rem" }}>{shortenId(inc.id)}</div>
+                        <div style={{ fontSize: "0.9rem", color: "var(--d-text-sub)" }}>{inc.location}, {inc.city}</div>
+                      </div>
+                      <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                        <Badge label={inc.priority} cls={priorityClass(inc.priority)} />
+                        <div style={{ marginLeft: "auto", display: "flex", gap: "0.4rem" }}>
+                          <button
+                            className="dp-btn dp-btn-ghost dp-btn-sm"
+                            disabled={status === "inactive"}
+                            style={
+                              status === "inactive"
+                                ? { opacity: 0.5, cursor: "not-allowed" }
+                                : undefined
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (status === "inactive") {
+                                toast.show("Action locked: go On Duty to assign");
+                                return;
+                              }
+                              onDispatch(inc);
+                            }}
+                          >Assign</button>
+                          <button
+                            className="dp-btn dp-btn-green dp-btn-sm"
+                            onClick={async (e) => { e.stopPropagation(); if (inc.status === "Resolved" || inc.status === "Invalid") { toast.show("Already closed"); return; } if (status === "inactive") { toast.show("Action locked: go On Duty to update incidents."); return; } try { await onUpdate(inc.id, { status: "Resolved", resolvedAt: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }) }); toast.show(`${shortenId(inc.id)} resolved`); if (selInc?.id === inc.id) setSelInc(null); } catch (err) { console.error("Quick Resolve failed:", err); toast.show("Failed to resolve incident"); } }}
+                          >Quick Resolve</button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="dp-incident-list-type">{inc.type}</div>
-                    <div className="dp-incident-list-loc">
-                      {inc.location}, {inc.city}
-                    </div>
-                    <div className="dp-incident-list-time">
-                      {inc.dateReported} - {inc.timeReported}
-                    </div>
-                    <div className="dp-incident-list-meta">
-                      <Badge
-                        label={inc.priority}
-                        cls={priorityClass(inc.priority)}
-                      />
-                      <Badge label={inc.status} cls={statusClass(inc.status)} />
-                    </div>
+                    <span className="dp-incident-list-arrow">›</span>
                   </div>
-                  <span className="dp-incident-list-arrow">›</span>
-                </div>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
-      </div>
+
+      {/* Show selected incident in a modal popup instead of the left panel */}
+      {selInc && (
+        <Modal title={`Incident ${shortenId(selInc.id)}`} onClose={() => { setSelInc(null); setSuppressAutoSelect(true); }} width={760}>
+          <ExpandedTicket
+            inc={selInc}
+            units={units}
+            onBackup={() => { setBackupModal(selInc); setSelInc(null); setSuppressAutoSelect(true); }}
+            onEscalate={() => { setEscalateModal(selInc); setSelInc(null); setSuppressAutoSelect(true); }}
+            onResolve={() => {
+              onUpdate(selInc.id, {
+                status: "Resolved",
+                resolvedAt: new Date().toLocaleTimeString("en-PH", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              });
+              toast.show(`${shortenId(selInc.id)} resolved`);
+              setSelInc(null);
+              setSuppressAutoSelect(true);
+            }}
+            onClose={() => { setSelInc(null); setSuppressAutoSelect(true); }}
+            status={status}
+          />
+        </Modal>
+      )}
 
       {/* Backup modal */}
       {backupModal && (
@@ -3602,9 +4345,9 @@ function IncidentsPage({
           title={`Request Backup — ${shortenId(backupModal.id)}`}
           onClose={() => {
             setBackupModal(null);
-            setBackupNote("");
+            setSelectedVolunteers([]);
           }}
-          width={460}
+          width={520}
         >
           <div
             className="dp-alert dp-alert-amber"
@@ -3613,15 +4356,122 @@ function IncidentsPage({
             {backupModal.type} · {backupModal.address} — Situation:{" "}
             {backupModal.situationType}
           </div>
-          <label className="dp-label">Backup request note</label>
-          <textarea
-            className="dp-textarea"
-            rows={3}
-            value={backupNote}
-            onChange={(e) => setBackupNote(e.target.value)}
-            placeholder="Describe why backup is needed..."
-            style={{ width: "100%", marginBottom: "1rem" }}
-          />
+          <label className="dp-label">Available Volunteers for Deployment</label>
+          <div style={{ marginBottom: "1rem" }}>
+            {(() => {
+              const availableUnits = units.filter((u) => u.status === "Available" && !backupModal.assignedUnits.includes(u.id));
+              if (availableUnits.length === 0) {
+                return (
+                  <div
+                    style={{
+                      padding: "1rem",
+                      background: "var(--d-surface-low)",
+                      borderRadius: "0.6rem",
+                      textAlign: "center",
+                      color: "var(--d-text-sub)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    No available volunteers at this time. All units are deployed.
+                  </div>
+                );
+              }
+              return (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr",
+                    gap: "0.6rem",
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {availableUnits.map((unit) => (
+                    <div
+                      key={unit.id}
+                      onClick={() => {
+                        setSelectedVolunteers((prev) =>
+                          prev.includes(unit.id)
+                            ? prev.filter((id) => id !== unit.id)
+                            : [...prev, unit.id]
+                        );
+                      }}
+                      style={{
+                        padding: "0.85rem",
+                        background: selectedVolunteers.includes(unit.id)
+                          ? "var(--d-primary-light)"
+                          : "var(--d-surface)",
+                        border: selectedVolunteers.includes(unit.id)
+                          ? "2px solid var(--d-primary)"
+                          : "1px solid var(--d-border)",
+                        borderRadius: "0.6rem",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                          marginBottom: "0.4rem",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedVolunteers.includes(unit.id)}
+                          onChange={() => {}}
+                          style={{ cursor: "pointer" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
+                            {unit.name}
+                          </div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--d-text-sub)" }}>
+                            {unit.station}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            color: "#2e7d32",
+                            background: "rgba(46, 125, 50, 0.1)",
+                            padding: "0.3rem 0.6rem",
+                            borderRadius: "12px",
+                          }}
+                        >
+                          {unit.status}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr 1fr",
+                          gap: "0.5rem",
+                          fontSize: "0.75rem",
+                          color: "var(--d-text-muted)",
+                        }}
+                      >
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Personnel:</span> {unit.personnel}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>Distance:</span> {unit.distance}
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--d-text-sub)", fontWeight: 600 }}>ETA:</span> {unit.eta}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: "0.4rem", fontSize: "0.75rem", color: "var(--d-text-muted)" }}>
+                        <strong>Leader:</strong> {unit.teamLeader} · <strong>Contact:</strong> {unit.contact}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
           <div
             style={{
               display: "flex",
@@ -3633,22 +4483,29 @@ function IncidentsPage({
               className="dp-btn dp-btn-ghost"
               onClick={() => {
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
               Cancel
             </button>
             <button
               className="dp-btn dp-btn-orange"
-              disabled={!backupNote.trim()}
+              disabled={selectedVolunteers.length === 0}
               onClick={() => {
-                onUpdate(backupModal.id, { situationType: "Escalating" });
-                toast.show(`Backup requested for ${shortenId(backupModal.id)}`);
+                const selectedUnitNames = selectedVolunteers
+                  .map((id) => units.find((u) => u.id === id)?.name)
+                  .filter(Boolean)
+                  .join(", ");
+                onUpdate(backupModal.id, { 
+                  situationType: "Escalating",
+                  assignedUnits: [...new Set([...backupModal.assignedUnits, ...selectedVolunteers])]
+                });
+                toast.show(`Backup requested: ${selectedUnitNames}`);
                 setBackupModal(null);
-                setBackupNote("");
+                setSelectedVolunteers([]);
               }}
             >
-              Send Volunteer Backup Request
+              Deploy Selected Volunteers ({selectedVolunteers.length})
             </button>
           </div>
         </Modal>
@@ -3945,22 +4802,46 @@ function ExpandedTicket({
 function ResourcesPage({
   units,
   setUnits,
+  teams = [],
+  setTeams,
+  assignmentIncident,
+  onVolunteerAssigned,
+  onAssignmentComplete,
   status,
 }: {
   units: Unit[];
   setUnits: React.Dispatch<React.SetStateAction<Unit[]>>;
+  teams: Team[];
+  setTeams: React.Dispatch<React.SetStateAction<Team[]>>;
+  assignmentIncident?: Incident | null;
+  onVolunteerAssigned?: (unit: Unit, details: { incident: string; eta: string; status: UnitStatus; note: string }) => void;
+  onAssignmentComplete?: () => void;
   status: "active" | "inactive";
 }) {
   const isInactive = status === "inactive";
-  const [tab, setTab] = useState<"teams" | "units">("teams");
-  const [teams, setTeams] = useState(MOCK_TEAMS);
+  const [tab, setTab] = useState<"teams"|"units">("teams");
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [search, setSearch] = useState("");
   const [addUnitModal, setAddUnitModal] = useState(false);
-  const [delConfirm, setDelConfirm] = useState<string | null>(null);
+  const [delConfirm, setDelConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [archivedTeams, setArchivedTeams] = useState<Team[]>([]);
+  const [archivedUnits, setArchivedUnits] = useState<Unit[]>([]);
+  const [teamRemoveConfirm, setTeamRemoveConfirm] = useState<Team | null>(null);
+  const [unitRemoveConfirm, setUnitRemoveConfirm] = useState<Unit | null>(null);
   const [msgModal, setMsgModal] = useState<Unit | null>(null);
   const [msgText, setMsgText] = useState("");
+  const [deployModal, setDeployModal] = useState<Unit | null>(null);
+  const [deployDetails, setDeployDetails] = useState<{
+    incident: string;
+    eta: string;
+    status: UnitStatus;
+    note: string;
+  }>({
+    incident: "",
+    eta: "",
+    status: "On Route",
+    note: "",
+  });
   const [newU, setNewU] = useState({
     name: "",
     type: "FIELD" as UnitType,
@@ -3968,9 +4849,19 @@ function ResourcesPage({
     leader: "",
     contact: "",
     personnel: "",
-    plate: "",
   });
   const toast = useToast();
+
+  useEffect(() => {
+    if (!assignmentIncident) return;
+    setTab("units");
+    setStatusFilter("Available");
+    setDeployDetails((current) => ({
+      ...current,
+      incident: assignmentIncident.id,
+      status: "On Route",
+    }));
+  }, [assignmentIncident?.id]);
 
   const TYPE_COLOR: Record<string, string> = {
     FIELD: "#2E7D32",
@@ -3986,18 +4877,23 @@ function ResourcesPage({
   const filteredUnits = units.filter((u) => {
     if (typeFilter !== "All" && u.type !== typeFilter) return false;
     if (statusFilter !== "All" && u.status !== statusFilter) return false;
-    if (
-      search &&
-      !u.name.toLowerCase().includes(search.toLowerCase()) &&
-      !u.id.toLowerCase().includes(search.toLowerCase())
-    )
-      return false;
     return true;
   });
 
-  const filteredTeams = teams.filter(
-    (t) => typeFilter === "All" || t.type === typeFilter,
-  );
+  const filteredTeams = teams.filter(t => typeFilter==="All"||t.type===typeFilter);
+  const resourceStats = tab === "teams"
+    ? [
+        { l:"Volunteer Roles",v:teams.length,c:"var(--d-text)" },
+        { l:"Ready Roles",v:teams.filter(t=>t.status==="Ready").length,c:"var(--d-green)" },
+        { l:"Filled Slots",v:teams.reduce((sum,t)=>sum+t.members,0),c:"var(--d-primary)" },
+        { l:"Open Slots",v:teams.reduce((sum,t)=>sum+t.vehicles,0),c:"var(--d-text-sub)" },
+      ]
+    : [
+        { l:"Approved Volunteers",v:units.length,c:"var(--d-text)" },
+        { l:"Available",v:units.filter(u=>u.status==="Available").length,c:"var(--d-green)" },
+        { l:"Deployed",v:units.filter(u=>["On Route","On Scene"].includes(u.status)).length,c:"var(--d-primary)" },
+        { l:"Offline",v:units.filter(u=>u.status==="Offline").length,c:"var(--d-text-sub)" },
+      ];
 
   const TEAM_STATUS_CLS: Record<string, string> = {
     Ready: "dp-badge-green",
@@ -4005,6 +4901,21 @@ function ResourcesPage({
     Standby: "dp-badge-amber",
     Offline: "dp-badge-grey",
   };
+
+  const typeFilters: { value: "All" | UnitType; label: string }[] = [
+    { value: "All", label: "All Types" },
+    { value: "FIELD", label: "Field" },
+    { value: "MEDIC", label: "Medical" },
+    { value: "LOGISTICS", label: "Logistics" },
+  ];
+
+  const statusFilters = [
+    { value: "All", label: "All Statuses" },
+    { value: "Available", label: "Available" },
+    { value: "On Route", label: "On Route" },
+    { value: "On Scene", label: "On Scene" },
+    { value: "Offline", label: "Offline" },
+  ];
 
   const handleAddUnit = () => {
     if (!newU.name || !newU.station || !newU.leader || !newU.contact) return;
@@ -4025,7 +4936,7 @@ function ResourcesPage({
         eta: "—",
         teamLeader: newU.leader,
         contact: newU.contact,
-        plateNumber: newU.plate || "—",
+        plateNumber: "N/A",
         lastActive: "Just added",
       },
     ]);
@@ -4037,7 +4948,6 @@ function ResourcesPage({
       leader: "",
       contact: "",
       personnel: "",
-      plate: "",
     });
     toast.show(`${newU.name} added to roster`);
   };
@@ -4088,6 +4998,13 @@ function ResourcesPage({
         </div>
       </div>
 
+      {assignmentIncident && (
+        <div className="dp-alert dp-alert-blue" style={{ margin: "1rem 0 0" }}>
+          Assigning volunteers to <strong>{shortenId(assignmentIncident.id)}</strong>{" "}
+          - {assignmentIncident.type} at {assignmentIncident.location}
+        </div>
+      )}
+
       {/* Summary */}
       <div
         style={{
@@ -4131,7 +5048,10 @@ function ResourcesPage({
       <div className="dp-resources-tabs">
         <button
           className={`dp-resources-tab ${tab === "teams" ? "active" : ""}`}
-          onClick={() => setTab("teams")}
+          onClick={() => {
+            setTab("teams");
+            setStatusFilter("All");
+          }}
         >
           Response Teams
         </button>
@@ -4144,46 +5064,61 @@ function ResourcesPage({
       </div>
 
       {/* Filters */}
-      <div className="dp-filter-row">
-        {["All", "FIELD", "MEDIC", "LOGISTICS"].map((f) => (
-          <button
-            key={f}
-            className={`dp-filter-pill ${typeFilter === f ? "active" : ""}`}
-            onClick={() => setTypeFilter(f)}
-          >
-            {f === "All"
-              ? "All Types"
-              : `${UNIT_TYPE_ICON[f as UnitType] || ""} ${f}`}
-          </button>
-        ))}
-        {tab === "units" &&
-          ["All", "Available", "On Route", "On Scene", "Offline"].map((s) => (
-            <button
-              key={s}
-              className={`dp-filter-pill ${statusFilter === s ? "active" : ""}`}
-              onClick={() => setStatusFilter(s)}
-            >
-              {s}
-            </button>
-          ))}
+      <div className={`dp-filter-row dp-resources-filter-row ${tab === "units" ? "is-units" : ""}`}>
+        <div className="dp-filter-group">
+          <div className="dp-filter-group-head">
+            <div className="dp-filter-group-label">Volunteer Type</div>
+            <div className="dp-filter-group-help">
+              Select the kind of volunteer needed for the operation.
+            </div>
+          </div>
+          <div className="dp-filter-group-pills">
+            {typeFilters.map((f) => (
+              <button
+                key={f.value}
+                className={`dp-filter-pill ${typeFilter === f.value ? "active" : ""}`}
+                onClick={() => setTypeFilter(f.value)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {tab === "units" && (
-          <div className="dp-search-box" style={{ marginLeft: "auto" }}>
-            <span className="dp-search-icon"></span>
-            <input
-              placeholder="Search units..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ width: 160 }}
-            />
+          <div className="dp-filter-group">
+            <div className="dp-filter-group-head">
+              <div className="dp-filter-group-label">Current Status</div>
+              <div className="dp-filter-group-help">
+                Narrow the list by who is available, deployed, or offline.
+              </div>
+            </div>
+            <div className="dp-filter-group-pills">
+              {statusFilters.map((s) => (
+                <button
+                  key={s.value}
+                  className={`dp-filter-pill ${statusFilter === s.value ? "active" : ""}`}
+                  onClick={() => setStatusFilter(s.value)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
+
+        <div className="dp-filter-result-count">
+          {tab === "units"
+            ? `${filteredUnits.length} volunteer${filteredUnits.length === 1 ? "" : "s"} shown`
+            : `${filteredTeams.length} team${filteredTeams.length === 1 ? "" : "s"} shown`}
+        </div>
       </div>
 
       {/* Teams */}
       {tab === "teams" && (
         <div className="dp-team-grid">
-          {filteredTeams.map((team) => (
-            <div key={team.id} className="dp-team-card">
+          {filteredTeams.map((team, index) => (
+            <div key={`${team.id}-${index}`} className="dp-team-card">
               <div className="dp-team-card-header">
                 <div>
                   <div className="dp-team-card-name">
@@ -4194,19 +5129,11 @@ function ResourcesPage({
                 <Badge label={team.status} cls={TEAM_STATUS_CLS[team.status]} />
               </div>
               <div className="dp-team-card-grid">
-                {[
-                  ["Leader", team.leader],
-                  ["Contact", team.contact],
-                  ["Members", `${team.members} personnel`],
-                  ["Vehicles", `${team.vehicles} units`],
-                  ["Coverage", team.coverage],
-                ].map(([l, v]) => (
-                  <div key={l}>
-                    <div className="dp-team-card-item-label">{l}</div>
-                    <div className="dp-team-card-item-val">{v}</div>
-                  </div>
+                {[["Source",team.leader],["Schedule",team.contact],["Filled Slots",`${team.members} volunteers`],["Open Slots",`${team.vehicles} slots`],["Location",team.coverage]].map(([l,v])=>(
+                  <div key={l}><div className="dp-team-card-item-label">{l}</div><div className="dp-team-card-item-val">{v}</div></div>
                 ))}
               </div>
+              <div className="dp-team-card-item-label">Requirements / Tasks</div>
               <div className="dp-equipment-list">
                 {team.equipment.map((e) => (
                   <span key={e} className="dp-equipment-tag">
@@ -4236,16 +5163,14 @@ function ResourcesPage({
                     opacity: isInactive ? 0.5 : 1,
                     cursor: isInactive ? "not-allowed" : "pointer",
                   }}
-                  onClick={() => {
-                    setTeams((p) => p.filter((t) => t.id !== team.id));
-                    toast.show(`${team.name} removed`);
-                  }}
+                  onClick={() => setTeamRemoveConfirm(team)}
                 >
                   Remove
                 </button>
               </div>
             </div>
           ))}
+          {filteredTeams.length===0&&<div className="dp-card" style={{ gridColumn:"1 / -1",padding:"2rem",textAlign:"center",color:"var(--d-text-sub)" }}>No Bayanihub volunteer roles match your filters.</div>}
         </div>
       )}
 
@@ -4261,7 +5186,6 @@ function ResourcesPage({
                 <th>Station</th>
                 <th>Leader</th>
                 <th>Contact</th>
-                <th>Plate</th>
                 <th>Personnel</th>
                 <th>Status</th>
                 <th>Last Active</th>
@@ -4269,8 +5193,8 @@ function ResourcesPage({
               </tr>
             </thead>
             <tbody>
-              {filteredUnits.map((u) => (
-                <tr key={u.id}>
+              {filteredUnits.map((u, index) => (
+                <tr key={`${u.id}-${index}`}>
                   <td
                     style={{
                       fontFamily: "monospace",
@@ -4301,15 +5225,6 @@ function ResourcesPage({
                   >
                     {u.contact}
                   </td>
-                  <td
-                    style={{
-                      fontFamily: "monospace",
-                      fontSize: "0.78rem",
-                      color: "var(--d-text-sub)",
-                    }}
-                  >
-                    {u.plateNumber}
-                  </td>
                   <td style={{ textAlign: "center", fontWeight: 700 }}>
                     {u.personnel}
                   </td>
@@ -4337,6 +5252,26 @@ function ResourcesPage({
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: "0.35rem" }}>
+                      <button
+                        className="dp-btn dp-btn-green dp-btn-sm"
+                        disabled={isInactive}
+                        style={
+                          isInactive
+                            ? { opacity: 0.5, cursor: "not-allowed" }
+                            : undefined
+                        }
+                        onClick={() => {
+                          setDeployModal(u);
+                          setDeployDetails({
+                            incident: assignmentIncident?.id ?? "",
+                            eta: u.eta === "—" ? "" : u.eta,
+                            status: "On Route",
+                            note: "",
+                          });
+                        }}
+                      >
+                        Assign
+                      </button>
                       <button
                         className="dp-btn dp-btn-ghost dp-btn-sm"
                         disabled={isInactive}
@@ -4372,12 +5307,12 @@ function ResourcesPage({
                             p.map((x) =>
                               x.id === u.id
                                 ? {
-                                    ...x,
-                                    status:
-                                      x.status === "Offline"
-                                        ? "Available"
-                                        : "Offline",
-                                  }
+                                  ...x,
+                                  status:
+                                    x.status === "Offline"
+                                      ? "Available"
+                                      : "Offline",
+                                }
                                 : x,
                             ),
                           );
@@ -4397,7 +5332,7 @@ function ResourcesPage({
                           opacity: isInactive ? 0.5 : 1,
                           cursor: isInactive ? "not-allowed" : "pointer",
                         }}
-                        onClick={() => setDelConfirm(u.id)}
+                        onClick={() => setUnitRemoveConfirm(u)}
                       >
                         Remove
                       </button>
@@ -4408,7 +5343,7 @@ function ResourcesPage({
               {filteredUnits.length === 0 && (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={10}
                     style={{
                       padding: "2rem",
                       textAlign: "center",
@@ -4421,6 +5356,99 @@ function ResourcesPage({
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Deactivated & Archived Resources Container */}
+      {(archivedTeams.length > 0 || archivedUnits.length > 0) && (
+        <div className="dp-archive-section">
+          <div className="dp-archive-header">
+            <div>
+              <div className="dp-archive-title">
+                Deactivated & Archived Resources
+              </div>
+              <p className="dp-archive-desc">
+                The following resources have been deactivated. They do not appear in active dispatch queues, but their contact details, coverage, and metadata are preserved here.
+              </p>
+            </div>
+            <span className="dp-badge dp-badge-grey">
+              {archivedTeams.length + archivedUnits.length} archived
+            </span>
+          </div>
+
+          <div className="dp-archive-grid">
+            {/* Archived Teams */}
+            {archivedTeams.map((team) => (
+              <div key={team.id} className="dp-archive-card">
+                <div className="dp-archive-info">
+                  <div className="dp-archive-name">
+                     [Team] {team.name}
+                  </div>
+                  <div className="dp-archive-meta">
+                    Leader: {team.leader} · Contact: {team.contact} · Station: {team.station}
+                  </div>
+                </div>
+                <div className="dp-archive-actions">
+                  <button
+                    className="dp-btn dp-btn-green dp-btn-sm"
+                    onClick={() => {
+                      setTeams((p) => [...p, { ...team, status: "Offline" }]);
+                      setArchivedTeams((p) => p.filter((t) => t.id !== team.id));
+                      toast.show(`${team.name} restored to active roster`);
+                    }}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    className="dp-btn dp-btn-ghost dp-btn-sm"
+                    style={{ borderColor: "var(--d-red)", color: "var(--d-red)" }}
+                    onClick={() => {
+                      setArchivedTeams((p) => p.filter((t) => t.id !== team.id));
+                      toast.show(`${team.name} permanently deleted from archive`);
+                    }}
+                  >
+                    Purge
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Archived Units / Volunteers */}
+            {archivedUnits.map((u) => (
+              <div key={u.id} className="dp-archive-card">
+                <div className="dp-archive-info">
+                  <div className="dp-archive-name">
+                    [Volunteer] {u.name} ({u.id})
+                  </div>
+                  <div className="dp-archive-meta">
+                    Leader: {u.teamLeader} · Contact: {u.contact} · Station: {u.station}
+                  </div>
+                </div>
+                <div className="dp-archive-actions">
+                  <button
+                    className="dp-btn dp-btn-green dp-btn-sm"
+                    onClick={() => {
+                      setUnits((p) => [...p, { ...u, status: "Offline" }]);
+                      setArchivedUnits((p) => p.filter((x) => x.id !== u.id));
+                      toast.show(`${u.name} restored to active roster`);
+                    }}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    className="dp-btn dp-btn-ghost dp-btn-sm"
+                    style={{ borderColor: "var(--d-red)", color: "var(--d-red)" }}
+                    onClick={() => {
+                      setArchivedUnits((p) => p.filter((x) => x.id !== u.id));
+                      toast.show(`${u.name} permanently deleted from archive`);
+                    }}
+                  >
+                    Purge
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -4497,16 +5525,6 @@ function ResourcesPage({
                 placeholder="e.g. 4"
               />
             </div>
-            <div className="dp-field">
-              <label>Plate Number</label>
-              <input
-                value={newU.plate}
-                onChange={(e) =>
-                  setNewU((p) => ({ ...p, plate: e.target.value }))
-                }
-                placeholder="e.g. BFP-1099"
-              />
-            </div>
           </div>
           <div
             style={{
@@ -4535,42 +5553,131 @@ function ResourcesPage({
         </Modal>
       )}
 
-      {/* Delete confirm */}
-      {delConfirm && (
+      {/* Team Remove Confirmation Modal */}
+      {teamRemoveConfirm && (
         <Modal
-          title="Remove Volunteer"
-          onClose={() => setDelConfirm(null)}
-          width={420}
+          title="Remove Response Team"
+          onClose={() => setTeamRemoveConfirm(null)}
+          width={460}
         >
-          <div
-            className="dp-alert dp-alert-red"
-            style={{ marginBottom: "1rem" }}
-          >
-            Are you sure you want to remove <strong>{delConfirm}</strong>? This
-            action cannot be undone.
+          <div style={{ marginBottom: "1.2rem", fontSize: "0.875rem", color: "var(--d-text-sub)", lineHeight: 1.5 }}>
+            Select how you would like to handle the removal of response team <strong>{teamRemoveConfirm.name}</strong>.
           </div>
-          <div
-            style={{
-              display: "flex",
-              gap: "0.6rem",
-              justifyContent: "flex-end",
-            }}
-          >
+
+          <div className="dp-removal-options">
+            <button
+              type="button"
+              className="dp-removal-option"
+              onClick={() => {
+                setArchivedTeams((p) => [...p, teamRemoveConfirm]);
+                setTeams((p) => p.filter((t) => t.id !== teamRemoveConfirm.id));
+                toast.show(`${teamRemoveConfirm.name} moved to deactivated archive`);
+                setTeamRemoveConfirm(null);
+              }}
+            >
+              <div className="dp-removal-option-icon" style={{ color: "var(--d-primary)" }}>
+                <Icon name="users" size={20} />
+              </div>
+              <div className="dp-removal-option-content">
+                <div className="dp-removal-option-title">Deactivate & Archive</div>
+                <div className="dp-removal-option-desc">
+                  Move to the deactivated container. All team metadata is safely preserved for easy reactivation.
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="dp-removal-option danger"
+              onClick={() => {
+                setTeams((p) => p.filter((t) => t.id !== teamRemoveConfirm.id));
+                toast.show(`${teamRemoveConfirm.name} permanently deleted`);
+                setTeamRemoveConfirm(null);
+              }}
+            >
+              <div className="dp-removal-option-icon" style={{ color: "var(--d-red)" }}>
+                <Icon name="trash" size={20} />
+              </div>
+              <div className="dp-removal-option-content">
+                <div className="dp-removal-option-title" style={{ color: "var(--d-red)" }}>Delete Permanently</div>
+                <div className="dp-removal-option-desc">
+                  Completely erase this team from system records. This action is final and cannot be undone.
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1.2rem" }}>
             <button
               className="dp-btn dp-btn-ghost"
-              onClick={() => setDelConfirm(null)}
+              onClick={() => setTeamRemoveConfirm(null)}
             >
               Cancel
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Volunteer Unit Remove Confirmation Modal */}
+      {unitRemoveConfirm && (
+        <Modal
+          title="Remove Volunteer Unit"
+          onClose={() => setUnitRemoveConfirm(null)}
+          width={460}
+        >
+          <div style={{ marginBottom: "1.2rem", fontSize: "0.875rem", color: "var(--d-text-sub)", lineHeight: 1.5 }}>
+            Select how you would like to handle the removal of volunteer unit <strong>{unitRemoveConfirm.name}</strong>.
+          </div>
+
+          <div className="dp-removal-options">
             <button
-              className="dp-btn dp-btn-red"
+              type="button"
+              className="dp-removal-option"
               onClick={() => {
-                setUnits((p) => p.filter((u) => u.id !== delConfirm));
-                setDelConfirm(null);
-                toast.show(`Unit ${delConfirm} removed`);
+                setArchivedUnits((p) => [...p, unitRemoveConfirm]);
+                setUnits((p) => p.filter((u) => u.id !== unitRemoveConfirm.id));
+                toast.show(`${unitRemoveConfirm.name} moved to deactivated archive`);
+                setUnitRemoveConfirm(null);
               }}
             >
-              Confirm Remove
+              <div className="dp-removal-option-icon" style={{ color: "var(--d-primary)" }}>
+                <Icon name="users" size={20} />
+              </div>
+              <div className="dp-removal-option-content">
+                <div className="dp-removal-option-title">Deactivate & Archive</div>
+                <div className="dp-removal-option-desc">
+                  Move to the deactivated container. Preservation of station and contact info allows quick restoration.
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="dp-removal-option danger"
+              onClick={() => {
+                setUnits((p) => p.filter((u) => u.id !== unitRemoveConfirm.id));
+                toast.show(`${unitRemoveConfirm.name} permanently deleted`);
+                setUnitRemoveConfirm(null);
+              }}
+            >
+              <div className="dp-removal-option-icon" style={{ color: "var(--d-red)" }}>
+                <Icon name="trash" size={20} />
+              </div>
+              <div className="dp-removal-option-content">
+                <div className="dp-removal-option-title" style={{ color: "var(--d-red)" }}>Delete Permanently</div>
+                <div className="dp-removal-option-desc">
+                  Completely erase this volunteer unit from system records. This action is final and cannot be undone.
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1.2rem" }}>
+            <button
+              className="dp-btn dp-btn-ghost"
+              onClick={() => setUnitRemoveConfirm(null)}
+            >
+              Cancel
             </button>
           </div>
         </Modal>
@@ -4633,6 +5740,53 @@ function ResourcesPage({
           </div>
         </Modal>
       )}
+      {/* Deploy modal */}
+      {deployModal && (
+        <Modal
+          title={`Deploy — ${deployModal.name}`}
+          onClose={() => setDeployModal(null)}
+          width={540}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div className="dp-field">
+              <label>Incident ID</label>
+              <input value={deployDetails.incident} onChange={(e) => setDeployDetails(p => ({ ...p, incident: e.target.value }))} placeholder="Optional incident or task ID" />
+            </div>
+            <div className="dp-field">
+              <label>ETA</label>
+              <input value={deployDetails.eta} onChange={(e) => setDeployDetails(p => ({ ...p, eta: e.target.value }))} placeholder="e.g. 00:15" />
+            </div>
+            <div className="dp-field" style={{ gridColumn: "span 2" }}>
+              <label>Set Status</label>
+              <select value={deployDetails.status} onChange={(e) => setDeployDetails(p => ({ ...p, status: e.target.value as UnitStatus }))}>
+                <option>On Route</option>
+                <option>On Scene</option>
+              </select>
+            </div>
+            <div className="dp-field" style={{ gridColumn: "span 2" }}>
+              <label>Notes</label>
+              <input value={deployDetails.note} onChange={(e) => setDeployDetails(p => ({ ...p, note: e.target.value }))} placeholder="Optional instructions" />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "0.6rem", justifyContent: "flex-end", marginTop: "1rem" }}>
+            <button className="dp-btn dp-btn-ghost" onClick={() => setDeployModal(null)}>Cancel</button>
+            <button className="dp-btn dp-btn-orange" onClick={() => {
+              if (deployModal) {
+                setUnits(p => p.map(u => u.id === deployModal.id ? { ...u, status: deployDetails.status, lastActive: deployDetails.eta || u.lastActive } : u));
+                onVolunteerAssigned?.(deployModal, deployDetails);
+                toast.show(
+                  deployDetails.incident.trim()
+                    ? `${deployModal.name} assigned to ${shortenId(deployDetails.incident)}`
+                    : `${deployModal.name} set to ${deployDetails.status}`,
+                );
+              }
+              setDeployModal(null);
+              setDeployDetails({ incident: "", eta: "", status: "On Route", note: "" });
+              onAssignmentComplete?.();
+            }}>Confirm Deploy</button>
+          </div>
+        </Modal>
+      )}
 
       {toast.msg && <Toast msg={toast.msg} />}
     </div>
@@ -4661,6 +5815,18 @@ function AskVolunteersPage({
   onSend: () => void;
 }) {
   const isInactive = status === "inactive";
+  const supportOptions: { value: "FIELD" | "MEDIC" | "LOGISTICS"; label: string }[] = [
+    { value: "FIELD", label: "Field Volunteer" },
+    { value: "MEDIC", label: "Medic Volunteer" },
+    { value: "LOGISTICS", label: "Logistics Volunteer" },
+  ];
+  const incidentTargetOptions = [
+    { value: "GENERAL", label: "General reinforcement (no specific incident)" },
+    ...volunteerTargets.map((inc) => ({
+      value: inc.id,
+      label: `${shortenId(inc.id)} - ${inc.type} | ${inc.location || inc.address} | ${inc.priority} ${inc.status}`,
+    })),
+  ];
 
   return (
     <div className="dp-askv-page dp-fade-in">
@@ -4680,28 +5846,21 @@ function AskVolunteersPage({
           </div>
           <div className="dp-field dp-askv-field">
             <label>Support Type</label>
-            <select
+            <QueueFilterDropdown<"FIELD" | "MEDIC" | "LOGISTICS">
+              className="dp-askv-dropdown"
               value={volunteerNeed}
-              onChange={(e) => setVolunteerNeed(e.target.value as "FIELD" | "MEDIC" | "LOGISTICS")}
-            >
-              <option value="FIELD">Field Volunteer</option>
-              <option value="MEDIC">Medic Volunteer</option>
-              <option value="LOGISTICS">Logistics Volunteer</option>
-            </select>
+              onChange={setVolunteerNeed}
+              options={supportOptions}
+            />
           </div>
           <div className="dp-field dp-askv-field" style={{ marginTop: "0.8rem" }}>
             <label>Incident Target</label>
-            <select
+            <QueueFilterDropdown<string>
+              className="dp-askv-dropdown"
               value={volunteerIncidentId}
-              onChange={(e) => setVolunteerIncidentId(e.target.value)}
-            >
-              <option value="GENERAL">General reinforcement (no specific incident)</option>
-              {volunteerTargets.map((inc) => (
-                <option key={inc.id} value={inc.id}>
-                  {shortenId(inc.id)} - {inc.type}
-                </option>
-              ))}
-            </select>
+              onChange={setVolunteerIncidentId}
+              options={incidentTargetOptions}
+            />
           </div>
           <div className="dp-field" style={{ marginTop: "0.8rem" }}>
             <label>Notes / Instructions</label>
@@ -4751,30 +5910,18 @@ function ProfilePage({
 
   useEffect(() => {
     const session = loadSession();
-    if (session?.user) {
-      const u = session.user;
-      const initials =
-        `${u.firstName?.[0] || ""}${u.lastName?.[0] || ""}`.toUpperCase() ||
-        "DS";
-      const name =
-        u.name ||
-        `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
-        "Daniel Santos";
-      const email = u.email || "d.santos@ndrrmc.gov.ph";
-      const phone = u.phone || "+63 917 345 6789";
-      const username = u.email ? u.email.split("@")[0] : "d.santos";
+    if (!session?.accessToken) return;
 
-      const realProfile = {
-        ...MOCK_DISPATCHER,
-        name,
-        username,
-        email,
-        phone,
-        initials,
-      };
-      setProfile(realProfile);
-      setDraft(realProfile);
-    }
+    getDispatcherProfile(session.accessToken)
+      .then((data) => {
+        const realProfile = mapBackendProfile(data);
+        setProfile(realProfile);
+        setDraft(realProfile);
+      })
+      .catch((err) => {
+        console.error("Failed to load dispatcher profile:", err);
+        toast.show(err?.message || "Failed to load profile");
+      });
   }, []);
 
   const save = async () => {
@@ -4944,7 +6091,7 @@ function ProfilePage({
                 style={{ width: "100%", justifyContent: "center" }}
                 onClick={() => setPwModal(true)}
               >
-                🔒 Change Password
+                Change Password
               </button>
               <div className="dp-divider" />
               <button
@@ -4957,7 +6104,7 @@ function ProfilePage({
                 }}
                 onClick={() => setLogoutModal(true)}
               >
-                → Sign Out
+                Sign Out
               </button>
             </div>
           </div>
@@ -5024,11 +6171,7 @@ function ProfilePage({
               ))}
             </div>
           </div>
-          <div className="dp-readonly-note">
-            📌 Badge, rank, cluster, and station are assigned by the system
-            administrator and cannot be self-edited. Contact your admin to
-            update these fields.
-          </div>
+          <div className="dp-readonly-note">Badge, rank, cluster, and station are assigned by the system administrator and cannot be self-edited. Contact your admin to update these fields.</div>
         </div>
       </div>
 
@@ -5153,11 +6296,8 @@ function ProfilePage({
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN SHELL
-
 // ══════════════════════════════════════════════════════════════════════════════
-// MAIN SHELL
-// ══════════════════════════════════════════════════════════════════════════════
-function mapBackendToFrontendIncident(report: IncidentReport): Incident {
+function mapBackendToFrontendIncident(report: IncidentReport, dispatchOrders: DispatchOrder[] = []): Incident {
   const priorityMap: Record<string, IncidentPriority> = {
     low: "LOW",
     moderate: "MEDIUM",
@@ -5171,11 +6311,44 @@ function mapBackendToFrontendIncident(report: IncidentReport): Incident {
     actioned: "Dispatched",
     closed: "Resolved",
   };
+  const reportText = `${report.title} ${report.content}`.toLowerCase();
+  const inferredType =
+    /bridge|collapse|structural|building/.test(reportText) ? "Infrastructure Damage" :
+      /flood|water|overflow|evacuat/.test(reportText) ? "Flood / Evacuation" :
+        /fire|smoke|burn/.test(reportText) ? "Fire Emergency" :
+          /medical|injur|wound|patient|ambulance|cardiac|fracture/.test(reportText) ? "Medical Emergency" :
+            /food|water|relief|shortage|supply/.test(reportText) ? "Relief / Supply Request" :
+              /road|accident|collision|traffic/.test(reportText) ? "Road Accident" :
+                report.title;
+  const category: Incident["category"] =
+    /medical|injur|wound|patient|ambulance|cardiac|fracture/.test(reportText) ? "MEDIC" :
+      /food|water|relief|shortage|supply|transport|evacuat/.test(reportText) ? "LOGISTICS" :
+        /bridge|collapse|structural|building|fire|flood|rescue|road|accident|collision/.test(reportText) ? "FIELD" :
+          "Other";
+
+  const relatedOrders = dispatchOrders.filter((order) => order.reportId === report.id);
+  const latestOrder = relatedOrders[0];
+  const orderStatusMap: Record<string, IncidentStatus> = {
+    pending: "Dispatched",
+    accepted: "Dispatched",
+    in_progress: "In Progress",
+    completed: "Resolved",
+  };
+  const status =
+    latestOrder?.status ? orderStatusMap[latestOrder.status] ?? statusMap[report.status?.toLowerCase() || "pending"] :
+    statusMap[report.status?.toLowerCase() || "pending"] || "New";
+  const createdAt = new Date(report.createdAt);
+  const dispatchedAt = latestOrder?.createdAt
+    ? new Date(latestOrder.createdAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
+    : undefined;
+  const resolvedAt = latestOrder?.status === "completed" && latestOrder.updatedAt
+    ? new Date(latestOrder.updatedAt).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
+    : undefined;
 
   return {
     id: report.id,
-    type: report.title,
-    category: "Other",
+    type: inferredType,
+    category,
     reporter: "Citizen Report",
     reporterPhone: "Verified",
     address: report.location,
@@ -5184,19 +6357,109 @@ function mapBackendToFrontendIncident(report: IncidentReport): Incident {
     location: report.location,
     lat: 14.6042,
     lng: 120.9822,
-    timeReported: new Date(report.createdAt).toLocaleTimeString("en-PH", {
+    timeReported: createdAt.toLocaleTimeString("en-PH", {
       hour: "2-digit",
       minute: "2-digit",
     }),
-    dateReported: new Date(report.createdAt).toLocaleDateString("en-PH"),
+    dateReported: createdAt.toLocaleDateString("en-PH"),
     priority:
       priorityMap[report.severity?.toLowerCase() || "moderate"] || "MEDIUM",
-    status: statusMap[report.status?.toLowerCase() || "pending"] || "New",
-    situationType: "Under Control",
+    status,
+    situationType: report.severity?.toLowerCase() === "critical" ? "Critical" : latestOrder ? "Escalating" : "Under Control",
     assignedUnits: [],
     description: report.content,
-    notes: "",
-    timeActive: 0,
+    notes: latestOrder?.instructions ?? "",
+    timeActive: Math.max(0, Math.round((Date.now() - createdAt.getTime()) / 60000)),
+    dispatchedAt,
+    resolvedAt,
+  };
+}
+
+function buildIncidentGeocodeQuery(incident: Incident): string {
+  const parts = [incident.address, incident.barangay, incident.city]
+    .map((part) => part?.trim())
+    .filter(Boolean);
+  const query = Array.from(new Set(parts)).join(", ");
+  if (!query) return "";
+  return /philippines/i.test(query) ? query : `${query}, Philippines`;
+}
+
+function mapBackendResponderType(type?: string): UnitType {
+  const normalized = type?.toLowerCase() ?? "";
+  if (["amb", "ambulance", "medical", "medic", "health"].includes(normalized)) return "MEDIC";
+  if (["logistics", "relief", "supply", "transport"].includes(normalized)) return "LOGISTICS";
+  return "FIELD";
+}
+
+function mapOrganizationToTeam(organization: Organization): Team {
+  const type = mapBackendResponderType(organization.type);
+
+  return {
+    id: organization.id,
+    name: organization.name,
+    type,
+    members: organization.verified ? 10 : 4,
+    vehicles: organization.verified ? 2 : 1,
+    station: organization.address || "Unassigned station",
+    contact: organization.contactPhone || organization.contactEmail || "No contact listed",
+    leader: organization.contactEmail || "Coordinator pending",
+    status: organization.verified ? "Ready" : "Standby",
+    equipment: [organization.type || "resource partner"],
+    coverage: organization.address || "Coverage not listed",
+  };
+}
+
+function mapVolunteerRoleToTeam(role: DispatcherVolunteerTeam): Team {
+  return {
+    id: role.id,
+    name: role.name,
+    type: mapBackendResponderType(role.type),
+    members: role.members,
+    vehicles: role.vehicles,
+    station: role.station,
+    contact: role.contact,
+    leader: role.leader,
+    status: role.status,
+    equipment: role.equipment.length ? role.equipment : ["No requirements listed"],
+    coverage: role.coverage,
+  };
+}
+
+function mapBackendProfile(profile: BackendDispatcherProfile) {
+  return {
+    ...MOCK_DISPATCHER,
+    id: profile.id,
+    name: profile.name,
+    username: profile.username,
+    email: profile.email,
+    phone: profile.phone,
+    badge: profile.badge,
+    rank: profile.rank,
+    cluster: profile.cluster,
+    station: profile.station,
+    initials: profile.initials,
+    joinedDate: profile.joinedDate,
+    totalDispatches: profile.totalDispatches,
+    resolvedToday: profile.resolvedToday,
+  };
+}
+
+function mapVolunteerUnit(unit: DispatcherVolunteerUnit): Unit {
+  return {
+    id: unit.id,
+    type: mapBackendResponderType(unit.type),
+    name: unit.name,
+    station: unit.station,
+    status: unit.status,
+    lat: unit.lat,
+    lng: unit.lng,
+    personnel: unit.personnel,
+    distance: unit.distance,
+    eta: unit.eta,
+    teamLeader: unit.teamLeader,
+    contact: unit.contact,
+    plateNumber: unit.plateNumber,
+    lastActive: unit.lastActive,
   };
 }
 
@@ -5205,6 +6468,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [dropdown, setDropdown] = useState(false);
   const [broadcastModal, setBroadcastModal] = useState(false);
   const [liveActivityModal, setLiveActivityModal] = useState(false);
@@ -5216,6 +6480,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [volunteerNotes, setVolunteerNotes] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [dispatchTarget, setDispatchTarget] = useState<Incident | null>(null);
+  const [resourceAssignmentIncident, setResourceAssignmentIncident] =
+    useState<Incident | null>(null);
   const [dispUser, setDispUser] = useState<{
     name: string;
     initials: string;
@@ -5224,12 +6490,37 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     cluster: string;
     station: string;
   } | null>(null);
+  const [cityData, setCityData] = useState<Array<{
+    psgcCode: string;
+    name: string;
+    province: string | null;
+    region: string | null;
+    coordinates: [number, number];
+  }>>([]);
   const clock = useClock();
   const toast = useToast();
   const dropRef = useRef<HTMLDivElement>(null);
+  const geocodeCacheRef = useRef<Record<string, [number, number]>>({});
 
-  const syncProfile = () => {
+  const syncProfile = async () => {
     const session = loadSession();
+    if (session?.accessToken) {
+      try {
+        const profile = await getDispatcherProfile(session.accessToken);
+        setDispUser({
+          name: profile.name,
+          initials: profile.initials,
+          rank: profile.rank,
+          badge: profile.badge,
+          cluster: profile.cluster,
+          station: profile.station,
+        });
+        return;
+      } catch (err) {
+        console.error("Failed to sync dispatcher profile:", err);
+      }
+    }
+
     if (session?.user) {
       const u = session.user;
       const initials =
@@ -5240,12 +6531,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
         "Dispatcher User";
       setDispUser({
-        name,
-        initials,
-        rank: "Senior Dispatcher",
-        badge: "DS-3042",
-        cluster: "Metro Cluster 3",
-        station: "Sampaloc Command Center",
+        name: u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Dispatcher",
+        initials: `${u.firstName?.[0] || ""}${u.lastName?.[0] || ""}`.toUpperCase() || "DS",
+        rank: "Dispatcher I",
+        badge: "Not assigned",
+        cluster: u.municipality || u.province || u.barangay || "Unassigned Cluster",
+        station: u.address || "Unassigned Command Center",
       });
     }
   };
@@ -5254,13 +6545,25 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     syncProfile();
     const session = loadSession();
     if (session?.accessToken) {
-      Promise.all([
-        getDispatcherIncidents(session.accessToken),
-        getDispatcherVolunteers(session.accessToken),
-      ])
-        .then(([incidentData, volunteerData]) => {
-          setIncidents(incidentData.map(mapBackendToFrontendIncident));
-          setUnits(volunteerData.map(mapOrganizationToUnit));
+      getDispatcherOverview(session.accessToken)
+        .then((data) => {
+          const mappedIncidents = data.incidentReports.map((report) =>
+            mapBackendToFrontendIncident(report, data.dispatchOrders),
+          );
+          setIncidents(mappedIncidents);
+          // Only geocode incidents that don't already have DB coordinates
+          const needsGeocode = mappedIncidents.filter((i) => i.lat === 14.6042 && i.lng === 120.9822);
+          if (needsGeocode.length > 0) {
+            void geocodeIncidentCoordinates(session.accessToken, needsGeocode);
+          }
+          setTeams(
+            data.volunteerTeams?.length
+              ? data.volunteerTeams.map(mapVolunteerRoleToTeam)
+              : data.organizations.map(mapOrganizationToTeam),
+          );
+          if (data.volunteerUnits?.length) {
+            setUnits(data.volunteerUnits.map(mapVolunteerUnit));
+          }
         })
         .catch((err) => {
           console.error("Failed to fetch incidents:", err);
@@ -5271,11 +6574,49 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             toast.show("Error connecting to incident queue.");
           }
         });
+      getDispatcherCityData(session.accessToken)
+        .then((cities) => setCityData(cities))
+        .catch((err) => console.warn("Failed to load city data:", err));
     } else {
       // No token, force logout
       onLogout();
     }
   }, []);
+
+  const geocodeIncidentCoordinates = async (token: string, sourceIncidents: Incident[]) => {
+    const updates = await Promise.all(
+      sourceIncidents.map(async (incident) => {
+        const query = buildIncidentGeocodeQuery(incident);
+        if (!query) return null;
+
+        const cacheKey = query.toLowerCase();
+        const cached = geocodeCacheRef.current[cacheKey];
+        if (cached) {
+          return { id: incident.id, lat: cached[0], lng: cached[1] };
+        }
+
+        try {
+          const result = await geocodeDispatcherAddress(token, query);
+          const coords: [number, number] = [result.latitude, result.longitude];
+          geocodeCacheRef.current[cacheKey] = coords;
+          return { id: incident.id, lat: coords[0], lng: coords[1] };
+        } catch (err) {
+          console.warn(`Failed to geocode incident ${incident.id}:`, err);
+          return null;
+        }
+      }),
+    );
+
+    const resolved = updates.filter((item): item is { id: string; lat: number; lng: number } => Boolean(item));
+    if (!resolved.length) return;
+
+    setIncidents((current) =>
+      current.map((incident) => {
+        const update = resolved.find((item) => item.id === incident.id);
+        return update ? { ...incident, lat: update.lat, lng: update.lng } : incident;
+      }),
+    );
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -5292,7 +6633,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
       return;
     }
     const session = loadSession();
-    if (!session?.accessToken) return;
+    if (!session?.accessToken) {
+      toast.show("Session expired. Please log in again.");
+      return;
+    }
 
     // Map frontend values back to backend expectations
     const backendPatch: any = {};
@@ -5321,19 +6665,14 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     if (patch.location) backendPatch.location = patch.location;
 
     try {
-      // Find the real backend ID (since we might have shortened it for display)
-      // Actually, for now, we assume the shortened ID is unique enough or we keep the full ID in the state
-      // In mapBackendToFrontendIncident, I used report.id.split("-")[0].
-      // I should probably keep the full ID in a hidden property or use the full ID.
-
-      // I'll update mapBackendToFrontendIncident to keep the full ID but display shortened.
-      // Wait, I'll just use the full ID for now to be safe.
-
-      await updateIncidentReport(session.accessToken, id, backendPatch);
+      // Update state immediately for responsive UI
       setIncidents((p) => p.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+      
+      // Then try to sync with backend
+      await updateIncidentReport(session.accessToken, id, backendPatch);
     } catch (err) {
       console.error("Failed to update incident:", err);
-      toast.show("Failed to sync update to server.");
+      toast.show("Update saved locally. Backend sync failed.");
     }
   };
 
@@ -5344,6 +6683,72 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     }
     setDispatchTarget(inc);
     setPage("resource-map");
+  };
+
+  const handleResourceAssign = (inc: Incident) => {
+    if (status !== "active") {
+      toast.show("Action locked: You must be On Duty to assign volunteers.");
+      return;
+    }
+    setResourceAssignmentIncident(inc);
+    setPage("resources");
+  };
+
+  const handleVolunteerAssigned = (
+    unit: Unit,
+    details: { incident: string; eta: string; status: UnitStatus; note: string },
+  ) => {
+    const targetId = resourceAssignmentIncident?.id || details.incident;
+    if (!targetId) return;
+
+    setIncidents((current) =>
+      current.map((inc) =>
+        inc.id === targetId
+          ? {
+            ...inc,
+            status: inc.status === "Resolved" || inc.status === "Invalid" ? inc.status : "Dispatched",
+            assignedUnits: Array.from(new Set([...inc.assignedUnits, unit.id])),
+            dispatchedAt:
+              inc.dispatchedAt ||
+              new Date().toLocaleTimeString("en-PH", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            notes: details.note ? `${inc.notes ? `${inc.notes}\n` : ""}${details.note}` : inc.notes,
+          }
+          : inc,
+      ),
+    );
+
+    const incident = incidents.find((i) => i.id === targetId);
+
+    // Move volunteer pin to incident location on the map
+    if (incident) {
+      setUnits((current) =>
+        current.map((u) =>
+          u.id === unit.id
+            ? { ...u, lat: incident.lat, lng: incident.lng, status: "On Route" as UnitStatus }
+            : u,
+        ),
+      );
+    }
+
+    const session = loadSession();
+    if (!session?.accessToken) return;
+    const assignedTo = session.user.authUserId || session.user.id;
+
+    const priorityMap: Record<string, string> = { LOW: "low", MEDIUM: "medium", HIGH: "high", CRITICAL: "critical" };
+    createVolunteerDispatch(session.accessToken, {
+      reportId: targetId,
+      assignedTo,
+      volunteerName: unit.name,
+      priority: incident?.priority ? priorityMap[incident.priority] : "medium",
+      instructions: details.note || undefined,
+      disasterId: incident?.disasterId,
+    }).catch((err) => {
+      console.error("Failed to persist volunteer dispatch:", err);
+      toast.show("Assigned locally. Could not save to database.");
+    });
   };
 
   const handleDashboardMarkInvalid = (inc: Incident, reason: string) => {
@@ -5414,10 +6819,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         <div className="dp-sidebar-top">
           <div className="dp-sidebar-brand">
             <div className="dp-sidebar-brand-mark">
-              <img src="/damayan_logo.png" alt="Damayan Logo" />
+              <img src="/damayan_logo.svg" alt="DAMAYAN Logo" />
             </div>
             <div>
-              <div className="dp-sidebar-brand-name">Damayan</div>
+              <div className="dp-sidebar-brand-name">DAMAYAN</div>
               <div className="dp-sidebar-brand-role">Dispatcher</div>
             </div>
           </div>
@@ -5540,11 +6945,21 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               {dropdown && (
                 <div className="dp-avatar-dropdown">
                   <div className="dp-avatar-dropdown-header">
-                    <div className="dp-avatar-dropdown-name">
-                      {dispUser?.name || "Dispatcher User"}
-                    </div>
-                    <div className="dp-avatar-dropdown-role">
-                      {dispUser?.rank || "Dispatcher"}
+                    <div className="dp-avatar-dropdown-profile">
+                      <div className="dp-avatar-dropdown-initials">
+                        {dispUser?.initials || "??"}
+                      </div>
+                      <div>
+                        <div className="dp-avatar-dropdown-name">
+                          {dispUser?.name || "Dispatcher User"}
+                        </div>
+                        <div className="dp-avatar-dropdown-role">
+                          {dispUser?.rank || "Dispatcher"}
+                        </div>
+                        <div className="dp-avatar-dropdown-status">
+                          {status === "active" ? "Active / On Duty" : "Off Duty"}
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <button
@@ -5573,7 +6988,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                       onLogout();
                     }}
                   >
-                    → Sign Out
+                    Sign Out
                   </button>
                 </div>
               )}
@@ -5600,6 +7015,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               dispatchTarget={dispatchTarget}
               onClearDispatchTarget={() => setDispatchTarget(null)}
               status={status}
+              cityData={cityData}
             />
           )}
           {page === "rescue-monitoring" && (
@@ -5615,11 +7031,21 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               incidents={incidents}
               units={units}
               onUpdate={updateIncident}
+              onDispatch={handleResourceAssign}
               status={status}
             />
           )}
           {page === "resources" && (
-            <ResourcesPage units={units} setUnits={setUnits} status={status} />
+            <ResourcesPage
+              units={units}
+              setUnits={setUnits}
+              teams={teams}
+              setTeams={setTeams}
+              assignmentIncident={resourceAssignmentIncident}
+              onVolunteerAssigned={handleVolunteerAssigned}
+              onAssignmentComplete={() => setResourceAssignmentIncident(null)}
+              status={status}
+            />
           )}
           {page === "ask-volunteers" && (
             <AskVolunteersPage
@@ -5633,18 +7059,40 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               setVolunteerNotes={setVolunteerNotes}
               onSend={() => {
                 if (status === "inactive") {
-                  toast.show(
-                    "Action locked: You must be On Duty to request volunteers.",
-                  );
+                  toast.show("Action locked: You must be On Duty to request volunteers.");
                   return;
                 }
-                const targetLabel =
-                  volunteerIncidentId === "GENERAL"
-                    ? "general ops"
-                    : shortenId(volunteerIncidentId);
-                toast.show(
-                  `Volunteer request sent to Bayanihub (${volunteerNeed}) for ${targetLabel}.`,
-                );
+                const session = loadSession();
+                if (!session?.accessToken) {
+                  toast.show("Session expired. Please log in again.");
+                  return;
+                }
+                const assignedTo = session.user.authUserId || session.user.id;
+                const targetLabel = volunteerIncidentId === "GENERAL" ? "general ops" : shortenId(volunteerIncidentId);
+                const typeLabel = volunteerNeed === "FIELD" ? "Field" : volunteerNeed === "MEDIC" ? "Medic" : "Logistics";
+
+                if (volunteerIncidentId !== "GENERAL") {
+                  const incident = incidents.find((i) => i.id === volunteerIncidentId);
+                  createVolunteerDispatch(session.accessToken, {
+                    reportId: volunteerIncidentId,
+                    assignedTo,
+                    volunteerName: `${typeLabel} Volunteer Request`,
+                    priority: incident?.priority?.toLowerCase() === "critical" ? "critical"
+                      : incident?.priority?.toLowerCase() === "high" ? "urgent"
+                      : incident?.priority?.toLowerCase() === "low" ? "low" : "normal",
+                    instructions: volunteerNotes || `${typeLabel} volunteer needed`,
+                    disasterId: incident?.disasterId,
+                  }).catch((err) => console.error("Volunteer dispatch failed:", err));
+                } else {
+                  sendDispatcherBroadcast(session.accessToken, {
+                    title: `${typeLabel} Volunteer Request`,
+                    message: volunteerNotes || `${typeLabel} volunteers needed for general operations. Please respond if available.`,
+                    severity: "warning",
+                    type: "Volunteer Request",
+                  }).catch((err) => console.error("Broadcast failed:", err));
+                }
+
+                toast.show(`Volunteer request sent to Bayanihub (${volunteerNeed}) for ${targetLabel}.`);
                 setVolunteerNeed("FIELD");
                 setVolunteerIncidentId("GENERAL");
                 setVolunteerNotes("");
@@ -5702,10 +7150,27 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <button
               className="dp-btn dp-btn-red"
               disabled={!broadcastMsg.trim()}
-              onClick={() => {
-                toast.show("Broadcast sent to all volunteers and citizens");
-                setBroadcastModal(false);
-                setBroadcastMsg("");
+              onClick={async () => {
+                const session = loadSession();
+                if (!session?.accessToken) {
+                  toast.show("Session expired. Please log in again.");
+                  onLogout();
+                  return;
+                }
+
+                try {
+                  const result = await sendDispatcherBroadcast(session.accessToken, {
+                    message: broadcastMsg,
+                    severity: "critical",
+                    type: "Emergency",
+                  });
+                  toast.show(`Broadcast saved and sent to ${result.deliveredInApp} users`);
+                  setBroadcastModal(false);
+                  setBroadcastMsg("");
+                } catch (err: any) {
+                  console.error("Failed to send broadcast:", err);
+                  toast.show(err?.message || "Failed to send broadcast");
+                }
               }}
             >
               Send Broadcast Now

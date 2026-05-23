@@ -159,8 +159,9 @@ export class AdminController {
   findDispatchOrders(
     @Query('search') search?: string,
     @Query('operationId') operationId?: string,
+    @Query('disasterId') disasterId?: string,
   ) {
-    return this.adminProxyService.findDispatchOrders(search, operationId);
+    return this.adminProxyService.findDispatchOrders(search, operationId, disasterId);
   }
 
   @Get('dispatch-orders/stats')

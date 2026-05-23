@@ -14,6 +14,9 @@ interface IncidentReportRow {
   attachment_keys: string[] | null;
   status: string | null;
   created_at: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  resolved_address: string | null;
 }
 
 @Injectable()
@@ -24,7 +27,7 @@ export class IncidentReportsService {
     const supabase = this.supabaseService.getClient() as any;
     let query = supabase
       .from('incident_reports')
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at')
+      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
       .order('created_at', { ascending: false });
 
     if (disasterId) {
@@ -59,7 +62,7 @@ export class IncidentReportsService {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
       .from('incident_reports')
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at')
+      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
       .eq('id', id)
       .maybeSingle();
 
@@ -84,7 +87,7 @@ export class IncidentReportsService {
         attachment_keys: createIncidentReportDto.attachmentKeys ?? [],
         status: createIncidentReportDto.status ?? 'pending',
       })
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at')
+      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
       .single();
 
     if (error) {
@@ -110,7 +113,7 @@ export class IncidentReportsService {
         status: updateIncidentReportDto.status ?? existing.status,
       })
       .eq('id', id)
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at')
+      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
       .single();
 
     if (error) {
@@ -151,6 +154,9 @@ export class IncidentReportsService {
       attachmentKeys: row.attachment_keys ?? [],
       status: row.status ?? 'pending',
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+      latitude: row.latitude ?? null,
+      longitude: row.longitude ?? null,
+      resolvedAddress: row.resolved_address ?? null,
     };
   }
 }

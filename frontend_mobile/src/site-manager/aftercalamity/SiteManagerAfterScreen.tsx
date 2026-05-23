@@ -10,11 +10,13 @@ export function SiteManagerAfterScreen({
   onBack,
   onBackToResponse,
   isDarkMode,
+  onOpenMap,
   onFinalize
 }: { 
   onBack: () => void;
   onBackToResponse: () => void;
   isDarkMode?: boolean;
+  onOpenMap: () => void;
   onFinalize: () => void;
 }) {
   const currentTheme = isDarkMode ? darkTheme : lightTheme;
@@ -149,10 +151,16 @@ export function SiteManagerAfterScreen({
       keyboardShouldPersistTaps="handled"
     >
       <View style={localStyles.headerRow}>
-        <TouchableOpacity onPress={onBackToResponse} style={localStyles.backBtn}>
-           <Ionicons name="arrow-back" size={24} color={currentTheme.text} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
+        <View style={localStyles.headerTopRow}>
+          <TouchableOpacity onPress={onBackToResponse} style={localStyles.backBtn}>
+             <Ionicons name="arrow-back" size={24} color={currentTheme.text} />
+          </TouchableOpacity>
+          <View style={localStyles.scoreCard}>
+            <Text style={localStyles.scoreValue}>94%</Text>
+            <Text style={localStyles.scoreLabel}>DEMOB STATUS</Text>
+          </View>
+        </View>
+        <View style={localStyles.heroCopy}>
           <View style={localStyles.statusBadge}>
             <View style={localStyles.statusDot} />
             <Text style={localStyles.statusBadgeText}>RECOVERY & LOGISTICS MODE</Text>
@@ -162,17 +170,13 @@ export function SiteManagerAfterScreen({
             Managing site closure, citizen check-out, and resource demobilization. Site is currently 94% demobilized.
           </Text>
         </View>
-        <View style={localStyles.scoreCard}>
-          <Text style={localStyles.scoreValue}>94%</Text>
-          <Text style={localStyles.scoreLabel}>DEMOB STATUS</Text>
-        </View>
       </View>
 
       <View style={localStyles.mainSection}>
         {/* Citizen Check-out Station */}
         <View style={localStyles.checklistSection}>
           <View style={localStyles.sectionHeaderRow}>
-            <View>
+            <View style={localStyles.sectionHeaderCopy}>
               <Text style={localStyles.sectionTitle}>Citizen Check-out Station</Text>
               <Text style={localStyles.sectionSub}>Active intake point for departures. Finalize aid dispensing and registry update.</Text>
             </View>
@@ -279,7 +283,7 @@ export function SiteManagerAfterScreen({
               </View>
            </View>
 
-           <View style={localStyles.siteMapCard}>
+           <TouchableOpacity style={localStyles.siteMapCard} onPress={onOpenMap}>
               <View style={localStyles.siteMapContent}>
                  <Text style={localStyles.siteMapTitle}>Interactive Site Map</Text>
                  <Text style={localStyles.siteMapSub}>REAL-TIME ZONE ACTIVITY MONITOR</Text>
@@ -289,7 +293,7 @@ export function SiteManagerAfterScreen({
                 style={localStyles.siteMapImage} 
                 resizeMode="cover"
               />
-           </View>
+           </TouchableOpacity>
 
            <View style={[localStyles.liveActivityCard, { backgroundColor: '#111' }]}>
               <View style={localStyles.liveHeader}>
@@ -432,24 +436,27 @@ export function SiteManagerAfterScreen({
 const getStyles = (theme: AppTheme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.bg },
   scrollContent: { padding: 24, paddingBottom: 160 },
-  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: 16, marginBottom: 32 },
-  backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  headerRow: { marginBottom: 32 },
+  headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 22 },
+  heroCopy: { paddingLeft: 4, paddingRight: 4 },
+  backBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" },
   statusBadge: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.primary },
   statusBadgeText: { fontSize: 10, ...fonts.black, color: theme.textLight, letterSpacing: 1 },
-  dashboardTitle: { fontSize: 36, ...fonts.black, color: theme.text, letterSpacing: -1.5, lineHeight: 42 },
-  dashboardSub: { fontSize: 14, ...fonts.medium, color: theme.textMuted, marginTop: 8, lineHeight: 20 },
+  dashboardTitle: { fontSize: 34, ...fonts.black, color: theme.text, letterSpacing: -1, lineHeight: 39 },
+  dashboardSub: { fontSize: 14, ...fonts.medium, color: theme.textMuted, marginTop: 12, lineHeight: 20, maxWidth: 310 },
   scoreCard: { backgroundColor: "#fff", padding: 16, borderRadius: 24, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.line, width: 110 },
   scoreValue: { fontSize: 28, ...fonts.black, color: theme.primary },
   scoreLabel: { fontSize: 8, ...fonts.black, color: theme.textLight, letterSpacing: 1, textAlign: "center" },
 
   mainSection: { gap: 24, marginBottom: 40 },
-  checklistSection: { backgroundColor: theme.surface, borderRadius: 40, padding: 32, borderWidth: 1, borderColor: theme.line },
-  sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 },
+  checklistSection: { backgroundColor: theme.surface, borderRadius: 32, padding: 24, borderWidth: 1, borderColor: theme.line },
+  sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, gap: 12 },
+  sectionHeaderCopy: { flex: 1, minWidth: 0 },
   sectionTitle: { fontSize: 22, ...fonts.black, color: theme.text },
-  sectionSub: { fontSize: 13, ...fonts.medium, color: theme.textMuted, marginTop: 4 },
-  priorityBadge: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.surfaceAlt, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  priorityText: { fontSize: 10, ...fonts.black, color: theme.text, letterSpacing: 0.5 },
+  sectionSub: { fontSize: 13, ...fonts.medium, color: theme.textMuted, marginTop: 6, lineHeight: 18 },
+  priorityBadge: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.surfaceAlt, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
+  priorityText: { fontSize: 9, ...fonts.black, color: theme.text, letterSpacing: 0.4 },
 
   checklistGrid: { flexDirection: "column", gap: 16 },
   readinessCheckCard: { backgroundColor: theme.surfaceAlt, borderRadius: 32, padding: 24, alignItems: "center", gap: 12 },

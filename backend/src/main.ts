@@ -7,7 +7,7 @@ import { RpcToHttpExceptionFilter } from './common/filters/rpc-exception.filter.
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  const allowedOrigins =
+  const configuredAllowedOrigins =
     process.env.API_ALLOWED_ORIGINS?.split(',').map((origin) => origin.trim()) ??
     [
       'http://localhost:3000',
@@ -16,8 +16,30 @@ async function bootstrap() {
       'http://127.0.0.1:8081',
     ];
 
+  const isAllowedDevOrigin = (origin?: string): boolean => {
+    if (!origin) return true;
+    if (configuredAllowedOrigins.includes(origin)) return true;
+
+    try {
+      const parsed = new URL(origin);
+      const isDevPort = ['3000', '3001', '8081', '8082', '8083', '8084', '19006'].includes(parsed.port);
+      const isLocalHost =
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1' ||
+        /^10\./.test(parsed.hostname) ||
+        /^192\.168\./.test(parsed.hostname) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(parsed.hostname);
+
+      return isDevPort && isLocalHost;
+    } catch {
+      return false;
+    }
+  };
+
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      callback(null, isAllowedDevOrigin(origin));
+    },
     credentials: true,
   });
 

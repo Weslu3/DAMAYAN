@@ -483,7 +483,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
             </button>
 
             {isProfileOpen && (
-              <div className="absolute right-0 mt-4 w-64 bg-white/95 dark:bg-[#232622]/95 backdrop-blur-xl rounded-[2.5rem] border border-[#dadad5] dark:border-[#3b3b3b] shadow-2xl py-6 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="absolute right-0 mt-4 w-64 bg-white dark:bg-[#232622] rounded-3xl border border-[#dadad5] dark:border-[#3b3b3b] shadow-2xl py-6 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
                 <div className="px-8 pb-4 border-b border-[#dadad5]/50 dark:border-[#3b3b3b]/50">
                   <p className="text-lg font-black text-[#1a1c19] dark:text-[#e2e3dd]">{displayName}</p>
                   <p className="text-[10px] font-bold text-[#707a6c] dark:text-[#c4c7c0] uppercase tracking-[0.2em] mt-1">{session?.user.role.replace("_", " ") ?? "Site Manager"}</p>
@@ -563,11 +563,11 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
 
         <nav className="space-y-2 flex-grow">
           {[
-            { id: "Dashboard", label: "Dashboard", icon: "grid_view", path: `/site-manager/${phase}calamity` },
-            { id: "Inventory", label: "Inventory", icon: "inventory_2", path: `/site-manager/inventory?phase=${phase}` },
-            { id: "SiteMap", label: "Interactive Site Map", icon: "map", path: `/site-manager/sitemap?phase=${phase}` },
-            { id: "Citizens", label: "Citizen Check-In/Out", icon: "badge", path: `/site-manager/${phase}calamity?tab=citizens` },
-            { id: "Movement", label: "Citizen Tracker", icon: "list_alt", path: `/site-manager/${phase}calamity?tab=movement` },
+            { id: "Dashboard", label: "Dashboard", icon: "space_dashboard", path: `/site-manager/${phase}calamity` },
+            { id: "Inventory", label: "Inventory", icon: "inventory", path: `/site-manager/inventory?phase=${phase}` },
+            { id: "SiteMap", label: "Interactive Site Map", icon: "travel_explore", path: `/site-manager/sitemap?phase=${phase}` },
+            { id: "Citizens", label: "Citizen Check-In/Out", icon: "qr_code_scanner", path: `/site-manager/${phase}calamity?tab=citizens` },
+            { id: "Movement", label: "Citizen Tracker", icon: "timeline", path: `/site-manager/${phase}calamity?tab=movement` },
           ].map((item) => {
             const isActive = activeTab === item.id && !showProfile;
             return (
@@ -577,7 +577,7 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
                 className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all group relative overflow-hidden ${
                   isActive
                     ? "text-white shadow-[0_10px_25px_-5px_rgba(0,0,0,0.1)] scale-[1.02]"
-                    : "text-[#707a6c] hover:bg-[#f4f4ef] dark:hover:bg-white/5"
+                    : "text-[#1a1c19] dark:text-[#e2e3dd] hover:bg-[#f4f4ef] dark:hover:bg-white/5"
                 }`}
                 style={isActive ? { background: phaseConfig.primaryColor } : {}}
               >
@@ -595,7 +595,32 @@ const SiteManagerDashboard: React.FC<SiteManagerDashboardProps> = ({ phase }) =>
           })}
         </nav>
 
-        <div className="space-y-4" />
+        <div className="space-y-4">
+          {phase !== "before" && (
+            <Link
+              href={`/site-manager/${phase === "after" ? "during" : "before"}calamity`}
+              className="w-full group relative overflow-hidden rounded-3xl p-px transition-all hover:scale-[1.02] active:scale-95 shadow-sm block"
+            >
+              <div className="relative flex items-center justify-center gap-3 px-6 py-4 rounded-[1.4rem] transition-colors border border-[#dadad5] dark:border-[#3b3b3b] bg-white dark:bg-[#232622] hover:bg-[#f4f4ef] dark:hover:bg-white/5">
+                <span className="material-symbols-outlined text-[#707a6c] transition-transform group-hover:-translate-x-1 text-xl" aria-hidden="true">arrow_back</span>
+                <span className="text-[#707a6c] text-[10px] font-black uppercase tracking-[0.2em]">Back: {phase === "after" ? "During" : "Before"}</span>
+              </div>
+            </Link>
+          )}
+
+          {phase !== "after" && (
+            <Link
+              href={`/site-manager/${nextPhase}calamity`}
+              className="w-full group relative overflow-hidden rounded-3xl p-px transition-all hover:scale-[1.02] active:scale-95 shadow-xl block"
+            >
+              <div className="absolute inset-0 opacity-10 animate-pulse" style={{ background: phaseConfig.primaryColor }}></div>
+              <div className="relative flex items-center justify-center gap-3 px-6 py-5 rounded-[1.4rem] transition-colors" style={{ background: `linear-gradient(135deg, ${phaseConfig.primaryColor}, ${phaseConfig.primaryContainer})` }}>
+                <span className="material-symbols-outlined text-white animate-pulse text-xl">arrow_forward</span>
+                <span className="text-white text-[11px] font-black uppercase tracking-[0.2em]">Next: {nextPhase}</span>
+              </div>
+            </Link>
+          )}
+        </div>
       </aside>
 
       <main className="md:ml-64 pt-28 px-6 pb-24 max-w-7xl mx-auto">

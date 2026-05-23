@@ -48,6 +48,27 @@ export interface Team {
   members: number; vehicles: number;
   station: string; contact: string; leader: string;
   status: TeamStatus; equipment: string[]; coverage: string;
+  assignedArea?: string; // For pre-positioning
+}
+
+export interface BarangayDemographics {
+  name: string;
+  population?: number;
+  density?: number;
+  elderly?: number;
+  infants?: number;
+  riskLevel: "Low" | "Medium" | "High";
+  coordinates: [number, number];
+  province?: string;
+  region?: string;
+}
+
+export interface PreparednessReport {
+  id: string;
+  title: string;
+  date: string;
+  status: "Draft" | "Published";
+  summary: string;
 }
 
 // ─── Mock Dispatcher ──────────────────────────────────────────────────────────
@@ -60,8 +81,43 @@ export const MOCK_DISPATCHER: DispatcherProfile = {
   totalDispatches: 1_284, resolvedToday: 7,
 };
 
+export const MOCK_BARANGAY_DATA: BarangayDemographics[] = [
+  { name: "Brgy. 390", population: 5200, density: 45000, elderly: 450, infants: 120, riskLevel: "High", coordinates: [14.6105, 120.9982] },
+  { name: "Brgy. 485", population: 3800, density: 32000, elderly: 280, infants: 85, riskLevel: "Medium", coordinates: [14.6130, 120.9943] },
+  { name: "Brgy. 522", population: 6100, density: 51000, elderly: 510, infants: 145, riskLevel: "High", coordinates: [14.6053, 120.9901] },
+  { name: "Brgy. 412", population: 4200, density: 38000, elderly: 320, infants: 90, riskLevel: "Medium", coordinates: [14.6015, 121.0018] },
+  { name: "Brgy. Dona Imelda", population: 8500, density: 28000, elderly: 620, infants: 180, riskLevel: "Medium", coordinates: [14.6072, 121.0038] },
+];
+
+export const MOCK_REPORTS: PreparednessReport[] = [
+  { id: "REP-001", title: "Q3 Flood Readiness Assessment", date: "2026-03-20", status: "Published", summary: "Assessment of drainage systems and evacuation route accessibility in Sampaloc." },
+  { id: "REP-002", title: "Fire Safety Audit - District 4", date: "2026-04-05", status: "Published", summary: "Annual audit of fire hydrant locations and community volunteer training status." },
+  { id: "REP-003", title: "Coastal Surge Preparedness", date: "2026-05-10", status: "Draft", summary: "Drafting response plans for potential storm surges affecting low-lying clusters." },
+];
+
 // ─── Mock Units ───────────────────────────────────────────────────────────────
-export const MOCK_UNITS: Unit[] = [];
+export const MOCK_UNITS: Unit[] = [
+  {
+    id: "FIELD-10", type: "FIELD", name: "Field Volunteer Echo-1", station: "Sampaloc Command Center",
+    status: "Available", lat: 14.6098, lng: 120.9974, personnel: 6, distance: "0.8 km", eta: "00:06",
+    teamLeader: "Rafael Cruz", contact: "+63 917 210 4410", plateNumber: "Volunteer", lastActive: "2 min ago",
+  },
+  {
+    id: "MEDIC-03", type: "MEDIC", name: "Medic Volunteer Alpha", station: "UST Health Post",
+    status: "Available", lat: 14.6117, lng: 120.9918, personnel: 4, distance: "1.1 km", eta: "00:08",
+    teamLeader: "Dr. Lina Reyes", contact: "+63 917 210 4411", plateNumber: "Volunteer", lastActive: "Just now",
+  },
+  {
+    id: "LOG-04", type: "LOGISTICS", name: "Logistics Volunteer Delta", station: "Lacson Supply Hub",
+    status: "On Route", lat: 14.6048, lng: 120.9931, personnel: 5, distance: "1.6 km", eta: "00:12",
+    teamLeader: "Noel Garcia", contact: "+63 917 210 4412", plateNumber: "Volunteer", lastActive: "5 min ago",
+  },
+  {
+    id: "FIELD-12", type: "FIELD", name: "Field Volunteer Bravo", station: "Dapitan Staging Area",
+    status: "Available", lat: 14.6134, lng: 120.9949, personnel: 7, distance: "1.3 km", eta: "00:09",
+    teamLeader: "Mika Santos", contact: "+63 917 210 4413", plateNumber: "Volunteer", lastActive: "4 min ago",
+  },
+];
 
 // ─── Mock Incidents ───────────────────────────────────────────────────────────
 export const MOCK_INCIDENTS: Incident[] = [
@@ -155,7 +211,26 @@ export const MOCK_INCIDENTS: Incident[] = [
 ];
 
 // ─── Mock Teams ───────────────────────────────────────────────────────────────
-export const MOCK_TEAMS: Team[] = [];
+export const MOCK_TEAMS: Team[] = [
+  {
+    id: "TEAM-FIELD-01", name: "Sampaloc Field Response", type: "FIELD",
+    members: 12, vehicles: 2, station: "Sampaloc Command Center", contact: "+63 917 310 8801",
+    leader: "Rafael Cruz", status: "Ready", equipment: ["Rescue rope", "Portable radios", "Flood lights"],
+    coverage: "Brgy. 390, Brgy. 485, Brgy. 522",
+  },
+  {
+    id: "TEAM-MEDIC-01", name: "UST Medical Volunteer Team", type: "MEDIC",
+    members: 8, vehicles: 1, station: "UST Health Post", contact: "+63 917 310 8802",
+    leader: "Dr. Lina Reyes", status: "Standby", equipment: ["Trauma kits", "AED", "Patient tags"],
+    coverage: "Brgy. 485, Brgy. 522",
+  },
+  {
+    id: "TEAM-LOG-01", name: "Lacson Logistics Support", type: "LOGISTICS",
+    members: 10, vehicles: 3, station: "Lacson Supply Hub", contact: "+63 917 310 8803",
+    leader: "Noel Garcia", status: "Ready", equipment: ["Relief packs", "Water containers", "Generator"],
+    coverage: "Brgy. 390, Brgy. 412",
+  },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function priorityClass(p: IncidentPriority) {
@@ -233,12 +308,12 @@ export function mapBackendToFrontendIncident(report: IncidentReport): Incident {
     category,
     reporter: "Citizen Report",
     reporterPhone: "Verified",
-    address: report.location,
+    address: report.resolvedAddress || report.location,
     barangay: "",
     city: "",
     location: report.location,
-    lat: 14.6042,
-    lng: 120.9822,
+    lat: report.latitude ?? 14.6042,
+    lng: report.longitude ?? 120.9822,
     timeReported: new Date(report.createdAt).toLocaleTimeString("en-PH", {
       hour: "2-digit",
       minute: "2-digit",
@@ -303,6 +378,21 @@ export function volunteersToTeams(volunteers: Unit[]): Team[] {
       } as Team;
     })
     .filter((team) => team.members > 0);
+}
+
+export function mapCityToBarangay(
+  city: { psgcCode: string; name: string; province: string | null; region: string | null; coordinates: [number, number] },
+  incidentCount: number,
+): BarangayDemographics {
+  const riskLevel: "Low" | "Medium" | "High" =
+    incidentCount >= 3 ? "High" : incidentCount >= 1 ? "Medium" : "Low";
+  return {
+    name: city.name,
+    riskLevel,
+    coordinates: city.coordinates,
+    province: city.province ?? undefined,
+    region: city.region ?? undefined,
+  };
 }
 
 
