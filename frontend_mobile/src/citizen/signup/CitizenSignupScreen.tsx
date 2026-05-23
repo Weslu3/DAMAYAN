@@ -92,7 +92,12 @@ export function CitizenSignupScreen({
   }
 
   useEffect(() => {
-    getRegions().then(setRegions).catch(() => {});
+    getRegions()
+      .then(setRegions)
+      .catch((err) => {
+        console.error("[Regions] fetch failed:", err);
+        setError("Could not load regions: " + (err?.message ?? "unknown error"));
+      });
   }, []);
 
   useEffect(() => {
