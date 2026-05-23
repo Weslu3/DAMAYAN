@@ -149,6 +149,39 @@ export class DispatcherIncidentReportsController {
     return this.dispatcherService.findVolunteerTeams(search);
   }
 
+  @Get('barangay-data')
+  getBarangayData(@Query('province') province?: string) {
+    return this.dispatcherService.getBarangayData(province);
+  }
+
+  @Get('team-status')
+  getTeamStatus() {
+    return this.dispatcherService.getTeamStatus();
+  }
+
+  @Patch('team-status/:authUserId')
+  setDutyStatus(
+    @Param('authUserId') authUserId: string,
+    @Body('dutyStatus') dutyStatus: 'on_duty' | 'off_duty',
+  ) {
+    if (dutyStatus !== 'on_duty' && dutyStatus !== 'off_duty') {
+      throw new BadRequestException("dutyStatus must be 'on_duty' or 'off_duty'");
+    }
+    return this.dispatcherService.setDutyStatus(authUserId, dutyStatus);
+  }
+
+  @Post('volunteer-dispatch')
+  createVolunteerDispatch(@Body() body: {
+    reportId: string;
+    assignedTo: string;
+    volunteerName?: string;
+    priority?: string;
+    instructions?: string;
+    disasterId?: string;
+  }) {
+    return this.dispatcherService.createVolunteerDispatch(body);
+  }
+
   @Post('broadcast')
   broadcast(
     @Req() request: RequestWithUser,

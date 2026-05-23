@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useEffect, useRef } from "react";
-import { Incident, Unit, unitStatusColor, unitTypeColor, situationColor, shortenId, priorityColor, MOCK_BARANGAY_DATA, BarangayDemographics } from "./data";
+import { Incident, Unit, unitStatusColor, unitTypeColor, situationColor, shortenId, priorityColor, BarangayDemographics } from "./data";
 
 export type MapMode = "monitoring" | "dispatch" | "rescue" | "risk-profile";
 
@@ -18,6 +18,7 @@ interface Props {
   showVulnerabilityHeatmap?: boolean;
   showPopulationDensity?: boolean;
   onBarangayClick?: (b: BarangayDemographics) => void;
+  barangayData?: BarangayDemographics[];
 }
 
 const PH: [number, number] = [14.604, 120.997];
@@ -36,6 +37,7 @@ export default function LiveMap({
   showVulnerabilityHeatmap = false,
   showPopulationDensity = false,
   onBarangayClick,
+  barangayData = [],
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const mapR = useRef<any>(null);
@@ -104,6 +106,7 @@ export default function LiveMap({
     showVulnerabilityHeatmap,
     showPopulationDensity,
     onBarangayClick,
+    barangayData,
   ]);
 
   function dot(color: string, size = 12, pulse = false) {
@@ -181,14 +184,14 @@ export default function LiveMap({
       ? incidents.filter((i) => i.city === districtFilter || i.barangay === districtFilter)
       : incidents;
     const visibleBarangays = districtFilter
-      ? MOCK_BARANGAY_DATA.filter((b) => b.name === districtFilter || districtFilter === "Sampaloc, Manila")
-      : MOCK_BARANGAY_DATA;
+      ? barangayData.filter((b) => b.name === districtFilter || b.province === districtFilter)
+      : barangayData;
 
     // Vulnerability Heatmap
     if (showVulnerabilityHeatmap) {
       visibleBarangays.forEach((b) => {
-        const intensity = b.elderly + b.infants;
-        const radius = Math.sqrt(intensity) * 15;
+        const intensity = (b.elderly ?? 0) + (b.infants ?? 0);
+        const radius = Math.max(Math.sqrt(intensity) * 15, 200);
         const circle = L.circle(b.coordinates, {
           color: "red",
           fillColor: "#f03",
@@ -203,7 +206,8 @@ export default function LiveMap({
     // Population Density Layer
     if (showPopulationDensity) {
       visibleBarangays.forEach((b) => {
-        const color = b.density > 40000 ? "#800026" : b.density > 30000 ? "#BD0026" : "#E31A1C";
+        const density = b.density ?? 0;
+        const color = density > 40000 ? "#800026" : density > 30000 ? "#BD0026" : "#E31A1C";
         const rectSize = 0.005;
         const bounds: [[number, number], [number, number]] = [
           [b.coordinates[0] - rectSize / 2, b.coordinates[1] - rectSize / 2],
@@ -214,7 +218,7 @@ export default function LiveMap({
           weight: 1,
           fillOpacity: 0.5,
         }).addTo(map);
-        rect.bindTooltip(`<b>${b.name}</b><br/>Density: ${b.density}/km²`);
+        rect.bindTooltip(`<b>${b.name}</b><br/>Density: ${(b.density ?? 0).toLocaleString()}/km²`);
         mks.current.push(rect);
       });
     }
@@ -233,10 +237,8 @@ export default function LiveMap({
         marker.bindPopup(`
           <div class="dp-map-popup">
             <div class="dp-map-popup-name">${b.name}</div>
-            <div class="dp-map-popup-row">Population: <b>${b.population.toLocaleString()}</b></div>
-            <div class="dp-map-popup-row">Density: <b>${b.density.toLocaleString()}/km²</b></div>
-            <div class="dp-map-popup-row">Elderly: <b style="color:#c62828">${b.elderly}</b></div>
-            <div class="dp-map-popup-row">Infants: <b style="color:#1565c0">${b.infants}</b></div>
+            ${b.province ? `<div class="dp-map-popup-row">Province: <b>${b.province}</b></div>` : ""}
+            ${b.region ? `<div class="dp-map-popup-row">Region: <b>${b.region}</b></div>` : ""}
             <div class="dp-map-popup-row">Risk Level: <span style="color:${color};font-weight:bold">${b.riskLevel}</span></div>
           </div>
         `);
