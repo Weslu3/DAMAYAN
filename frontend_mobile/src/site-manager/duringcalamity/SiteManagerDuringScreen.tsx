@@ -5,10 +5,10 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native";
 import { theme, fonts, lightTheme, darkTheme } from "../../theme";
-import { createIncidentReport, createManualCheckIn, getInventory, getCitizenByQrCode, getCapacity, getCheckInByQrCode, checkOutById } from "../../api";
+import { createIncidentReport, createManualCheckIn, getInventory, getCitizenByQrCode, getCapacity, getCheckInByQrCode, checkOutById, getDisasterEvents } from "../../api";
 import { loadSession } from "../../session";
 import { parseScannedPayload, getInitials } from "../qr/qr-utils";
-import type { AuthSession } from "../../types";
+import type { AuthSession, DisasterEvent } from "../../types";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -20,6 +20,24 @@ const INCIDENT_TYPE_OPTIONS = [
   "Evacuation Request",
 ];
 
+function normalizeDisasterEvents(payload: Awaited<ReturnType<typeof getDisasterEvents>>): DisasterEvent[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  return payload.disasterEvents ?? [];
+}
+
+function normalizeIncidentSeverity(value: string): "critical" | "high" | "moderate" | "low" {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "medium") return "moderate";
+  if (normalized === "severe") return "critical";
+  if (normalized === "critical" || normalized === "high" || normalized === "moderate" || normalized === "low") {
+    return normalized;
+  }
+  return "high";
+}
+
 // ── Scan mode type ────────────────────────────────────────────────────────────
 type ScanMode = "check-in" | "check-out";
 
@@ -27,10 +45,14 @@ export function SiteManagerDuringScreen({
   onBack,
   isDarkMode,
   onEnterRecovery,
+  onOpenInventory,
+  onOpenMap,
 }: {
   onBack: () => void;
   isDarkMode?: boolean;
   onEnterRecovery: () => void;
+  onOpenInventory: () => void;
+  onOpenMap: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"scan" | "manual">("scan");
   const [incidentType, setIncidentType] = useState("Medical Emergency");
@@ -238,13 +260,26 @@ export function SiteManagerDuringScreen({
     }
 
     try {
+      const disasterPayload = await getDisasterEvents("site-manager", session.accessToken);
+      const disasterEvents = normalizeDisasterEvents(disasterPayload);
+      const disasterId =
+        disasterEvents.find((event) => event.status?.toLowerCase() === "active")?.id ??
+        disasterEvents[0]?.id;
+
+      if (!disasterId) {
+        Alert.alert("No active disaster", "No active disaster event was found. Please ask an admin to create or activate one first.");
+        return;
+      }
+
+      const selectedCenter = centers.find((center) => center.id === selectedCenterId);
+
       await createIncidentReport(session.accessToken, {
-        disasterId: "current-disaster",
-        reportedBy: session.user.email || "System",
+        disasterId,
+        reportedBy: session.user.id,
         title: incidentType,
         content: incidentDescription,
-        severity,
-        location: "Central Site",
+        severity: normalizeIncidentSeverity(severity),
+        location: selectedCenter?.name || "Central Site",
       });
 
       setIncidentDescription("");
@@ -485,7 +520,7 @@ export function SiteManagerDuringScreen({
             </View>
           </View>
 
-          <View style={localStyles.siteMapCard}>
+          <TouchableOpacity style={localStyles.siteMapCard} onPress={onOpenMap}>
             <View style={localStyles.siteMapContent}>
               <Text style={localStyles.siteMapTitle}>Interactive Site Map</Text>
               <Text style={localStyles.siteMapSub}>REAL-TIME ZONE ACTIVITY MONITOR</Text>
@@ -495,7 +530,7 @@ export function SiteManagerDuringScreen({
               style={localStyles.siteMapImage}
               resizeMode="cover"
             />
-          </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -582,7 +617,7 @@ export function SiteManagerDuringScreen({
             <Text style={localStyles.sectionTitle}>Essential Supply Checklist</Text>
             <Text style={localStyles.sectionSub}>Real-time inventory levels across regional staging areas.</Text>
           </View>
-          <TouchableOpacity style={[localStyles.updateInventoryBtn, { backgroundColor: '#FFB300' }]} onPress={handleRefreshInventory}>
+          <TouchableOpacity style={[localStyles.updateInventoryBtn, { backgroundColor: '#FFB300' }]} onPress={onOpenInventory}>
             <Text style={localStyles.updateInventoryText}>Update Inventory</Text>
           </TouchableOpacity>
         </View>

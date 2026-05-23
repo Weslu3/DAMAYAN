@@ -56,7 +56,7 @@ export default function UnifiedForgotPasswordPage() {
 
         <div className="portal-hero-inner">
           <div className="portal-logo-row">
-            <img src="/damayan_logo.png" alt="Damayan Logo" className="portal-logo-img" />
+            <img src="/damayan_logo.svg" alt="Damayan Logo" className="portal-logo-img" />
             <div>
               <span className="portal-logo-name">DAMAYAN</span>
               <p className="portal-logo-tagline">Emergency Response Platform</p>

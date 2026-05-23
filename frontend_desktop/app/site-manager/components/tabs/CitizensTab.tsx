@@ -4,13 +4,16 @@ import React, { useState, useRef } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import type { AuthSession, CapacityCenter, CheckInRecord } from "../../../lib/types";
 import type { PhaseConfig } from "../utils/siteManagerUtils";
-import type { SiteManagerCitizenRecord } from "../../../lib/api";
+import type { SiteManagerCitizenRecord, FamilyGroupRecord } from "../../../lib/api";
 import {
   getCitizenByQrCode,
   getCheckInByQrCode,
   createManualCheckIn,
   checkOutById,
   getRecentCheckIns,
+  getFamilyGroupByQrCode,
+  scanFamilyCheckIn,
+  checkOutFamilyGroup,
 } from "../../../lib/api";
 
 interface CitizensTabProps {
@@ -75,6 +78,11 @@ export default function CitizensTab({
   const [checkOutModalOpen, setCheckOutModalOpen] = useState(false);
   const [isSubmittingCheckOut, setIsSubmittingCheckOut] = useState(false);
   const [isScanLookingUp, setIsScanLookingUp] = useState(false);
+  const [familyGroup, setFamilyGroup] = useState<FamilyGroupRecord | null>(null);
+  const [familyGroupModalOpen, setFamilyGroupModalOpen] = useState(false);
+  const [isSubmittingFamilyCheckIn, setIsSubmittingFamilyCheckIn] = useState(false);
+  const [familyCheckOutModalOpen, setFamilyCheckOutModalOpen] = useState(false);
+  const [isSubmittingFamilyCheckOut, setIsSubmittingFamilyCheckOut] = useState(false);
   const scanLockRef = useRef(false);
 
   const handleQrScanned = async (results: { rawValue: string }[]) => {
@@ -88,6 +96,17 @@ export default function CitizensTab({
     setCheckInSuccess(null);
     try {
       if (scanType === "check-in") {
+        if (qrCodeId.startsWith("FAM-")) {
+          const group = await getFamilyGroupByQrCode(session.accessToken, qrCodeId);
+          if (!group) {
+            setCheckInError(`No family group found for QR: ${qrCodeId}`);
+            scanLockRef.current = false;
+            return;
+          }
+          setFamilyGroup(group);
+          setFamilyGroupModalOpen(true);
+          return;
+        }
         const citizen = await getCitizenByQrCode(session.accessToken, qrCodeId);
         if (!citizen) {
           setCheckInError(`No registered citizen found for QR: ${qrCodeId}`);
@@ -97,6 +116,17 @@ export default function CitizensTab({
         setScannedCitizen({ ...citizen, qrCodeId });
         setScanModalOpen(true);
       } else {
+        if (qrCodeId.startsWith("FAM-")) {
+          const group = await getFamilyGroupByQrCode(session.accessToken, qrCodeId);
+          if (!group) {
+            setCheckInError(`No family group found for QR: ${qrCodeId}`);
+            scanLockRef.current = false;
+            return;
+          }
+          setFamilyGroup(group);
+          setFamilyCheckOutModalOpen(true);
+          return;
+        }
         const citizen = await getCitizenByQrCode(session.accessToken, qrCodeId);
         const record = await getCheckInByQrCode(session.accessToken, qrCodeId);
         if (!record) {
@@ -165,6 +195,51 @@ export default function CitizensTab({
       setCheckInError(err instanceof Error ? err.message : "Check-in failed.");
     } finally {
       setIsSubmittingCheckIn(false);
+    }
+  };
+
+  const handleConfirmFamilyCheckIn = async () => {
+    if (!session?.accessToken || !familyGroup) return;
+    if (!selectedCenterId) {
+      setCheckInError("Please select an evacuation center.");
+      return;
+    }
+    setIsSubmittingFamilyCheckIn(true);
+    setCheckInError(null);
+    try {
+      await scanFamilyCheckIn(session.accessToken, familyGroup.familyQrCodeId, selectedCenterId);
+      const freshCheckIns = await getRecentCheckIns(session.accessToken);
+      onCheckInsRefreshed(freshCheckIns);
+      setFamilyGroupModalOpen(false);
+      setFamilyGroup(null);
+      scanLockRef.current = false;
+      const groupLabel = familyGroup.familyName || familyGroup.headName || familyGroup.familyQrCodeId;
+      const totalCheckedIn = familyGroup.members.length + 1;
+      setCheckInSuccess(`Checked in ${totalCheckedIn} member(s) of ${groupLabel} successfully.`);
+    } catch (err) {
+      setCheckInError(err instanceof Error ? err.message : "Family check-in failed.");
+    } finally {
+      setIsSubmittingFamilyCheckIn(false);
+    }
+  };
+
+  const handleConfirmFamilyCheckOut = async () => {
+    if (!session?.accessToken || !familyGroup) return;
+    setIsSubmittingFamilyCheckOut(true);
+    setCheckInError(null);
+    try {
+      const result = await checkOutFamilyGroup(session.accessToken, familyGroup.familyQrCodeId);
+      const freshCheckIns = await getRecentCheckIns(session.accessToken);
+      onCheckInsRefreshed(freshCheckIns);
+      setFamilyCheckOutModalOpen(false);
+      setFamilyGroup(null);
+      scanLockRef.current = false;
+      const groupLabel = familyGroup.familyName || familyGroup.headName || familyGroup.familyQrCodeId;
+      setCheckInSuccess(`Checked out ${result.checkedOut} member(s) of ${groupLabel} successfully.`);
+    } catch (err) {
+      setCheckInError(err instanceof Error ? err.message : "Family check-out failed.");
+    } finally {
+      setIsSubmittingFamilyCheckOut(false);
     }
   };
 
@@ -242,7 +317,7 @@ export default function CitizensTab({
         <div className="w-full max-w-[360px] mx-auto aspect-square rounded-xl overflow-hidden animate-in fade-in zoom-in duration-300 border border-[#dadad5] dark:border-[#3b3b3b]">
           {isScanLookingUp ? (
             <div className="w-full h-full bg-black flex items-center justify-center">
-              <span className="text-white text-sm font-bold animate-pulse">Looking up citizen...</span>
+              <span className="text-white text-sm font-bold animate-pulse">Looking up QR code...</span>
             </div>
           ) : (
             <Scanner
@@ -487,6 +562,149 @@ export default function CitizensTab({
             </button>
             <button
               onClick={() => { setScanModalOpen(false); setScannedCitizen(null); scanLockRef.current = false; setCheckInError(null); }}
+              className="w-full py-3 mt-2 text-sm font-bold text-gray-500 hover:text-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Family Group Check-In Modal */}
+      {familyGroupModalOpen && familyGroup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <button
+            type="button"
+            aria-label="Close family group confirmation"
+            className="absolute inset-0 w-full h-full bg-black/40 backdrop-blur-sm cursor-default border-none outline-none focus:outline-none"
+            onClick={() => { setFamilyGroupModalOpen(false); setFamilyGroup(null); scanLockRef.current = false; setCheckInError(null); }}
+          />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 z-10 animate-in zoom-in-95 duration-200">
+            <p className="text-[10px] font-black tracking-widest text-[#FFB300] uppercase mb-1">Family Group Check-In</p>
+            <p className="text-xl font-black mb-1">
+              {familyGroup.familyName || (familyGroup.headName ? `${familyGroup.headName}'s Family` : "Family Group")}
+            </p>
+            <p className="text-xs text-gray-400 mb-5">QR: {familyGroup.familyQrCodeId}</p>
+
+            <div className="mb-5">
+              <p className="text-[10px] font-black tracking-widest text-gray-400 uppercase mb-2">
+                Members ({familyGroup.members.length + 1})
+              </p>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {/* Head row */}
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
+                  <div className="w-9 h-9 rounded-full bg-[#FFB300] flex items-center justify-center text-white text-sm font-black flex-shrink-0">
+                    {(familyGroup.headName ?? "?")[0].toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm leading-tight truncate">{familyGroup.headName ?? "Family Head"}</p>
+                    <p className="text-[10px] text-[#FFB300] font-black uppercase">Family Head</p>
+                  </div>
+                </div>
+                {/* Member rows */}
+                {familyGroup.members.map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                    <div className="w-9 h-9 rounded-full bg-gray-300 flex items-center justify-center text-white text-sm font-black flex-shrink-0">
+                      {(m.memberFullName ?? "?")[0].toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-bold text-sm leading-tight truncate">{m.memberFullName ?? "Member"}</p>
+                      {m.relationship && <p className="text-[10px] text-gray-400 uppercase">{m.relationship}</p>}
+                      <p className="text-[10px] text-gray-400 font-mono">{m.citizenQrCodeId}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <p className="text-[10px] font-black tracking-widest text-gray-400 uppercase mb-2">Evacuation Center</p>
+              <select
+                value={selectedCenterId}
+                onChange={(e) => { setSelectedCenterId(e.target.value); setCheckInError(null); }}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#FFB300]"
+              >
+                <option value="">Select a center...</option>
+                {capacityCenters.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {checkInError && <p className="text-red-600 text-sm mb-4">{checkInError}</p>}
+            <button
+              onClick={handleConfirmFamilyCheckIn}
+              disabled={isSubmittingFamilyCheckIn}
+              className="w-full py-4 rounded-2xl font-black text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+              style={{ background: "#FFB300" }}
+            >
+              {isSubmittingFamilyCheckIn ? "Checking in..." : `Check In All ${familyGroup.members.length + 1} Members`}
+            </button>
+            <button
+              onClick={() => { setFamilyGroupModalOpen(false); setFamilyGroup(null); scanLockRef.current = false; setCheckInError(null); }}
+              className="w-full py-3 mt-2 text-sm font-bold text-gray-500 hover:text-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Family Check-Out Modal */}
+      {familyCheckOutModalOpen && familyGroup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <button
+            type="button"
+            aria-label="Close family check-out confirmation"
+            className="absolute inset-0 w-full h-full bg-black/40 backdrop-blur-sm cursor-default border-none outline-none focus:outline-none"
+            onClick={() => { setFamilyCheckOutModalOpen(false); setFamilyGroup(null); scanLockRef.current = false; setCheckInError(null); }}
+          />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 z-10 animate-in zoom-in-95 duration-200">
+            <p className="text-[10px] font-black tracking-widest text-[#4CAF50] uppercase mb-1">Family Group Check-Out</p>
+            <p className="text-xl font-black mb-1">
+              {familyGroup.familyName || (familyGroup.headName ? `${familyGroup.headName}'s Family` : "Family Group")}
+            </p>
+            <p className="text-xs text-gray-400 mb-5">QR: {familyGroup.familyQrCodeId}</p>
+
+            <div className="mb-6">
+              <p className="text-[10px] font-black tracking-widest text-gray-400 uppercase mb-2">
+                Members ({familyGroup.members.length + 1})
+              </p>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-green-50 border border-green-100">
+                  <div className="w-9 h-9 rounded-full bg-[#4CAF50] flex items-center justify-center text-white text-sm font-black flex-shrink-0">
+                    {(familyGroup.headName ?? "?")[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm">{familyGroup.headName ?? "Family Head"}</p>
+                    <p className="text-[10px] text-[#4CAF50] font-black uppercase">Family Head</p>
+                  </div>
+                </div>
+                {familyGroup.members.map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                    <div className="w-9 h-9 rounded-full bg-gray-300 flex items-center justify-center text-white text-sm font-black flex-shrink-0">
+                      {(m.memberFullName ?? "?")[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-bold text-sm">{m.memberFullName ?? "Member"}</p>
+                      {m.relationship && <p className="text-[10px] text-gray-400 uppercase">{m.relationship}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {checkInError && <p className="text-red-600 text-sm mb-4">{checkInError}</p>}
+            <button
+              onClick={handleConfirmFamilyCheckOut}
+              disabled={isSubmittingFamilyCheckOut}
+              className="w-full py-4 rounded-2xl font-black text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+              style={{ background: "#4CAF50" }}
+            >
+              {isSubmittingFamilyCheckOut ? "Checking out..." : `Check Out All ${familyGroup.members.length + 1} Members`}
+            </button>
+            <button
+              onClick={() => { setFamilyCheckOutModalOpen(false); setFamilyGroup(null); scanLockRef.current = false; setCheckInError(null); }}
               className="w-full py-3 mt-2 text-sm font-bold text-gray-500 hover:text-gray-700"
             >
               Cancel

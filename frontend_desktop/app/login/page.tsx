@@ -110,7 +110,7 @@ export default function UnifiedLoginPage() {
 
         <div className="login-hero-inner">
           <div className="login-logo-row">
-            <img src="/damayan_logo.png" alt="Damayan Logo" className="login-logo-img" />
+            <img src="/damayan_logo.svg" alt="Damayan Logo" className="login-logo-img" />
             <div className="login-logo-text">
               <span className="login-logo-name">DAMAYAN</span>
               <p className="login-logo-tagline">Emergency Response Platform</p>

@@ -6,10 +6,14 @@ import { theme, fonts, lightTheme, darkTheme } from "../../theme";
 export function SiteManagerBeforeScreen({
   onBack,
   onOpenResponse,
+  onOpenInventory,
+  onOpenMap,
   isDarkMode,
 }: {
   onBack: () => void;
   onOpenResponse: () => void;
+  onOpenInventory: () => void;
+  onOpenMap: () => void;
   isDarkMode?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState("Dashboard");
@@ -127,7 +131,7 @@ export function SiteManagerBeforeScreen({
               </View>
            </View>
 
-           <View style={localStyles.siteMapCard}>
+           <TouchableOpacity style={localStyles.siteMapCard} onPress={onOpenMap}>
               <View style={localStyles.siteMapContent}>
                  <Text style={localStyles.siteMapTitle}>Interactive Site Map</Text>
                  <Text style={localStyles.siteMapSub}>REAL-TIME ZONE ACTIVITY MONITOR</Text>
@@ -137,7 +141,7 @@ export function SiteManagerBeforeScreen({
                 style={localStyles.siteMapImage} 
                 resizeMode="cover"
               />
-           </View>
+           </TouchableOpacity>
         </View>
       </View>
 
@@ -148,7 +152,7 @@ export function SiteManagerBeforeScreen({
             <Text style={localStyles.sectionTitle}>Essential Supply Checklist</Text>
             <Text style={localStyles.sectionSub}>Real-time inventory levels across regional staging areas.</Text>
           </View>
-          <TouchableOpacity style={localStyles.updateInventoryBtn}>
+          <TouchableOpacity style={localStyles.updateInventoryBtn} onPress={onOpenInventory}>
              <Text style={localStyles.updateInventoryText}>Update Inventory</Text>
           </TouchableOpacity>
         </View>

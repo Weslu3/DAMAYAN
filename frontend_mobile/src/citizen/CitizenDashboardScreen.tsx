@@ -211,13 +211,17 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
             onBack={() => setTargetStep("dashboard")}
             onSave={(data) => {
               setTargetStep("dashboard");
+              if (data.updatedUser) setAuthUser(data.updatedUser);
             }}
+            onPhotoUpdated={(uri) => setProfilePhotoUrl(uri)}
             citizenProfile={citizenProfile}
             session={session}
+            latestProfile={authUser}
+            initialPhotoUrl={profilePhotoUrl}
           />
         ) : isViewingFamilyGroup ? (
           <CitizenFamilyGroupScreen
-            onBack={() => setTargetStep("dashboard")}
+            onBack={() => { setTargetStep("dashboard"); setActiveNav("Overview"); }}
             personalQrCodeId={citizenProfile?.qrCodeId}
             citizenDisplayName={displayName !== 'Citizen' ? displayName : undefined}
           />
@@ -266,7 +270,7 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
             {phase === "during" && (
               <CitizenDuringScreen
                 onBack={() => { setPhaseOverride(null); setTargetStep("dashboard"); }}
-                initialStep={targetStep === "map" ? "map" : targetStep === "report_incident" ? "report_incident" : "decision"}
+                initialStep={targetStep === "report_incident" ? "report_incident" : "decision"}
                 session={session}
                 authUser={authUser}
                 qrCodeId={citizenProfile?.qrCodeId}
@@ -301,7 +305,7 @@ export default function CitizenDashboardScreen({ onSignOut }: CitizenDashboardSc
                   onPress={() => {
                     setActiveNav(item.id as NavDestination);
                     if (item.id === "Family & ID") { setTargetStep("family_group"); }
-                    else if (item.id === "Safety Map") { setPhaseOverride("during"); setTargetStep("map"); }
+                    else if (item.id === "Safety Map") { setPhaseOverride("during"); setTargetStep("decision"); }
                     else { setPhaseOverride(null); setTargetStep("dashboard"); }
                   }}
                   style={styles.navTab}

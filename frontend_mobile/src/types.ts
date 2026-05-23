@@ -1,6 +1,4 @@
 export enum AppRole {
-  ADMIN = "admin",
-  DISPATCHER = "dispatcher",
   LINE_MANAGER = "line_manager",
   CITIZEN = "citizen",
 }
@@ -24,7 +22,7 @@ export interface AuthSession {
 }
 
 export interface DashboardOverview {
-  scope: "admin" | "site-manager";
+  scope: "site-manager";
   generatedAt: string;
   inventory: {
     totalItems: number;
@@ -92,6 +90,8 @@ export interface CapacityCenter {
   maxManagers?: number;
   description?: string;
   assignedManagers?: Array<{ id: string; name: string }>;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface DisasterEvent {
@@ -130,15 +130,6 @@ export interface IncidentReport {
   status: string;
   attachmentKeys: string[];
   createdAt: string;
-}
-
-export interface Organization {
-  id: string;
-  name: string;
-  type: string;
-  verified: boolean;
-  contactEmail?: string;
-  contactPhone?: string;
 }
 
 export type PortalRole = "site_manager" | "citizen";

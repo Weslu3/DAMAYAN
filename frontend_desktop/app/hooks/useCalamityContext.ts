@@ -47,21 +47,26 @@ export function useCalamityContext(): CalamityContextState {
       return;
     }
 
+    let cancelled = false;
+
     // Hydrate current phase on mount
-    supabase
-      .from('system_settings')
-      .select('current_phase')
-      .limit(1)
-      .single()
-      .then(({ data }) => {
-        if (data?.current_phase) {
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('current_phase')
+          .limit(1)
+          .single();
+
+        if (!cancelled && data?.current_phase) {
           setCurrentPhase(normalisePhase((data as SystemSettingsRow).current_phase));
         }
-      })
-      .catch(() => {
+      } catch {
         // Keep default BEFORE phase on network failure
-      })
-      .finally(() => setIsLoading(false));
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
 
     // Realtime subscription for live phase changes
     const channel: RealtimeChannel = supabase
@@ -79,6 +84,7 @@ export function useCalamityContext(): CalamityContextState {
       .subscribe();
 
     return () => {
+      cancelled = true;
       void supabase.removeChannel(channel);
     };
   }, []);

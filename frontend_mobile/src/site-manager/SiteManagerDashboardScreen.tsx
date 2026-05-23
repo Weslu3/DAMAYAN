@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, ScrollView, SafeAreaView, Dimensions, Pressable, Text, Modal, Platform, TouchableOpacity } from "react-native";
+import { Alert, View, StyleSheet, ScrollView, SafeAreaView, Dimensions, Pressable, Text, Modal, Platform, TouchableOpacity } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { lightTheme, darkTheme, fonts, roleColors } from "../theme";
@@ -23,8 +23,9 @@ export default function SiteManagerDashboardScreen({ onSignOut }: SiteManagerDas
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [activeNav, setActiveNav] = useState<NavDestination>("Overview");
-  const [targetStep, setTargetStep] = useState<string | null>(null);
+  const [stageOverride, setStageOverride] = useState<OperationalStage | null>(null);
 
+  const currentStage = stageOverride ?? stage;
   const theme = isDarkMode ? darkTheme : lightTheme;
   const accent = "#81C784"; // Updated to green per screenshot
   const styles = getStyles(theme);
@@ -44,14 +45,14 @@ export default function SiteManagerDashboardScreen({ onSignOut }: SiteManagerDas
              <Text style={[styles.brandText, { color: theme.text }]}>DAMAYAN</Text>
              <View style={[
                  styles.stageBadge, 
-                 { backgroundColor: stage === 'STAGING' ? (isDarkMode ? theme.surfaceAlt : '#E8F5E9') : stage === 'RESPONSE' ? (isDarkMode ? theme.surfaceAlt : '#FFF3E0') : (isDarkMode ? theme.surfaceAlt : '#E3F2FD') }
+                 { backgroundColor: currentStage === 'STAGING' ? (isDarkMode ? theme.surfaceAlt : '#E8F5E9') : currentStage === 'RESPONSE' ? (isDarkMode ? theme.surfaceAlt : '#FFF3E0') : (isDarkMode ? theme.surfaceAlt : '#E3F2FD') }
                ]}>
-                  <View style={[styles.statusDot, { backgroundColor: stage === 'STAGING' ? theme.primary : stage === 'RESPONSE' ? theme.warning : theme.info }]} />
+                  <View style={[styles.statusDot, { backgroundColor: currentStage === 'STAGING' ? theme.primary : currentStage === 'RESPONSE' ? theme.warning : theme.info }]} />
                   <Text style={[
                     styles.stageText, 
-                    { color: stage === 'STAGING' ? theme.primary : stage === 'RESPONSE' ? theme.warning : theme.info }
+                    { color: currentStage === 'STAGING' ? theme.primary : currentStage === 'RESPONSE' ? theme.warning : theme.info }
                   ]}>
-                    {stage === 'STAGING' ? 'STAGING' : stage === 'RESPONSE' ? 'RESPONSE' : 'RECOVERY'}
+                    {currentStage === 'STAGING' ? 'STAGING' : currentStage === 'RESPONSE' ? 'RESPONSE' : 'RECOVERY'}
                   </Text>
              </View>
           </View>
@@ -72,26 +73,34 @@ export default function SiteManagerDashboardScreen({ onSignOut }: SiteManagerDas
           <SiteManagerMapScreen isDarkMode={isDarkMode} />
         ) : (
           <>
-            {stage === "STAGING" && (
+            {currentStage === "STAGING" && (
                <SiteManagerBeforeScreen
                  onBack={onSignOut}
-                 onOpenResponse={() => {}}
+                 onOpenResponse={() => setStageOverride("RESPONSE")}
+                 onOpenInventory={() => setActiveNav("Resources")}
+                 onOpenMap={() => setActiveNav("Operations")}
                  isDarkMode={isDarkMode}
                />
             )}
-            {stage === "RESPONSE" && (
+            {currentStage === "RESPONSE" && (
                <SiteManagerDuringScreen
-                 onBack={() => {}}
+                 onBack={() => setStageOverride("STAGING")}
                  isDarkMode={isDarkMode}
-                 onEnterRecovery={() => {}}
+                 onEnterRecovery={() => setStageOverride("RECOVERY")}
+                 onOpenInventory={() => setActiveNav("Resources")}
+                 onOpenMap={() => setActiveNav("Operations")}
                />
             )}
-            {stage === "RECOVERY" && (
+            {currentStage === "RECOVERY" && (
                <SiteManagerAfterScreen
-                 onBack={() => {}}
-                 onBackToResponse={() => {}}
+                 onBack={() => setStageOverride("RESPONSE")}
+                 onBackToResponse={() => setStageOverride("RESPONSE")}
                  isDarkMode={isDarkMode}
-                 onFinalize={() => {}}
+                 onOpenMap={() => setActiveNav("Operations")}
+                 onFinalize={() => {
+                   Alert.alert("Mission complete", "Site mission was marked complete for this mobile session.");
+                   setStageOverride(null);
+                 }}
                />
             )}
           </>
@@ -118,7 +127,14 @@ export default function SiteManagerDashboardScreen({ onSignOut }: SiteManagerDas
                   size={22} 
                   color={isActive ? "#fff" : theme.textLight} 
                 />
-                <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{item.label}</Text>
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                  style={[styles.tabLabel, isActive && styles.tabLabelActive]}
+                >
+                  {item.label}
+                </Text>
               </Pressable>
             );
           })}
@@ -266,8 +282,9 @@ const getStyles = (theme: any) => StyleSheet.create({
     borderRadius: 32,
     height: 80,
     alignItems: "center",
-    justifyContent: "space-around",
-    paddingHorizontal: 12,
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    gap: 6,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
     shadowColor: "#000",
@@ -277,12 +294,14 @@ const getStyles = (theme: any) => StyleSheet.create({
     elevation: 10,
   },
   navTab: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    gap: 8,
     height: 56,
-    paddingHorizontal: 20,
+    paddingHorizontal: 4,
     borderRadius: 24,
   },
   navTabActive: {
@@ -293,10 +312,13 @@ const getStyles = (theme: any) => StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
   },
   tabLabel: {
-    fontSize: 12,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 10,
     ...fonts.black,
     color: theme.textLight,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
+    textAlign: "center",
   },
   tabLabelActive: {
     color: "#fff",
