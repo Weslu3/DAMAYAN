@@ -18,7 +18,7 @@ import { theme } from "../../theme";
 import { styles } from "./CitizenDuringScreen.styles";
 import { submitIncidentReport, getIncidentPhotoUploadUrl } from "../../api";
 import { CitizenLiveMap, type EvacCenter } from "./CitizenLiveMap";
-import { formatCoordinates, manhattanDistanceMeters, resolveReadableAddress, sortByManhattanDistance } from "../../utils/geoUtils";
+import { formatCoordinates, manhattanDistanceMeters, manhattanRouteCoords, resolveReadableAddress, sortByManhattanDistance } from "../../utils/geoUtils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type DuringStep =
@@ -120,6 +120,10 @@ export function CitizenDuringScreen({
   // Selected evacuation center (chosen on safe_zone_map, used in navigate_evacuation)
   const [selectedCenter, setSelectedCenter] = useState<EvacCenter>(EVAC_CENTERS[0]);
 
+  // Road route from OSRM (replaces straight-line polyline)
+  const [routeCoords, setRouteCoords] = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const [routeDistanceMeters, setRouteDistanceMeters] = useState<number | null>(null);
+
   // ── Fetch device GPS on mount ────────────────────────────────────────────
   useEffect(() => {
     (async () => {
@@ -174,6 +178,45 @@ export function CitizenDuringScreen({
     if (initialStep === "decision") setStep("rescue_decision");
     else if (initialStep) setStep(initialStep as DuringStep);
   }, [initialStep]);
+
+  // Compute route whenever navigation is active or the target shelter changes
+  useEffect(() => {
+    if (step !== "navigate_evacuation" || !userLocation) return;
+    let cancelled = false;
+
+    // ── Step 1: Apply Manhattan grid route instantly (no network needed) ──────
+    const manhattan = manhattanRouteCoords(userLocation, selectedCenter);
+    setRouteCoords(manhattan);
+    setRouteDistanceMeters(null); // clear road distance while upgrading
+
+    // ── Step 2: Try OSRM for real road geometry ───────────────────────────────
+    const { latitude: lat1, longitude: lon1 } = userLocation;
+    const { latitude: lat2, longitude: lon2 } = selectedCenter;
+    const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    fetch(url, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((data: any) => {
+        clearTimeout(timeoutId);
+        if (cancelled || !data.routes?.[0]) return;
+        const roadCoords: Array<{ latitude: number; longitude: number }> =
+          data.routes[0].geometry.coordinates.map(([lon, lat]: [number, number]) => ({
+            latitude: lat,
+            longitude: lon,
+          }));
+        setRouteCoords(roadCoords);
+        setRouteDistanceMeters(data.routes[0].distance);
+      })
+      .catch(() => {
+        clearTimeout(timeoutId);
+        // OSRM unreachable — Manhattan grid route already shown, keep it
+      });
+
+    return () => { cancelled = true; clearTimeout(timeoutId); };
+  }, [step, userLocation, selectedCenter]);
 
   async function handlePickPhoto() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -577,8 +620,10 @@ export function CitizenDuringScreen({
               <View style={{ flex: 1 }}>
                 <Text style={styles.infoRowText}>{selectedCenter.name}</Text>
                 <Text style={styles.infoRowSub}>
-                  {userLocation
-                    ? `${(manhattanDistanceMeters(userLocation, selectedCenter) / 1000).toFixed(1)} km away`
+                  {routeDistanceMeters !== null
+                    ? `${(routeDistanceMeters / 1000).toFixed(1)} km by road`
+                    : userLocation
+                    ? `~${(manhattanDistanceMeters(userLocation, selectedCenter) / 1000).toFixed(1)} km estimated`
                     : "Calculating distance…"}
                 </Text>
               </View>
@@ -595,6 +640,7 @@ export function CitizenDuringScreen({
                 userLocation={userLocation}
                 evacCenters={orderedCenters}
                 selectedCenter={selectedCenter}
+                routeCoords={routeCoords}
               />
             )}
 
