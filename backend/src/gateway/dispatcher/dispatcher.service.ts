@@ -14,6 +14,28 @@ interface UserProfileRow {
   auth_user_id?: string | null;
 }
 
+interface PhCityCatalogRow {
+  psgc_code: string;
+  city_name: string;
+  province_name: string | null;
+  region_name: string | null;
+  latitude: number;
+  longitude: number;
+}
+
+interface TeamStatusRow {
+  id: string;
+  auth_user_id: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  duty_status: string;
+  municipality: string | null;
+  province: string | null;
+  barangay: string | null;
+  address: string | null;
+}
+
 interface DispatcherProfileRow {
   id: string;
   auth_user_id: string;
@@ -43,11 +65,26 @@ export class DispatcherService {
   async getOverview(search?: string, disasterId?: string) {
     const [incidentReports, dispatchOrders, organizations, disasterEvents, reliefOperations, volunteerUnits, volunteerTeams] =
       await Promise.all([
-        this.siteManagerProxyService.findIncidentReports(search, disasterId),
-        this.siteManagerProxyService.findDispatchOrders(undefined, undefined, disasterId),
-        this.siteManagerProxyService.findOrganizations(),
-        this.siteManagerProxyService.findDisasterEvents(),
-        this.siteManagerProxyService.findReliefOperations(undefined, disasterId),
+        this.siteManagerProxyService.findIncidentReports(search, disasterId).catch((error: unknown) => {
+          console.warn(`[DispatcherService] findIncidentReports failed: ${error instanceof Error ? error.message : error}`);
+          return [];
+        }),
+        this.siteManagerProxyService.findDispatchOrders(undefined, undefined, disasterId).catch((error: unknown) => {
+          console.warn(`[DispatcherService] findDispatchOrders failed: ${error instanceof Error ? error.message : error}`);
+          return [];
+        }),
+        this.siteManagerProxyService.findOrganizations().catch((error: unknown) => {
+          console.warn(`[DispatcherService] findOrganizations failed: ${error instanceof Error ? error.message : error}`);
+          return [];
+        }),
+        this.siteManagerProxyService.findDisasterEvents().catch((error: unknown) => {
+          console.warn(`[DispatcherService] findDisasterEvents failed: ${error instanceof Error ? error.message : error}`);
+          return [];
+        }),
+        this.siteManagerProxyService.findReliefOperations(undefined, disasterId).catch((error: unknown) => {
+          console.warn(`[DispatcherService] findReliefOperations failed: ${error instanceof Error ? error.message : error}`);
+          return [];
+        }),
         this.bayanihubVolunteersService.findVolunteerUnits().catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Unknown Bayanihub volunteer loading error';
           console.warn(`[DispatcherService] ${message}`);
@@ -159,6 +196,69 @@ export class DispatcherService {
     return this.bayanihubVolunteersService.findVolunteerRoleTeams(search);
   }
 
+  async getBarangayData(province?: string) {
+    const supabase = this.supabaseService.getClient() as any;
+
+    let query = supabase
+      .from('ph_city_catalog')
+      .select('psgc_code, city_name, province_name, region_name, latitude, longitude')
+      .order('city_name', { ascending: true });
+
+    if (province) {
+      query = query.ilike('province_name', `%${province}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return ((data ?? []) as PhCityCatalogRow[]).map((row) => ({
+      psgcCode: row.psgc_code,
+      name: row.city_name,
+      province: row.province_name ?? null,
+      region: row.region_name ?? null,
+      coordinates: [row.latitude, row.longitude] as [number, number],
+    }));
+  }
+
+  async getTeamStatus() {
+    const supabase = this.supabaseService.getClient() as any;
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('id, auth_user_id, first_name, last_name, role, duty_status, municipality, province, barangay, address')
+      .eq('role', 'line_manager')
+      .eq('status', 'active')
+      .order('first_name', { ascending: true });
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return ((data ?? []) as TeamStatusRow[]).map((row) => ({
+      id: row.id,
+      authUserId: row.auth_user_id,
+      name: `${row.first_name} ${row.last_name}`.trim(),
+      role: 'Site Manager',
+      location: row.municipality || row.province || row.barangay || row.address || 'Unassigned',
+      dutyStatus: row.duty_status as 'on_duty' | 'off_duty',
+    }));
+  }
+
+  async setDutyStatus(targetAuthUserId: string, dutyStatus: 'on_duty' | 'off_duty') {
+    const supabase = this.supabaseService.getClient() as any;
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ duty_status: dutyStatus, updated_at: new Date().toISOString() })
+      .eq('auth_user_id', targetAuthUserId);
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return { authUserId: targetAuthUserId, dutyStatus };
+  }
+
   private async countDispatches(dispatcherAuthUserId: string): Promise<number> {
     const supabase = this.supabaseService.getClient() as any;
     const { count, error } = await supabase
@@ -219,6 +319,47 @@ export class DispatcherService {
       month: 'long',
       day: 'numeric',
     });
+  }
+
+  async createVolunteerDispatch(payload: {
+    reportId: string;
+    assignedTo: string;
+    volunteerName?: string;
+    priority?: string;
+    instructions?: string;
+    disasterId?: string;
+  }) {
+    const priorityMap: Record<string, string> = {
+      low: 'low', medium: 'normal', high: 'urgent', critical: 'critical',
+    };
+    const dbPriority = priorityMap[payload.priority?.toLowerCase() ?? ''] ?? 'normal';
+
+    const instructionParts: string[] = [];
+    if (payload.volunteerName) instructionParts.push(`Volunteer: ${payload.volunteerName}`);
+    if (payload.instructions) instructionParts.push(payload.instructions);
+    const instructions = instructionParts.join(' | ') || null;
+
+    const supabase = this.supabaseService.getClient() as any;
+    const { data, error } = await supabase
+      .from('dispatch_orders')
+      .insert({
+        report_id: payload.reportId,
+        assigned_to: payload.assignedTo,
+        external_volunteer_id: null,
+        priority: dbPriority,
+        instructions,
+        disaster_id: payload.disasterId ?? null,
+        operation_id: null,
+        status: 'pending',
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return { id: (data as { id: string }).id };
   }
 
   async broadcast(dispatcherAuthUserId: string, payload: CreateDispatcherBroadcastDto) {

@@ -53,12 +53,14 @@ export interface Team {
 
 export interface BarangayDemographics {
   name: string;
-  population: number;
-  density: number; // people/sqkm
-  elderly: number;
-  infants: number;
+  population?: number;
+  density?: number;
+  elderly?: number;
+  infants?: number;
   riskLevel: "Low" | "Medium" | "High";
   coordinates: [number, number];
+  province?: string;
+  region?: string;
 }
 
 export interface PreparednessReport {
@@ -306,12 +308,12 @@ export function mapBackendToFrontendIncident(report: IncidentReport): Incident {
     category,
     reporter: "Citizen Report",
     reporterPhone: "Verified",
-    address: report.location,
+    address: report.resolvedAddress || report.location,
     barangay: "",
     city: "",
     location: report.location,
-    lat: 14.6042,
-    lng: 120.9822,
+    lat: report.latitude ?? 14.6042,
+    lng: report.longitude ?? 120.9822,
     timeReported: new Date(report.createdAt).toLocaleTimeString("en-PH", {
       hour: "2-digit",
       minute: "2-digit",
@@ -376,6 +378,21 @@ export function volunteersToTeams(volunteers: Unit[]): Team[] {
       } as Team;
     })
     .filter((team) => team.members > 0);
+}
+
+export function mapCityToBarangay(
+  city: { psgcCode: string; name: string; province: string | null; region: string | null; coordinates: [number, number] },
+  incidentCount: number,
+): BarangayDemographics {
+  const riskLevel: "Low" | "Medium" | "High" =
+    incidentCount >= 3 ? "High" : incidentCount >= 1 ? "Medium" : "Low";
+  return {
+    name: city.name,
+    riskLevel,
+    coordinates: city.coordinates,
+    province: city.province ?? undefined,
+    region: city.region ?? undefined,
+  };
 }
 
 

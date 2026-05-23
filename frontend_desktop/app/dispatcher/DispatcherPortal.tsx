@@ -14,8 +14,7 @@ import {
   UnitStatus,
   BarangayDemographics,
   MOCK_DISPATCHER,
-  MOCK_BARANGAY_DATA,
-  MOCK_REPORTS,
+  mapCityToBarangay,
   priorityClass,
   statusClass,
   situationClass,
@@ -36,8 +35,10 @@ import {
   getDispatcherProfile,
   getDispatcherIncidents,
   getDispatcherVolunteers,
+  getDispatcherCityData,
   sendDispatcherBroadcast,
   updateIncidentReport,
+  createVolunteerDispatch,
 } from "../lib/api";
 import { loadSession } from "../lib/session";
 import type {
@@ -1349,6 +1350,7 @@ function ResourceMapPage({
   dispatchTarget,
   onClearDispatchTarget,
   status,
+  cityData = [],
 }: {
   incidents: Incident[];
   units: Unit[];
@@ -1356,6 +1358,7 @@ function ResourceMapPage({
   dispatchTarget: Incident | null;
   onClearDispatchTarget: () => void;
   status: "active" | "inactive";
+  cityData?: Array<{ psgcCode: string; name: string; province: string | null; region: string | null; coordinates: [number, number] }>;
 }) {
   // If a dispatchTarget arrives from dashboard, start in dispatch mode
   const [mapMode, setMapMode] = useState<MapMode>(
@@ -1366,9 +1369,14 @@ function ResourceMapPage({
   const [districtFilter, setDistrictFilter] = useState<string | null>(null);
   const [showVulnerabilityHeatmap, setShowVulnerabilityHeatmap] = useState(false);
   const [showPopulationDensity, setShowPopulationDensity] = useState(false);
-  const [selectedBarangay, setSelectedBarangay] = useState<BarangayDemographics | null>(
-    MOCK_BARANGAY_DATA[0] ?? null,
-  );
+  const barangayData = cityData.map((city) => {
+    const count = incidents.filter(
+      (i) => i.location?.toLowerCase().includes(city.name.toLowerCase()) ||
+             (city.province && i.location?.toLowerCase().includes(city.province.toLowerCase()))
+    ).length;
+    return mapCityToBarangay(city, count);
+  });
+  const [selectedBarangay, setSelectedBarangay] = useState<BarangayDemographics | null>(null);
   const [selInc, setSelInc] = useState<Incident | null>(dispatchTarget);
   const [assigned, setAssigned] = useState<string[]>(
     dispatchTarget?.assignedUnits ?? [],
@@ -1476,15 +1484,11 @@ function ResourceMapPage({
       ["On Route", "On Scene"].includes(u.status),
     ).length,
   };
-  const riskStats = MOCK_BARANGAY_DATA.reduce(
-    (acc, b) => ({
-      population: acc.population + b.population,
-      elderly: acc.elderly + b.elderly,
-      infants: acc.infants + b.infants,
-      highRisk: acc.highRisk + (b.riskLevel === "High" ? 1 : 0),
-    }),
-    { population: 0, elderly: 0, infants: 0, highRisk: 0 },
-  );
+  const riskStats = {
+    total: barangayData.length,
+    highRisk: barangayData.filter((b) => b.riskLevel === "High").length,
+    mediumRisk: barangayData.filter((b) => b.riskLevel === "Medium").length,
+  };
 
   const LEGEND_MON: [string, string][] = [
     ["Incident", "#c2440a"],
@@ -1569,10 +1573,9 @@ function ResourceMapPage({
             onChange={(e) => setDistrictFilter(e.target.value === "ALL" ? null : e.target.value)}
           >
             <option value="ALL">All districts</option>
-            <option value="Sampaloc, Manila">Sampaloc, Manila</option>
-            {MOCK_BARANGAY_DATA.map((b) => (
+            {barangayData.map((b) => (
               <option key={b.name} value={b.name}>
-                {b.name}
+                {b.name}{b.province ? ` (${b.province})` : ""}
               </option>
             ))}
           </select>
@@ -1644,12 +1647,16 @@ function ResourceMapPage({
         {mapMode === "risk-profile" && (
           <>
             <div className="dp-map-kpi">
-              <span className="dp-map-kpi-label">Profiled Population</span>
-              <span className="dp-map-kpi-value">{riskStats.population.toLocaleString()}</span>
+              <span className="dp-map-kpi-label">Cities Profiled</span>
+              <span className="dp-map-kpi-value">{riskStats.total}</span>
             </div>
             <div className="dp-map-kpi">
               <span className="dp-map-kpi-label">High Risk Zones</span>
               <span className="dp-map-kpi-value">{riskStats.highRisk}</span>
+            </div>
+            <div className="dp-map-kpi">
+              <span className="dp-map-kpi-label">Medium Risk Zones</span>
+              <span className="dp-map-kpi-value">{riskStats.mediumRisk}</span>
             </div>
           </>
         )}
@@ -1671,27 +1678,36 @@ function ResourceMapPage({
               <div className="dp-dispatch-units">
                 <div className="dp-risk-profile-grid">
                   <div className="dp-risk-profile-stat">
-                    <span>Population</span>
-                    <strong>{selectedBarangay.population.toLocaleString()}</strong>
+                    <span>City / Area</span>
+                    <strong>{selectedBarangay.name}</strong>
                   </div>
+                  {selectedBarangay.province && (
+                    <div className="dp-risk-profile-stat">
+                      <span>Province</span>
+                      <strong>{selectedBarangay.province}</strong>
+                    </div>
+                  )}
+                  {selectedBarangay.region && (
+                    <div className="dp-risk-profile-stat">
+                      <span>Region</span>
+                      <strong>{selectedBarangay.region}</strong>
+                    </div>
+                  )}
                   <div className="dp-risk-profile-stat">
-                    <span>Density</span>
-                    <strong>{selectedBarangay.density.toLocaleString()}/km2</strong>
-                  </div>
-                  <div className="dp-risk-profile-stat">
-                    <span>Elderly</span>
-                    <strong>{selectedBarangay.elderly.toLocaleString()}</strong>
-                  </div>
-                  <div className="dp-risk-profile-stat">
-                    <span>Infants</span>
-                    <strong>{selectedBarangay.infants.toLocaleString()}</strong>
+                    <span>Active Incidents</span>
+                    <strong>
+                      {incidents.filter(
+                        (i) => !["Resolved", "Invalid"].includes(i.status) &&
+                          i.location?.toLowerCase().includes(selectedBarangay.name.toLowerCase())
+                      ).length}
+                    </strong>
                   </div>
                 </div>
                 <div className={`dp-risk-profile-level ${selectedBarangay.riskLevel.toLowerCase()}`}>
-                  {selectedBarangay.riskLevel} vulnerability
+                  {selectedBarangay.riskLevel} risk
                 </div>
                 <div className="dp-risk-profile-list">
-                  {MOCK_BARANGAY_DATA.map((b) => (
+                  {barangayData.map((b) => (
                     <button
                       key={b.name}
                       className={`dp-risk-zone-row ${selectedBarangay.name === b.name ? "active" : ""}`}
@@ -1705,7 +1721,9 @@ function ResourceMapPage({
               </div>
             ) : (
               <div className="dp-dispatch-panel-empty">
-                Click a barangay marker on the map to inspect its risk profile.
+                {barangayData.length === 0
+                  ? "Loading city data..."
+                  : "Click a city marker on the map to inspect its risk profile."}
               </div>
             )}
           </div>
@@ -1961,6 +1979,7 @@ function ResourceMapPage({
               showVulnerabilityHeatmap={showVulnerabilityHeatmap || mapMode === "risk-profile"}
               showPopulationDensity={showPopulationDensity}
               onBarangayClick={setSelectedBarangay}
+              barangayData={barangayData}
               height="100%"
             />
           </div>
@@ -3076,6 +3095,7 @@ function RescueDetailPanel({
   onResolve,
   onClose,
   status,
+  dispatcherName = "Dispatcher",
 }: {
   inc: Incident;
   units: Unit[];
@@ -3084,6 +3104,7 @@ function RescueDetailPanel({
   onResolve: () => void;
   onClose: () => void;
   status: "active" | "inactive";
+  dispatcherName?: string;
 }) {
   const isInactive = status === "inactive";
   const assigned = inc.assignedUnits
@@ -3454,7 +3475,7 @@ function RescueDetailPanel({
               label: "Dispatched At",
               val: dispatchTime,
               color: "var(--d-text)",
-              sub: `By ${MOCK_DISPATCHER.name}`,
+              sub: `By ${dispatcherName}`,
             },
           ].map((s) => (
             <div key={s.label} className="dp-rescue-stat-box">
@@ -6469,6 +6490,13 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     cluster: string;
     station: string;
   } | null>(null);
+  const [cityData, setCityData] = useState<Array<{
+    psgcCode: string;
+    name: string;
+    province: string | null;
+    region: string | null;
+    coordinates: [number, number];
+  }>>([]);
   const clock = useClock();
   const toast = useToast();
   const dropRef = useRef<HTMLDivElement>(null);
@@ -6523,7 +6551,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             mapBackendToFrontendIncident(report, data.dispatchOrders),
           );
           setIncidents(mappedIncidents);
-          void geocodeIncidentCoordinates(session.accessToken, mappedIncidents);
+          // Only geocode incidents that don't already have DB coordinates
+          const needsGeocode = mappedIncidents.filter((i) => i.lat === 14.6042 && i.lng === 120.9822);
+          if (needsGeocode.length > 0) {
+            void geocodeIncidentCoordinates(session.accessToken, needsGeocode);
+          }
           setTeams(
             data.volunteerTeams?.length
               ? data.volunteerTeams.map(mapVolunteerRoleToTeam)
@@ -6542,6 +6574,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             toast.show("Error connecting to incident queue.");
           }
         });
+      getDispatcherCityData(session.accessToken)
+        .then((cities) => setCityData(cities))
+        .catch((err) => console.warn("Failed to load city data:", err));
     } else {
       // No token, force logout
       onLogout();
@@ -6665,6 +6700,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   ) => {
     const targetId = resourceAssignmentIncident?.id || details.incident;
     if (!targetId) return;
+
     setIncidents((current) =>
       current.map((inc) =>
         inc.id === targetId
@@ -6683,6 +6719,36 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           : inc,
       ),
     );
+
+    const incident = incidents.find((i) => i.id === targetId);
+
+    // Move volunteer pin to incident location on the map
+    if (incident) {
+      setUnits((current) =>
+        current.map((u) =>
+          u.id === unit.id
+            ? { ...u, lat: incident.lat, lng: incident.lng, status: "On Route" as UnitStatus }
+            : u,
+        ),
+      );
+    }
+
+    const session = loadSession();
+    if (!session?.accessToken) return;
+    const assignedTo = session.user.authUserId || session.user.id;
+
+    const priorityMap: Record<string, string> = { LOW: "low", MEDIUM: "medium", HIGH: "high", CRITICAL: "critical" };
+    createVolunteerDispatch(session.accessToken, {
+      reportId: targetId,
+      assignedTo,
+      volunteerName: unit.name,
+      priority: incident?.priority ? priorityMap[incident.priority] : "medium",
+      instructions: details.note || undefined,
+      disasterId: incident?.disasterId,
+    }).catch((err) => {
+      console.error("Failed to persist volunteer dispatch:", err);
+      toast.show("Assigned locally. Could not save to database.");
+    });
   };
 
   const handleDashboardMarkInvalid = (inc: Incident, reason: string) => {
@@ -6949,6 +7015,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               dispatchTarget={dispatchTarget}
               onClearDispatchTarget={() => setDispatchTarget(null)}
               status={status}
+              cityData={cityData}
             />
           )}
           {page === "rescue-monitoring" && (
@@ -6992,18 +7059,40 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               setVolunteerNotes={setVolunteerNotes}
               onSend={() => {
                 if (status === "inactive") {
-                  toast.show(
-                    "Action locked: You must be On Duty to request volunteers.",
-                  );
+                  toast.show("Action locked: You must be On Duty to request volunteers.");
                   return;
                 }
-                const targetLabel =
-                  volunteerIncidentId === "GENERAL"
-                    ? "general ops"
-                    : shortenId(volunteerIncidentId);
-                toast.show(
-                  `Volunteer request sent to Bayanihub (${volunteerNeed}) for ${targetLabel}.`,
-                );
+                const session = loadSession();
+                if (!session?.accessToken) {
+                  toast.show("Session expired. Please log in again.");
+                  return;
+                }
+                const assignedTo = session.user.authUserId || session.user.id;
+                const targetLabel = volunteerIncidentId === "GENERAL" ? "general ops" : shortenId(volunteerIncidentId);
+                const typeLabel = volunteerNeed === "FIELD" ? "Field" : volunteerNeed === "MEDIC" ? "Medic" : "Logistics";
+
+                if (volunteerIncidentId !== "GENERAL") {
+                  const incident = incidents.find((i) => i.id === volunteerIncidentId);
+                  createVolunteerDispatch(session.accessToken, {
+                    reportId: volunteerIncidentId,
+                    assignedTo,
+                    volunteerName: `${typeLabel} Volunteer Request`,
+                    priority: incident?.priority?.toLowerCase() === "critical" ? "critical"
+                      : incident?.priority?.toLowerCase() === "high" ? "urgent"
+                      : incident?.priority?.toLowerCase() === "low" ? "low" : "normal",
+                    instructions: volunteerNotes || `${typeLabel} volunteer needed`,
+                    disasterId: incident?.disasterId,
+                  }).catch((err) => console.error("Volunteer dispatch failed:", err));
+                } else {
+                  sendDispatcherBroadcast(session.accessToken, {
+                    title: `${typeLabel} Volunteer Request`,
+                    message: volunteerNotes || `${typeLabel} volunteers needed for general operations. Please respond if available.`,
+                    severity: "warning",
+                    type: "Volunteer Request",
+                  }).catch((err) => console.error("Broadcast failed:", err));
+                }
+
+                toast.show(`Volunteer request sent to Bayanihub (${volunteerNeed}) for ${targetLabel}.`);
                 setVolunteerNeed("FIELD");
                 setVolunteerIncidentId("GENERAL");
                 setVolunteerNotes("");

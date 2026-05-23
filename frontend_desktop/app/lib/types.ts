@@ -137,6 +137,9 @@ export interface IncidentReport {
   status: string;
   attachmentKeys: string[];
   createdAt: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  resolvedAddress?: string | null;
 }
 
 export interface DispatchOrder {

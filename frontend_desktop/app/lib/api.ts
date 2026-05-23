@@ -587,6 +587,34 @@ export async function createDispatcherDispatchOrder(
   }, token);
 }
 
+export async function getDispatcherCityData(token: string, province?: string) {
+  const qs = province ? `?province=${encodeURIComponent(province)}` : "";
+  return request<Array<{
+    psgcCode: string;
+    name: string;
+    province: string | null;
+    region: string | null;
+    coordinates: [number, number];
+  }>>(`/dispatcher/barangay-data${qs}`, {}, token);
+}
+
+export async function createVolunteerDispatch(
+  token: string,
+  payload: {
+    reportId: string;
+    assignedTo: string;
+    volunteerName?: string;
+    priority?: string;
+    instructions?: string;
+    disasterId?: string;
+  },
+) {
+  return request<{ id: string }>("/dispatcher/volunteer-dispatch", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, token);
+}
+
 export async function getDispatcherOverview(token: string, disasterId?: string) {
   const qs = disasterId
     ? `?disasterId=${encodeURIComponent(disasterId)}`
