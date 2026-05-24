@@ -121,6 +121,7 @@ export class RegistrationsService {
     }
 
     const supabase = this.supabaseService.getClient() as any;
+    const qrCodeId = (createCitizenDto.qrCodeId ?? '').trim() || await this.generateManualCitizenQrCodeId(supabase);
     const { data, error } = await supabase
       .from('register_citizens')
       .upsert({
@@ -136,7 +137,7 @@ export class RegistrationsService {
         family_id: createCitizenDto.familyId ?? null,
         blood_type: createCitizenDto.bloodType ?? null,
         medical_conditions: createCitizenDto.medicalConditions ?? null,
-        qr_code_id: createCitizenDto.qrCodeId,
+        qr_code_id: qrCodeId,
       })
       .select()
       .single();
@@ -476,6 +477,15 @@ export class RegistrationsService {
 
   private buildFullName(firstName?: string, lastName?: string, middleName?: string) {
     return [firstName, middleName, lastName].filter((part) => !!part && part.trim().length > 0).join(' ');
+  }
+
+  private async generateManualCitizenQrCodeId(supabase: any): Promise<string> {
+    const { count } = await supabase
+      .from('register_citizens')
+      .select('*', { head: true, count: 'exact' });
+
+    const next = ((count ?? 0) as number) + 1;
+    return `QR-CITIZEN-${String(next).padStart(4, '0')}`;
   }
 
   private toFamily(rows: FamilyRow[]) {

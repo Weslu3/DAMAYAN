@@ -4,11 +4,13 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AppRole } from '../../../libs/contracts/src/roles.js';
+import { SupabaseService } from '../../supabase/supabase.service.js';
 
 interface RequestWithHeaders {
   headers: {
@@ -30,6 +32,9 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(ConfigService) private readonly configService: ConfigService,
+    @Optional()
+    @Inject(SupabaseService)
+    private readonly supabaseService?: SupabaseService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -52,6 +57,31 @@ export class JwtAuthGuard implements CanActivate {
       request.user = (await this.jwtService.verifyAsync(token, {
         secret: jwtSecret,
       })) as RequestWithHeaders['user'];
+
+      // Keep access control aligned with latest Supabase role changes even when
+      // the client still holds an older JWT.
+      if (this.supabaseService && request.user?.sub) {
+        try {
+          const supabase = this.supabaseService.getClient() as any;
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('role')
+            .eq('auth_user_id', request.user.sub)
+            .maybeSingle();
+
+          const dbRole = profile?.role as AppRole | undefined;
+          if (dbRole && dbRole !== request.user.role) {
+            this.logger.debug(
+              `Role refreshed from Supabase for ${request.user.email}: ${request.user.role} -> ${dbRole}`,
+            );
+            request.user.role = dbRole;
+          }
+        } catch (syncError) {
+          this.logger.warn(
+            `Role sync skipped: ${syncError instanceof Error ? syncError.message : 'unknown error'}`,
+          );
+        }
+      }
       
       this.logger.debug(`Token verified successfully for user: ${request.user?.email} (role: ${request.user?.role})`);
       return true;

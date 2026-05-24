@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { hasRole, loadSession, clearSession, saveSession } from "../lib/session";
 import {
   getDashboard,
+  getCapacity,
+  getInventory,
   getDisasterEvents,
   updateAdminDisasterEvent,
   updateProfile,
@@ -1386,15 +1388,17 @@ function AfterCalamityPage({
   addLog,
   disasters,
   setDisasters,
+  overview,
   authToken,
-  adminUserId,
+  adminAuthUserId,
 }: {
   showToast: (type: ToastItem["type"], title: string, sub?: string) => void;
   addLog: (type: string, msg: string, col: string) => void;
   disasters: DisasterEvent[];
   setDisasters: React.Dispatch<React.SetStateAction<DisasterEvent[]>>;
+  overview?: DashboardOverview | null;
   authToken?: string;
-  adminUserId?: string;
+  adminAuthUserId?: string;
 }) {
   type AfterStep =
     | "analyze_occupancy"
@@ -1412,6 +1416,9 @@ function AfterCalamityPage({
   const [deploying, setDeploying] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [capacityRows, setCapacityRows] = useState<Array<{ name: string; currentOccupancy: number; capacity: number; utilizationRate: number }>>([]);
+  const [inventoryRows, setInventoryRows] = useState<Array<{ category: string; quantity: number; unit: string }>>([]);
+  const [familyCount, setFamilyCount] = useState(0);
   const resetCycle = () => { setStep("analyze_occupancy"); setReportGenerated(false); };
 
   const activeDisaster =
@@ -1443,8 +1450,111 @@ function AfterCalamityPage({
 
   const currentIdx = STEPS.indexOf(step);
 
+  useEffect(() => {
+    if (!authToken) {
+      setCapacityRows([]);
+      setInventoryRows([]);
+      setFamilyCount(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all([
+      getCapacity(authToken).catch(() => []),
+      getInventory("admin", authToken).catch(() => []),
+      getFamilies(authToken).catch(() => []),
+    ]).then(([capacity, inventory, families]) => {
+      if (cancelled) return;
+
+      setCapacityRows(
+        (capacity ?? []).map((center) => ({
+          name: center.name,
+          currentOccupancy: Number(center.currentOccupancy ?? 0),
+          capacity: Number(center.capacity ?? 0),
+          utilizationRate: Number(center.utilizationRate ?? 0),
+        })),
+      );
+
+      setInventoryRows(
+        (inventory ?? []).map((item) => ({
+          category: (item.category || "other").toLowerCase(),
+          quantity: Number(item.quantity ?? 0),
+          unit: item.unit || "units",
+        })),
+      );
+
+      setFamilyCount(Array.isArray(families) ? families.length : 0);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
+
+  const totalEvacuees =
+    overview?.checkIns?.totalCheckedIn ??
+    capacityRows.reduce((sum, row) => sum + row.currentOccupancy, 0);
+  const sheltersActive =
+    overview?.capacity?.totalCenters ??
+    capacityRows.length;
+  const familiesRegistered =
+    familyCount > 0
+      ? familyCount
+      : Math.max(0, Math.ceil(totalEvacuees / 4));
+
+  const shelterSummaries =
+    capacityRows.length > 0
+      ? capacityRows
+      : [
+          {
+            name: "No shelter data available",
+            currentOccupancy: 0,
+            capacity: 0,
+            utilizationRate: 0,
+          },
+        ];
+
+  const inventoryByCategory = inventoryRows.reduce<Record<string, number>>((acc, row) => {
+    acc[row.category] = (acc[row.category] || 0) + row.quantity;
+    return acc;
+  }, {});
+
+  const reliefRows = [
+    {
+      item: "Food Packs",
+      required: totalEvacuees,
+      available: inventoryByCategory.food || 0,
+      unit: "units",
+    },
+    {
+      item: "Drinking Water",
+      required: totalEvacuees * 3,
+      available: inventoryByCategory.food || 0,
+      unit: "L",
+    },
+    {
+      item: "Medical Kits",
+      required: Math.ceil(totalEvacuees * 0.065),
+      available: inventoryByCategory.medicine || 0,
+      unit: "kits",
+    },
+    {
+      item: "Hygiene Kits",
+      required: familiesRegistered,
+      available: inventoryByCategory.hygiene || 0,
+      unit: "kits",
+    },
+    {
+      item: "Blankets & Mats",
+      required: familiesRegistered,
+      available: (inventoryByCategory.clothing || 0) + (inventoryByCategory.other || 0),
+      unit: "sets",
+    },
+  ];
+
   const handleApproveDeployment = useCallback(async () => {
-    if (!authToken || !adminUserId || !activeDisaster?.id) {
+    if (!authToken || !adminAuthUserId || !activeDisaster?.id) {
       showToast("error", "Deployment Failed", "Missing active disaster or admin session context.");
       return;
     }
@@ -1456,7 +1566,7 @@ function AfterCalamityPage({
         name: `${activeDisaster.name} Relief Deployment`,
         description: `Auto-created from Admin After Calamity workflow for ${activeDisaster.name}.`,
         startDate: new Date().toISOString(),
-        leadOfficerId: adminUserId,
+        leadOfficerId: adminAuthUserId,
         status: "active",
       });
 
@@ -1469,7 +1579,7 @@ function AfterCalamityPage({
           await createAdminDispatchOrder(authToken, {
             reportId,
             operationId: relief.id,
-            assignedTo: adminUserId,
+            assignedTo: adminAuthUserId,
             priority: "high",
             status: "pending",
             instructions: `Route relief goods for ${activeDisaster.name}.`,
@@ -1486,12 +1596,13 @@ function AfterCalamityPage({
         showToast("warning", "Deployment Partially Created", "Relief operation created; no incident report found for dispatch order.");
         addLog("APPROVED", `Relief operation created for ${activeDisaster.name}; dispatch pending incident report`, "var(--admin-amber)");
       }
-    } catch {
-      showToast("error", "Deployment Failed", "Could not create relief deployment in backend.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not create relief deployment in backend.";
+      showToast("error", "Deployment Failed", message);
     } finally {
       setDeploying(false);
     }
-  }, [activeDisaster, addLog, adminUserId, authToken, showToast]);
+  }, [activeDisaster, addLog, adminAuthUserId, authToken, showToast]);
 
   const handleBroadcastAllClear = useCallback(async () => {
     if (!authToken || !activeDisaster?.id) {
@@ -1506,10 +1617,16 @@ function AfterCalamityPage({
         .map((entry) => entry.trim())
         .filter(Boolean);
 
+      const fallbackAreas = disasters
+        .flatMap((event) => event.areas.split(",").map((entry) => entry.trim()))
+        .filter(Boolean);
+
+      const uniqueFallbackAreas = Array.from(new Set(fallbackAreas));
+
       const result = await broadcastAdminWarning(authToken, {
         type: "all_clear",
         severity: "info",
-        areas: targetAreas.length > 0 ? targetAreas : ["Teresa"],
+        areas: targetAreas.length > 0 ? targetAreas : uniqueFallbackAreas,
         message: `All clear for ${activeDisaster.name}. It is now safe to return home. Follow local authority guidance.`,
         useSMS: true,
         usePush: true,
@@ -1675,15 +1792,15 @@ function AfterCalamityPage({
               >
                 <div className="admin-stat blue">
                   <div className="admin-stat-label">Total Evacuees</div>
-                  <div className="admin-stat-value">18,432</div>
+                  <div className="admin-stat-value">{totalEvacuees.toLocaleString()}</div>
                 </div>
                 <div className="admin-stat green">
                   <div className="admin-stat-label">Shelters Active</div>
-                  <div className="admin-stat-value">14</div>
+                  <div className="admin-stat-value">{sheltersActive.toLocaleString()}</div>
                 </div>
                 <div className="admin-stat orange">
                   <div className="admin-stat-label">Families Registered</div>
-                  <div className="admin-stat-value">4,210</div>
+                  <div className="admin-stat-value">{familiesRegistered.toLocaleString()}</div>
                 </div>
               </div>
               <div
@@ -1694,38 +1811,16 @@ function AfterCalamityPage({
                   marginBottom: "1.25rem",
                 }}
               >
-                {[
-                  {
-                    site: "Evacuation Center A",
-                    evacuees: "3,240",
-                    capacity: "90%",
-                    status: "Near Full",
-                    cls: "amber",
-                  },
-                  {
-                    site: "Barangay Gym B4",
-                    evacuees: "1,800",
-                    capacity: "72%",
-                    status: "Stable",
-                    cls: "blue",
-                  },
-                  {
-                    site: "Community Hall C7",
-                    evacuees: "920",
-                    capacity: "46%",
-                    status: "Available",
-                    cls: "green",
-                  },
-                  {
-                    site: "Covered Court D2",
-                    evacuees: "2,110",
-                    capacity: "83%",
-                    status: "Near Full",
-                    cls: "amber",
-                  },
-                ].map((s) => (
+                {shelterSummaries.map((s) => {
+                  const capacityPct = s.capacity > 0
+                    ? Math.round((s.currentOccupancy / s.capacity) * 100)
+                    : Math.round(s.utilizationRate);
+                  const status = capacityPct >= 85 ? "Near Full" : capacityPct >= 60 ? "Stable" : "Available";
+                  const cls = capacityPct >= 85 ? "amber" : capacityPct >= 60 ? "blue" : "green";
+
+                  return (
                   <div
-                    key={s.site}
+                    key={s.name}
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
@@ -1737,7 +1832,7 @@ function AfterCalamityPage({
                     }}
                   >
                     <span style={{ fontWeight: 700, fontSize: "0.85rem" }}>
-                      {s.site}
+                      {s.name}
                     </span>
                     <span
                       style={{
@@ -1745,11 +1840,11 @@ function AfterCalamityPage({
                         color: "var(--admin-text-soft)",
                       }}
                     >
-                      {s.evacuees} evacuees  {s.capacity} capacity
+                      {s.currentOccupancy.toLocaleString()} evacuees  {capacityPct}% capacity
                     </span>
-                    <span className={`admin-badge ${s.cls}`}>{s.status}</span>
+                    <span className={`admin-badge ${cls}`}>{status}</span>
                   </div>
-                ))}
+                );})}
               </div>
               <button
                 className="admin-btn admin-btn-accent"
@@ -1790,43 +1885,9 @@ function AfterCalamityPage({
                   marginBottom: "1.25rem",
                 }}
               >
-                {[
-                  {
-                    item: "Food Packs",
-                    required: "18,432 units",
-                    available: "16,000 units",
-                    status: "Shortage",
-                    cls: "amber",
-                  },
-                  {
-                    item: "Drinking Water",
-                    required: "55,296 L",
-                    available: "60,000 L",
-                    status: "Sufficient",
-                    cls: "green",
-                  },
-                  {
-                    item: "Medical Kits",
-                    required: "1,200 kits",
-                    available: "980 kits",
-                    status: "Shortage",
-                    cls: "amber",
-                  },
-                  {
-                    item: "Hygiene Kits",
-                    required: "4,210 kits",
-                    available: "5,000 kits",
-                    status: "Sufficient",
-                    cls: "green",
-                  },
-                  {
-                    item: "Blankets & Mats",
-                    required: "4,210 sets",
-                    available: "3,800 sets",
-                    status: "Shortage",
-                    cls: "amber",
-                  },
-                ].map((r) => (
+                {reliefRows.map((r) => {
+                  const shortage = r.available < r.required;
+                  return (
                   <div
                     key={r.item}
                     style={{
@@ -1848,11 +1909,11 @@ function AfterCalamityPage({
                         color: "var(--admin-text-soft)",
                       }}
                     >
-                      Need: {r.required}  Have: {r.available}
+                      Need: {r.required.toLocaleString()} {r.unit}  Have: {r.available.toLocaleString()} {r.unit}
                     </span>
-                    <span className={`admin-badge ${r.cls}`}>{r.status}</span>
+                    <span className={`admin-badge ${shortage ? "amber" : "green"}`}>{shortage ? "Shortage" : "Sufficient"}</span>
                   </div>
-                ))}
+                );})}
               </div>
               <div style={{ display: "flex", gap: "0.6rem" }}>
                 <button
@@ -4562,8 +4623,9 @@ export default function AdminPortal() {
               addLog={addLog}
               disasters={disasters}
               setDisasters={setDisasters}
+              overview={overview}
               authToken={session?.accessToken}
-              adminUserId={session?.user.id}
+              adminAuthUserId={session?.user.authUserId ?? session?.user.id}
             />
           )}
           {page === "disaster_monitoring" && (

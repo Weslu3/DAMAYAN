@@ -43,7 +43,7 @@ import { CheckInService } from '../../check-in/check-in.service.js';
 
 @Controller('site-manager')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(AppRole.LINE_MANAGER)
+@Roles(AppRole.LINE_MANAGER, AppRole.ADMIN, AppRole.DISPATCHER, AppRole.CITIZEN)
 export class SiteManagerController {
   constructor(
     @Inject(SiteManagerProxyService) private readonly siteManagerProxyService: SiteManagerProxyService,
@@ -425,6 +425,14 @@ export class SiteManagerController {
   @Patch('check-ins/:id/checkout')
   checkOut(@Param('id') id: string) {
     return this.siteManagerProxyService.checkOut(id);
+  }
+
+  @Post('check-ins/checkout-by-qr')
+  checkOutByQr(@Body() body: { qrCode: string }) {
+    if (!body?.qrCode?.trim()) {
+      throw new BadRequestException('qrCode is required');
+    }
+    return this.siteManagerProxyService.checkOutByQr(body.qrCode.trim());
   }
 
   @Post('operations/close')

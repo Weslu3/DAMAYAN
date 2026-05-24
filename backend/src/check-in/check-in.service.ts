@@ -146,25 +146,26 @@ export class CheckInService {
 
   async scanQr(scanQrDto: ScanQrDto): Promise<CheckIn> {
     const raw = scanQrDto.qrCode.trim();
-    const evacueeNumber = raw.startsWith('QR-') ? raw.replace('QR-', '') : raw;
+    const evacueeNumber = this.normalizeFamilyGroupQr(raw);
 
-    // Family group QR codes start with "FAM-"
-    if (evacueeNumber.startsWith('FAM-')) {
+    // Family group QR codes may use FAM-* or FAMILY-GROUP-* formats.
+    if (/^(FAM-|FAMILY-GROUP-)/i.test(evacueeNumber)) {
       return this.scanFamilyGroupQr(evacueeNumber, scanQrDto);
     }
 
-    return this.createManual({ evacueeNumber });
+    return this.createManual({ evacueeNumber, centerId: scanQrDto.centerId });
   }
 
   /** Check in all members of a family group at once. Returns the head's check-in record. */
   private async scanFamilyGroupQr(familyQrCodeId: string, scanQrDto: ScanQrDto): Promise<CheckIn> {
     const supabase = this.supabaseService.getClient() as any;
+    const qrCandidates = this.buildFamilyQrCandidates(familyQrCodeId);
 
     // Resolve the group row to get head_user_id
     const { data: groupRow } = await supabase
       .from('family_groups')
       .select('id, head_user_id')
-      .eq('family_qr_code_id', familyQrCodeId)
+      .in('family_qr_code_id', qrCandidates)
       .maybeSingle();
 
     // Fetch head's citizen record and member QR codes in parallel
@@ -173,11 +174,18 @@ export class CheckInService {
         ? supabase.from('register_citizens').select('qr_code_id, full_name').eq('user_id', groupRow.head_user_id).maybeSingle()
         : Promise.resolve({ data: null }),
       groupRow
-        ? supabase.from('family_group_members').select('citizen_qr_code_id').eq('family_group_id', groupRow.id)
+        ? supabase
+            .from('family_group_members')
+            .select('citizen_qr_code_id, member_user_id, member_full_name')
+            .eq('family_group_id', groupRow.id)
         : Promise.resolve({ data: [] }),
     ]);
 
-    const memberQrCodes: string[] = (memberRows ?? []).map((m: any) => m.citizen_qr_code_id);
+    const members = (memberRows ?? []) as Array<{
+      citizen_qr_code_id?: string | null;
+      member_user_id?: string | null;
+      member_full_name?: string | null;
+    }>;
     const results: CheckIn[] = [];
 
     // Resolve head's display name — fall back to user_profiles when full_name is blank
@@ -193,9 +201,15 @@ export class CheckInService {
       }
     }
 
-    // Check in the family head first
-    if (headCitizen?.qr_code_id) {
-      // Head has a citizen registration — use the standard QR path, passing resolved name
+    // Check in the family head first using head_user_id to avoid ambiguous QR mappings.
+    if (groupRow?.head_user_id) {
+      try {
+        const checkIn = await this.checkInByAuthUserId(groupRow.head_user_id, headFullName, scanQrDto.centerId);
+        results.push(checkIn);
+      } catch (e) {
+        console.error('[FAM-QR] Head auth_user_id check-in failed:', e);
+      }
+    } else if (headCitizen?.qr_code_id) {
       try {
         const checkIn = await this.createManual({
           evacueeNumber: headCitizen.qr_code_id,
@@ -206,28 +220,37 @@ export class CheckInService {
       } catch (e) {
         console.error('[FAM-QR] Head QR check-in failed:', e);
       }
-    } else if (groupRow?.head_user_id) {
-      // Head has no QR code — check in directly via auth_user_id
-      try {
-        const checkIn = await this.checkInByAuthUserId(groupRow.head_user_id, headFullName, scanQrDto.centerId);
-        results.push(checkIn);
-      } catch (e) {
-        console.error('[FAM-QR] Head auth_user_id check-in failed:', e);
-      }
     }
 
     // Check in all registered members
-    for (const qr of memberQrCodes) {
+    for (const member of members) {
+      const memberQr = member.citizen_qr_code_id?.trim() || null;
+      const memberAuthUserId = member.member_user_id?.trim() || null;
+      const memberName = member.member_full_name?.trim() || null;
+
       try {
-        const checkIn = await this.createManual({ evacueeNumber: qr, centerId: scanQrDto.centerId });
-        results.push(checkIn);
+        if (memberAuthUserId) {
+          const checkIn = await this.checkInByAuthUserId(memberAuthUserId, memberName, scanQrDto.centerId);
+          results.push(checkIn);
+          continue;
+        }
+
+        if (memberQr) {
+          const checkIn = await this.createManual({ evacueeNumber: memberQr, centerId: scanQrDto.centerId });
+          results.push(checkIn);
+          continue;
+        }
       } catch (e) {
-        console.error('[FAM-QR] Member check-in failed for QR', qr, ':', e);
+        console.error('[FAM-QR] Member check-in failed:', {
+          qr: memberQr,
+          authUserId: memberAuthUserId,
+          error: e,
+        });
       }
     }
 
     if (results.length > 0) return results[0];
-    return this.createManual({ evacueeNumber: familyQrCodeId });
+    throw new BadRequestException('Family group has no check-in-eligible members. Ensure members have linked citizen QR or auth users.');
   }
 
   /** Check in a user directly by their auth_user_id when they have no citizen QR code. */
@@ -283,6 +306,7 @@ export class CheckInService {
     const { evacueeNumber, firstName, lastName, familySize, centerId } = createCheckInDto;
     const dtoFullName = [firstName, lastName].filter(Boolean).join(' ').trim() || null;
     const supabase = this.supabaseService.getClient() as any;
+    const qrCandidates = this.buildQrCandidates(evacueeNumber);
 
     let authUserId: string | null = null;
     let citizenFullName: string | null = null;
@@ -291,7 +315,9 @@ export class CheckInService {
     const citizenMatch = await supabase
       .from('register_citizens')
       .select('user_id, full_name')
-      .eq('qr_code_id', evacueeNumber)
+      .in('qr_code_id', qrCandidates)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (citizenMatch.data) {
@@ -304,12 +330,34 @@ export class CheckInService {
         .maybeSingle();
       existingEvacuee = data;
     } else {
+      // Family members may exist in family_group_members even when register_citizens lookup misses.
+      const { data: familyMember } = await supabase
+        .from('family_group_members')
+        .select('member_user_id, member_full_name')
+        .in('citizen_qr_code_id', qrCandidates)
+        .order('added_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (familyMember?.member_user_id) {
+        authUserId = familyMember.member_user_id;
+        citizenFullName = familyMember.member_full_name ?? null;
+        const { data } = await supabase
+          .from('evacuees')
+          .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
+          .eq('auth_user_id', authUserId)
+          .maybeSingle();
+        existingEvacuee = data;
+      }
+
+      if (!existingEvacuee) {
       const { data } = await supabase
         .from('evacuees')
         .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
         .eq('family_head', evacueeNumber)
         .maybeSingle();
       existingEvacuee = data;
+      }
     }
 
     if (existingEvacuee && (existingEvacuee.status as EvacueeDbStatus) === 'checked_in' && existingEvacuee.check_in_date) {
@@ -357,6 +405,11 @@ export class CheckInService {
           'No active disaster found. Please create a disaster event before checking in evacuees.',
         );
       }
+      if (!authUserId) {
+        throw new BadRequestException(
+          `Unable to resolve auth user for QR ${evacueeNumber}. Ensure this member is linked to a registered citizen account.`,
+        );
+      }
       const { data, error } = await supabase
         .from('evacuees')
         .insert({
@@ -393,6 +446,67 @@ export class CheckInService {
       throw new NotFoundException(`Check-in with ID ${id} not found`);
     }
     return this.findOne(id);
+  }
+
+  async checkOutByQr(qrCode: string): Promise<CheckIn> {
+    const supabase = this.supabaseService.getClient() as any;
+    const normalized = this.normalizeFamilyGroupQr((qrCode ?? '').trim());
+    const qrCandidates = this.buildQrCandidates(normalized);
+
+    if (/^(FAM-|FAMILY-GROUP-)/i.test(normalized)) {
+      const result = await this.checkOutFamilyGroup(normalized);
+      if (result.checkedOut <= 0) {
+        throw new NotFoundException(`No active check-ins found for family QR ${normalized}`);
+      }
+      return {
+        id: normalized,
+        evacueeId: normalized,
+        evacueeNumber: normalized,
+        firstName: 'Family',
+        lastName: 'Group',
+        zone: 'Multiple Centers',
+        location: 'Multiple Barangays',
+        checkInTime: new Date(),
+        qrCode: normalized,
+        status: 'checked-out',
+      };
+    }
+
+    const citizenLookup = await supabase
+      .from('register_citizens')
+      .select('user_id')
+      .in('qr_code_id', qrCandidates)
+      .maybeSingle();
+
+    if (citizenLookup?.data?.user_id) {
+      const { data: evacuees } = await supabase
+        .from('evacuees')
+        .select('id')
+        .eq('auth_user_id', citizenLookup.data.user_id)
+        .eq('status', 'checked_in')
+        .order('check_in_date', { ascending: false })
+        .limit(1);
+
+      const latest = (evacuees ?? [])[0];
+      if (latest?.id) {
+        return this.checkOut(latest.id);
+      }
+    }
+
+    const { data: evacueesByHead } = await supabase
+      .from('evacuees')
+      .select('id')
+      .in('family_head', qrCandidates)
+      .eq('status', 'checked_in')
+      .order('check_in_date', { ascending: false })
+      .limit(1);
+
+    const latestByHead = (evacueesByHead ?? [])[0];
+    if (latestByHead?.id) {
+      return this.checkOut(latestByHead.id);
+    }
+
+    throw new NotFoundException(`No active check-in found for QR ${qrCode}`);
   }
 
   async checkOutFamilyGroup(familyQrCodeId: string): Promise<{ checkedOut: number }> {
@@ -540,13 +654,15 @@ export class CheckInService {
   }
 
   private async findEvacueeRecord(identifier: string, supabase: any) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+    const normalizedIdentifier = identifier.trim();
+    const qrCandidates = this.buildQrCandidates(normalizedIdentifier);
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalizedIdentifier);
     
     if (isUuid) {
       const directMatch = await supabase
         .from('evacuees')
         .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
-        .eq('id', identifier)
+        .eq('id', normalizedIdentifier)
         .maybeSingle();
 
       if (directMatch.data) {
@@ -557,7 +673,7 @@ export class CheckInService {
     const citizenMatch = await supabase
       .from('register_citizens')
       .select('user_id')
-      .eq('qr_code_id', identifier)
+      .in('qr_code_id', qrCandidates)
       .maybeSingle();
 
     if (!citizenMatch.data) {
@@ -569,6 +685,51 @@ export class CheckInService {
       .select('id, auth_user_id, disaster_id, center_id, family_head, family_size, special_needs, check_in_date, check_out_date, status')
       .eq('auth_user_id', citizenMatch.data.user_id)
       .maybeSingle();
+  }
+
+  private buildQrCandidates(input: string): string[] {
+    const raw = (input ?? '').trim();
+    if (!raw) return [];
+
+    const dePrefixed = raw.replace(/^QR-/i, '');
+    return Array.from(new Set([
+      raw,
+      raw.toUpperCase(),
+      dePrefixed,
+      dePrefixed.toUpperCase(),
+      `QR-${dePrefixed}`,
+      `QR-${dePrefixed.toUpperCase()}`,
+    ]));
+  }
+
+  private buildFamilyQrCandidates(input: string): string[] {
+    const normalized = this.normalizeFamilyGroupQr(input);
+    if (!normalized) return [];
+
+    const dePrefixed = normalized.replace(/^QR-/i, '');
+    return Array.from(new Set([
+      normalized,
+      normalized.toUpperCase(),
+      dePrefixed,
+      dePrefixed.toUpperCase(),
+      `QR-${dePrefixed}`,
+      `QR-${dePrefixed.toUpperCase()}`,
+    ]));
+  }
+
+  private normalizeFamilyGroupQr(input: string): string {
+    const raw = (input ?? '').trim();
+    if (!raw) return '';
+
+    const queryMatch = /[?&]qrCode=([^&#]+)/i.exec(raw);
+    const decoded = queryMatch?.[1] ? decodeURIComponent(queryMatch[1]) : raw;
+    const familyMatch = /(?:QR-)?(?:FAM|FAMILY-GROUP)-[A-Z0-9-]+/i.exec(decoded);
+
+    if (familyMatch?.[0]) {
+      return familyMatch[0].replace(/^QR-/i, '').toUpperCase();
+    }
+
+    return decoded;
   }
 
   private toCheckIn(

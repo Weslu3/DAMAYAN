@@ -12,6 +12,8 @@ import type {
 import Constants from "expo-constants";
 import { NativeModules, Platform } from "react-native";
 
+const isNative = Platform.OS === "android" || Platform.OS === "ios";
+
 function extractHostFromUri(uri?: string | null): string | null {
   const raw = uri?.trim();
   if (!raw) {
@@ -69,6 +71,10 @@ function getApiFallbackHint(): string {
     return "";
   }
 
+  if (isNative) {
+    return " Start Expo with `npm run start` (LAN) or `npm run start:tunnel` so EXPO_PUBLIC_API_BASE_URL is set to your computer LAN IP. Avoid running `npx expo start -c` directly for physical devices.";
+  }
+
   if (Platform.OS === "android") {
     return " Set EXPO_PUBLIC_API_BASE_URL to your computer's LAN IP when using Expo Go on a physical Android device.";
   }
@@ -80,24 +86,47 @@ function getApiFallbackHint(): string {
   return "";
 }
 
+function normalizeBaseUrl(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  return raw.replace(/\/$/, "");
+}
+
+function hostToApiBase(host: string | null): string | null {
+  const cleanHost = host?.trim();
+  if (!cleanHost) return null;
+  return `http://${cleanHost}:3001/api`;
+}
+
+export function getApiBaseUrlCandidates(): string[] {
+  const configured = normalizeBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
+  const webHost = getWebHost();
+  const expoHost = getExpoHostUri();
+  const packagerHost = getReactNativePackagerHost();
+
+  const candidates = [
+    configured,
+    hostToApiBase(webHost),
+    hostToApiBase(expoHost),
+    hostToApiBase(packagerHost),
+    Platform.select({
+      android: "http://10.0.2.2:3001/api",
+      default: "http://localhost:3001/api",
+    }) as string,
+  ].filter(Boolean) as string[];
+
+  return Array.from(new Set(candidates));
+}
+
 export function getApiBaseUrl(): string {
-  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim().replace(/\/$/, "");
-  if (configured) {
-    return configured;
-  }
-
-  const host = getWebHost() ?? getExpoHostUri() ?? getReactNativePackagerHost();
-  if (host) {
-    return `http://${host}:3001/api`;
-  }
-
-  return Platform.select({
-    android: "http://10.0.2.2:3001/api",
-    default: "http://localhost:3001/api",
-  }) as string;
+  return getApiBaseUrlCandidates()[0] ?? "http://localhost:3001/api";
 }
 
 const API_BASE_URL = getApiBaseUrl();
+
+if (__DEV__) {
+  console.log(`[API] Base URL resolved to ${API_BASE_URL}`);
+}
 
 function buildNetworkErrorMessage(detail?: string): string {
   const detailSuffix = detail ? " (" + detail + ")" : "";
@@ -144,15 +173,25 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string) 
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
-      headers,
-    });
-  } catch (error) {
+  const baseCandidates = getApiBaseUrlCandidates();
+  let response: Response | null = null;
+  let lastNetworkError: unknown = null;
+
+  for (const baseUrl of baseCandidates) {
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        ...init,
+        headers,
+      });
+      break;
+    } catch (error) {
+      lastNetworkError = error;
+    }
+  }
+
+  if (!response) {
     throw new ApiError(
-      buildNetworkErrorMessage(error instanceof Error ? error.message : undefined),
+      buildNetworkErrorMessage(lastNetworkError instanceof Error ? lastNetworkError.message : undefined),
       0,
     );
   }
@@ -516,10 +555,10 @@ export async function registerCitizen(token: string, payload: {
   gender?: string;
   bloodType?: string;
   medicalConditions?: string;
-  registrationType: "Individual" | "Household";
-  qrCodeId: string;
+  registrationType: "Individual" | "Family";
+  qrCodeId?: string;
 }) {
-  return request<any>("/citizen/register", {
+  return request<{ qrCodeId?: string }>("/citizen/register", {
     method: "POST",
     body: JSON.stringify(payload),
   }, token);

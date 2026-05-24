@@ -70,6 +70,7 @@ export class CitizenController {
     console.log('Registering citizen for user:', userId);
     return this.registrationsService.createCitizen({
       ...body,
+      qrCodeId: undefined,
       userId,
     });
   }

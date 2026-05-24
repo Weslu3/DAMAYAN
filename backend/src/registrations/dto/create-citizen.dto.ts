@@ -29,9 +29,9 @@ export class CreateCitizenDto {
   @IsString()
   registrationType!: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  qrCodeId!: string;
+  qrCodeId?: string;
 
   @IsOptional()
   @IsString()

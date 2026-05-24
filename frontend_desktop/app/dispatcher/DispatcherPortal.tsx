@@ -24,7 +24,6 @@ import {
   priorityColor,
   UNIT_TYPE_LABEL,
   UNIT_TYPE_ICON,
-  CATEGORY_ICON,
   CATEGORY_LABEL,
   shortenId,
 } from "./data";
@@ -33,8 +32,6 @@ import {
   geocodeDispatcherAddress,
   getDispatcherOverview,
   getDispatcherProfile,
-  getDispatcherIncidents,
-  getDispatcherVolunteers,
   getDispatcherCityData,
   sendDispatcherBroadcast,
   updateIncidentReport,
@@ -650,9 +647,14 @@ function AwaitingPage({ onProceed }: { onProceed: () => void }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // DASHBOARD PAGE
 // ══════════════════════════════════════════════════════════════════════════════
-function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: {
+function DashboardPage({ incidents, units, teams, currentUser, onDispatch, onMarkInvalid, status }: {
   incidents: Incident[];
   units: Unit[];
+  teams: Team[];
+  currentUser: {
+    cluster: string;
+    station: string;
+  } | null;
   onDispatch: (inc: Incident) => void;
   onMarkInvalid: (inc: Incident, reason: string) => void;
   status: "active" | "inactive";
@@ -685,14 +687,17 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
     { label: "Total Units",      value: units.length,     color: "var(--d-text)",    bgColor: "rgba(45, 49, 45, 0.08)",   icon: "map",      desc: "Registered responders" },
   ];
 
-  const ACTIVITY = [
-    { time: "09:45 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-03 dispatched to INC-0148 — Lacson Avenue" },
-    { time: "09:37 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-03 & POL-04 dispatched to INC-0149 — Cayco St." },
-    { time: "09:30 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "3 units dispatched to INC-0150 — Aurora Blvd." },
-    { time: "08:23 AM", type: "RESOLVED",  color: "var(--d-green)",   msg: "INC-0138 resolved — Structure fire, Flores St." },
-    { time: "07:58 AM", type: "ON SCENE",  color: "var(--d-primary)", msg: "FIRE-03 on scene at Sta. Mesa incident" },
-    { time: "07:43 AM", type: "DISPATCH",  color: "var(--d-blue)",    msg: "AMB-01 dispatched to INC-0139 — Dagupan St." },
-  ];
+  const teamRoleRows = teams.slice(0, 8).map((team) => {
+    const onDuty = team.status === "Ready" || team.status === "Deployed";
+    const dutyColor = onDuty ? "var(--d-green)" : "var(--d-text-sub)";
+
+    return {
+      name: team.leader || team.name,
+      role: `${UNIT_TYPE_LABEL[team.type]} - ${team.station}`,
+      duty: onDuty ? "On Duty" : "Off Duty",
+      color: dutyColor,
+    };
+  });
 
   // Queue = New + Waiting + Dispatched (but NOT In Progress/Resolved/Invalid)
   const queueInc = incidents.filter(i => ["New","Waiting","Dispatched"].includes(i.status));
@@ -726,7 +731,7 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
       <div className="dp-dash-greeting">
         <div className="dp-dash-greeting-date">{today}</div>
         <h1>Command Overview</h1>
-        <p>Metro Cluster 3 - Sampaloc Command Center</p>
+        <p>{`${currentUser?.cluster || "Unassigned Cluster"} - ${currentUser?.station || "Unassigned Command Center"}`}</p>
       </div>
 
       <div className="dp-stats-row dp-stats-row-4col">
@@ -894,14 +899,14 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
         </div>
 
         <div className="dp-team-roles-list">
-          {/* Mock Site Manager data showing On-Duty/Off-Duty status */}
-          {[
-            { name: "Maria Santos", role: "Site Manager - Relief Center A", duty: "On Duty", color: "var(--d-green)" },
-            { name: "Juan Reyes", role: "Site Manager - Relief Center B", duty: "On Duty", color: "var(--d-green)" },
-            { name: "Ana Cruz", role: "Site Manager - Inventory Hub", duty: "Off Duty", color: "var(--d-text-sub)" },
-            { name: "Pedro Gonzales", role: "Line Manager - Operations", duty: "On Duty", color: "var(--d-green)" },
-          ].map((person, idx) => (
-            <div key={idx} className="dp-team-role-item">
+          {teamRoleRows.length === 0 && (
+            <div className="dp-empty">
+              <div className="dp-empty-title">No responder teams available yet</div>
+            </div>
+          )}
+
+          {teamRoleRows.map((person) => (
+            <div key={`${person.name}-${person.role}`} className="dp-team-role-item">
               <div className="dp-team-role-avatar" style={{ background: person.color + "15" }}>
                 <span style={{ color: person.color, fontWeight: 800 }}>
                   {person.name.split(" ").map(n => n[0]).join("")}
@@ -919,9 +924,6 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
           ))}
         </div>
       </div>
-
-      {/* Real-time notification listener for duty status changes */}
-      <DutyStatusNotificationListener />
     </div>
   );
 }
@@ -930,34 +932,7 @@ function DashboardPage({ incidents, units, onDispatch, onMarkInvalid, status }: 
 // DUTY STATUS NOTIFICATION LISTENER
 // ════════════════════════════════════════════════════════════════════════════════
 function DutyStatusNotificationListener() {
-  const toast = useToast();
-  const [lastNotification, setLastNotification] = useState<{ name: string; status: string; time: number } | null>(null);
-
-  useEffect(() => {
-    // Simulate receiving notifications when Site Managers toggle duty status
-    // In production, this would be a WebSocket or real-time event listener
-    const mockNotificationInterval = setInterval(() => {
-      const notifications = [
-        { name: "Maria Santos (Site Manager - Relief Center A)", status: "toggled Off-Duty", statusType: "off-duty" },
-        { name: "Juan Reyes (Site Manager - Relief Center B)", status: "is now On-Duty", statusType: "on-duty" },
-      ];
-
-      // Randomly trigger a notification every 15 seconds (for demo)
-      if (Math.random() > 0.7) {
-        const notification = notifications[Math.floor(Math.random() * notifications.length)];
-        toast.show(` NOTIFICATION: ${notification.name} ${notification.status}`);
-        setLastNotification({
-          name: notification.name,
-          status: notification.statusType,
-          time: Date.now(),
-        });
-      }
-    }, 15000);
-
-    return () => clearInterval(mockNotificationInterval);
-  }, [toast.show]);
-
-  return null; // This component only handles side effects
+  return null;
 }
 // Queue row — dispatch navigates to Resource Map dispatch mode; invalid removes from queue
 function QueueRow({
@@ -6427,7 +6402,6 @@ function mapVolunteerRoleToTeam(role: DispatcherVolunteerTeam): Team {
 
 function mapBackendProfile(profile: BackendDispatcherProfile) {
   return {
-    ...MOCK_DISPATCHER,
     id: profile.id,
     name: profile.name,
     username: profile.username,
@@ -7004,6 +6978,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <DashboardPage
               incidents={incidents.filter((i) => i.status !== "Resolved" && i.status !== "Invalid")}
               units={units}
+              teams={teams}
+              currentUser={dispUser}
               onDispatch={handleDashboardDispatch}
               onMarkInvalid={handleDashboardMarkInvalid}
               status={status}

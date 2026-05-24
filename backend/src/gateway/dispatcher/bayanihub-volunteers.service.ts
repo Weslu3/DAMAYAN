@@ -79,10 +79,14 @@ export interface DispatcherVolunteerTeam {
 @Injectable()
 export class BayanihubVolunteersService {
   private getClient(): BayanihubClient {
-    const url = process.env.BAYANIHUB_SUPABASE_URL;
+    const url =
+      process.env.BAYANIHUB_SUPABASE_URL ??
+      process.env.BAYANIHUB_DB_URL;
     const key =
       process.env.BAYANIHUB_SUPABASE_SERVICE_ROLE_KEY ??
-      process.env.BAYANIHUB_ANON_KEY;
+      process.env.BAYANIHUB_DB_SERVICE_ROLE_KEY ??
+      process.env.BAYANIHUB_ANON_KEY ??
+      process.env.BAYANIHUB_DB_ANON_KEY;
 
     if (!url || !key) {
       throw new BadRequestException(

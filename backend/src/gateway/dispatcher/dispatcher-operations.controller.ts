@@ -6,6 +6,7 @@ import { Roles } from '../../common/auth/roles.decorator.js';
 import { AppRole } from '../../../libs/contracts/src/roles.js';
 import { SiteManagerProxyService } from '../site-manager/site-manager.proxy.service.js';
 import { DispatcherAccountStatusService } from './dispatcher-account-status.service.js';
+import { DispatcherService } from './dispatcher.service.js';
 
 interface RequestWithUser extends Request {
   user: { sub: string; email: string; role: AppRole };
@@ -18,11 +19,13 @@ export class DispatcherOperationsController {
     private readonly siteManagerProxyService: SiteManagerProxyService,
     @Inject(DispatcherAccountStatusService)
     private readonly dispatcherAccountStatusService: DispatcherAccountStatusService,
+    @Inject(DispatcherService)
+    private readonly dispatcherService: DispatcherService,
   ) {}
 
   @Get('volunteers')
   findVolunteerOrganizations(@Query('search') search?: string) {
-    return this.siteManagerProxyService.findOrganizations(search);
+    return this.dispatcherService.findResources(search);
   }
 
   @Get('dispatch-orders')

@@ -13,6 +13,8 @@
     "start:all:once": "npm run ports:free && concurrently -n gateway,auth,operations -c cyan,magenta,green \"npm run start:gateway\" \"npm run start:auth-service\" \"npm run start:operations-service\"",
     "start:all:stable": "npm run ports:free && concurrently --restart-tries 9999 --restart-after 3000 -n gateway,auth,operations -c cyan,magenta,green \"npm run start:gateway\" \"npm run start:auth-service\" \"npm run start:operations-service\"",
     "start:all": "npm run start:all:stable",
+    "seed:new-supabase": "tsx scripts/seed_new_supabase.ts",
+    "seed:manual-users": "tsx scripts/seed_manual_qr_users.ts",
     "seed:ph-city-regions": "tsx scripts/seed_ph_city_regions.ts",
     "geocode:evac": "tsx scripts/geocode_evacuation_centers.ts"
   },

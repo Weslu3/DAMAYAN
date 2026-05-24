@@ -702,26 +702,53 @@ export async function checkOutById(token: string, id: string) {
   }, token);
 }
 
+export async function checkOutByQrCode(token: string, qrCode: string) {
+  return request<CheckInRecord>("/site-manager/check-ins/checkout-by-qr", {
+    method: "POST",
+    body: JSON.stringify({ qrCode }),
+  }, token);
+}
+
+function qrCandidates(input: string): string[] {
+  const raw = (input ?? "").trim();
+  if (!raw) return [];
+  const dePrefixed = raw.replace(/^QR-/i, "");
+  const withPrefix = `QR-${dePrefixed}`;
+  return Array.from(new Set([raw, dePrefixed, withPrefix]));
+}
+
 export async function getCheckInByQrCode(token: string, qrCodeId: string): Promise<CheckInRecord | null> {
   const all = await request<CheckInRecord[]>("/site-manager/check-ins", {}, token);
+  const candidates = qrCandidates(qrCodeId);
   return all.find(
-    (r) => (r.qrCode === qrCodeId || r.evacueeId === qrCodeId || r.evacueeNumber === qrCodeId) && r.status === "checked-in"
+    (r) =>
+      (candidates.includes(r.qrCode || "") ||
+        candidates.includes(r.evacueeId || "") ||
+        candidates.includes(r.evacueeNumber || "")) &&
+      r.status === "checked-in"
   ) ?? null;
 }
 
 export async function getCitizenByQrCode(token: string, qrCodeId: string) {
-  const results = await request<Array<{
-    id: string;
-    userId?: string;
-    fullName?: string;
-    firstName?: string;
-    lastName?: string;
-    registrationType?: string;
-    qrCodeId?: string;
-    familySize?: number;
-    createdAt: string;
-  }>>(`/site-manager/citizens?search=${encodeURIComponent(qrCodeId)}`, {}, token);
-  return results.find((c) => c.qrCodeId === qrCodeId) ?? null;
+  const candidates = qrCandidates(qrCodeId);
+  for (const candidate of candidates) {
+    const results = await request<Array<{
+      id: string;
+      userId?: string;
+      fullName?: string;
+      firstName?: string;
+      lastName?: string;
+      registrationType?: string;
+      qrCodeId?: string;
+      familySize?: number;
+      createdAt: string;
+    }>>(`/site-manager/citizens?search=${encodeURIComponent(candidate)}`, {}, token);
+
+    const found = results.find((c) => candidates.includes(c.qrCodeId || "")) ?? null;
+    if (found) return found;
+  }
+
+  return null;
 }
 
 export interface FamilyGroupMemberRecord {

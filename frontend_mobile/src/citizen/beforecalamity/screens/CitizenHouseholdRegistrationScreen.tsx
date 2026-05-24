@@ -201,8 +201,7 @@ export function CitizenHouseholdRegistrationScreen({
         gender: authUser.gender || "Female",
         bloodType: authUser.bloodType || "O+",
         medicalConditions: authUser.medicalConditions || "None",
-        registrationType: "Household",
-        qrCodeId: randomCode,
+        registrationType: "Family",
       });
 
       // 2. Register all other family members

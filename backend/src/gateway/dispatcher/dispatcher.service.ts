@@ -36,6 +36,16 @@ interface TeamStatusRow {
   address: string | null;
 }
 
+interface DispatcherResourceRow {
+  id: string;
+  name: string;
+  type: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  address?: string;
+  verified: boolean;
+}
+
 interface DispatcherProfileRow {
   id: string;
   auth_user_id: string;
@@ -73,8 +83,8 @@ export class DispatcherService {
           console.warn(`[DispatcherService] findDispatchOrders failed: ${error instanceof Error ? error.message : error}`);
           return [];
         }),
-        this.siteManagerProxyService.findOrganizations().catch((error: unknown) => {
-          console.warn(`[DispatcherService] findOrganizations failed: ${error instanceof Error ? error.message : error}`);
+        this.findResources().catch((error: unknown) => {
+          console.warn(`[DispatcherService] findResources failed: ${error instanceof Error ? error.message : error}`);
           return [];
         }),
         this.siteManagerProxyService.findDisasterEvents().catch((error: unknown) => {
@@ -184,8 +194,38 @@ export class DispatcherService {
     return this.siteManagerProxyService.deleteDispatchOrder(id);
   }
 
-  findResources(search?: string) {
-    return this.siteManagerProxyService.findOrganizations(search);
+  async findResources(search?: string): Promise<DispatcherResourceRow[]> {
+    const [units, teams] = await Promise.all([
+      this.bayanihubVolunteersService.findVolunteerUnits(search),
+      this.bayanihubVolunteersService.findVolunteerRoleTeams(search),
+    ]);
+
+    const mappedUnits: DispatcherResourceRow[] = units.map((unit) => ({
+      id: unit.id,
+      name: unit.name,
+      type: unit.type,
+      contactEmail: '',
+      contactPhone: unit.contact,
+      address: unit.station,
+      verified: unit.status !== 'Offline',
+    }));
+
+    const mappedTeams: DispatcherResourceRow[] = teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      type: team.type,
+      contactEmail: '',
+      contactPhone: team.contact,
+      address: team.station,
+      verified: team.status !== 'Offline',
+    }));
+
+    const merged = [...mappedUnits, ...mappedTeams];
+    const deduped = new Map<string, DispatcherResourceRow>();
+    for (const item of merged) {
+      deduped.set(item.id, item);
+    }
+    return Array.from(deduped.values());
   }
 
   findVolunteerUnits(search?: string) {

@@ -8,9 +8,10 @@ import { RolesGuard } from '../../common/auth/roles.guard.js';
 import { ApiCenterModule } from '../../apicenter/apicenter.module.js';
 import { FamilyGroupsModule } from '../../family-groups/family-groups.module.js';
 import { CheckInModule } from '../../check-in/check-in.module.js';
+import { SupabaseModule } from '../../supabase/supabase.module.js';
 
 @Module({
-  imports: [GatewayClientsModule, ApiCenterModule, FamilyGroupsModule, CheckInModule, JwtModule.register({})],
+  imports: [GatewayClientsModule, ApiCenterModule, FamilyGroupsModule, CheckInModule, SupabaseModule, JwtModule.register({})],
   controllers: [SiteManagerController],
   providers: [SiteManagerProxyService, JwtAuthGuard, RolesGuard],
   exports: [SiteManagerProxyService],

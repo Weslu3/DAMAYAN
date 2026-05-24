@@ -97,6 +97,7 @@ export const CHECK_IN_PATTERNS = {
   CREATE_MANUAL: 'operations.check-in.create-manual',
   SCAN_QR: 'operations.check-in.scan-qr',
   CHECK_OUT: 'operations.check-in.check-out',
+  CHECK_OUT_BY_QR: 'operations.check-in.check-out-by-qr',
   GET_STATS: 'operations.check-in.get-stats',
   GET_RECENT: 'operations.check-in.get-recent',
 } as const;

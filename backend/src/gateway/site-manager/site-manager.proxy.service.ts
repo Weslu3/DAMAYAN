@@ -605,6 +605,12 @@ export class SiteManagerProxyService {
     );
   }
 
+  checkOutByQr(qrCode: string) {
+    return firstValueFrom(
+      this.operationsClient.send(CHECK_IN_PATTERNS.CHECK_OUT_BY_QR, { qrCode }),
+    );
+  }
+
   getCheckInStats() {
     return firstValueFrom(
       this.operationsClient.send(CHECK_IN_PATTERNS.GET_STATS, {}),

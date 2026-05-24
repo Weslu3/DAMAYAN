@@ -33,7 +33,6 @@ export function CitizenIndividualRegistrationScreen({
       if (!session || !authUser) return;
       try {
         console.log("Automatically registering citizen individual ID on backend...");
-        const randomCode = "IND-" + Math.floor(1000 + Math.random() * 9000);
         await registerCitizen(session.accessToken, {
           fullName: authUser.name || (authUser.firstName + " " + authUser.lastName),
           birthDate: authUser.birthDate || "1990-01-01",
@@ -41,7 +40,6 @@ export function CitizenIndividualRegistrationScreen({
           bloodType: authUser.bloodType || "O+",
           medicalConditions: authUser.medicalConditions || "None",
           registrationType: "Individual",
-          qrCodeId: randomCode,
         });
         if (onRefreshProfile) {
           onRefreshProfile();

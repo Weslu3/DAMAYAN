@@ -121,10 +121,13 @@ export class FamilyGroupsService {
 
   async getGroupByQrCode(familyQrCodeId: string) {
     const supabase = this.supabaseService.getClient() as any;
+    const qrCandidates = this.buildFamilyQrCandidates(familyQrCodeId);
+    if (!qrCandidates.length) return null;
+
     const { data, error } = await supabase
       .from('family_groups')
       .select('*')
-      .eq('family_qr_code_id', familyQrCodeId)
+      .in('family_qr_code_id', qrCandidates)
       .maybeSingle();
 
     if (error) throw new NotFoundException(error.message);
@@ -209,10 +212,13 @@ export class FamilyGroupsService {
   /** Returns all QR codes for a family group (head first, then members) — used by check-in service. */
   async getMemberQrCodesByGroupQr(familyQrCodeId: string): Promise<string[]> {
     const supabase = this.supabaseService.getClient() as any;
+    const qrCandidates = this.buildFamilyQrCandidates(familyQrCodeId);
+    if (!qrCandidates.length) return [];
+
     const { data: group } = await supabase
       .from('family_groups')
       .select('id, head_user_id')
-      .eq('family_qr_code_id', familyQrCodeId)
+      .in('family_qr_code_id', qrCandidates)
       .maybeSingle();
 
     if (!group) return [];
@@ -285,5 +291,32 @@ export class FamilyGroupsService {
       relationship: row.relationship ?? undefined,
       addedAt: new Date(row.added_at),
     };
+  }
+
+  private buildFamilyQrCandidates(input: string): string[] {
+    const normalized = this.normalizeFamilyQr(input);
+    if (!normalized) return [];
+
+    return Array.from(new Set([
+      normalized,
+      normalized.toUpperCase(),
+      normalized.replace(/^QR-/i, ''),
+      `QR-${normalized.replace(/^QR-/i, '')}`,
+    ]));
+  }
+
+  private normalizeFamilyQr(input: string): string {
+    const raw = (input ?? '').trim();
+    if (!raw) return '';
+
+    const queryMatch = /[?&]qrCode=([^&#]+)/i.exec(raw);
+    const decoded = queryMatch?.[1] ? decodeURIComponent(queryMatch[1]) : raw;
+    const match = /(?:QR-)?FAM-[A-Z0-9-]+/i.exec(decoded);
+
+    if (match?.[0]) {
+      return match[0].toUpperCase();
+    }
+
+    return decoded.toUpperCase();
   }
 }

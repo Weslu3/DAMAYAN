@@ -205,12 +205,10 @@ export class AuthService {
     // doesn't leak into the shared service-role client and break concurrent RLS checks.
     const supabase = this.supabaseService.createIsolatedClient() as any;
 
-    const { data, error } = await this.withTimeout<any>(
-      supabase.auth.signInWithPassword({
-        email: loginDto.email,
-        password: loginDto.password,
-      }),
-      'Authentication service timed out during login.',
+    const { data, error } = await this.signInWithRetry(
+      supabase,
+      loginDto.email,
+      loginDto.password,
     );
 
     if (error) {
@@ -427,6 +425,105 @@ export class AuthService {
         clearTimeout(timeoutHandle);
       }
     }
+  }
+
+  private async signInWithRetry(
+    supabase: any,
+    email: string,
+    password: string,
+  ) {
+    const signInWithPassword = () =>
+      this.withTimeout<any>(
+        supabase.auth.signInWithPassword({ email, password }),
+        'Authentication service timed out during login.',
+      );
+
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const result = await signInWithPassword();
+        const resultError = result?.error;
+
+        if (!resultError) {
+          return result;
+        }
+
+        const isTransientResultError = this.isTransientSupabaseAuthError(resultError);
+        const isLastAttempt = attempt === maxAttempts;
+
+        if (!isTransientResultError) {
+          return result;
+        }
+
+        if (isLastAttempt) {
+          throw new GatewayTimeoutException(
+            'Authentication service timed out during login.',
+          );
+        }
+
+        const backoffMs = 250 * attempt;
+        this.logger.warn(
+          `Transient auth transport error for ${email}; retrying sign-in (attempt ${attempt + 1}/${maxAttempts}) after ${backoffMs}ms.`,
+        );
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, backoffMs);
+        });
+      } catch (err) {
+        const isTransient = this.isTransientSupabaseAuthError(err);
+        const isLastAttempt = attempt === maxAttempts;
+
+        if (!isTransient) {
+          throw err;
+        }
+
+        if (isLastAttempt) {
+          throw new GatewayTimeoutException(
+            'Authentication service timed out during login.',
+          );
+        }
+
+        const backoffMs = 250 * attempt;
+        this.logger.warn(
+          `Transient auth transport error for ${email}; retrying sign-in (attempt ${attempt + 1}/${maxAttempts}) after ${backoffMs}ms.`,
+        );
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, backoffMs);
+        });
+      }
+    }
+
+    throw new GatewayTimeoutException(
+      'Authentication service timed out during login.',
+    );
+  }
+
+  private isTransientSupabaseAuthError(error: unknown): boolean {
+    const err = error as any;
+    const message = String(err?.message ?? '').toLowerCase();
+    const causeCode = String(err?.cause?.code ?? '').toUpperCase();
+    const code = String(err?.code ?? '').toUpperCase();
+    const causeMessage = String(err?.cause?.message ?? '').toLowerCase();
+
+    return (
+      causeCode === 'UND_ERR_HEADERS_TIMEOUT' ||
+      causeCode === 'UND_ERR_CONNECT_TIMEOUT' ||
+      causeCode === 'EAI_AGAIN' ||
+      causeCode === 'ENOTFOUND' ||
+      code === 'UND_ERR_HEADERS_TIMEOUT' ||
+      code === 'UND_ERR_CONNECT_TIMEOUT' ||
+      code === 'EAI_AGAIN' ||
+      code === 'ENOTFOUND' ||
+      message.includes('fetch failed') ||
+      message.includes('connect timeout') ||
+      message.includes('eai_again') ||
+      message.includes('enotfound') ||
+      message.includes('timed out') ||
+      causeMessage.includes('headers timeout') ||
+      causeMessage.includes('connect timeout') ||
+      causeMessage.includes('eai_again') ||
+      causeMessage.includes('enotfound') ||
+      causeMessage.includes('timed out')
+    );
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {

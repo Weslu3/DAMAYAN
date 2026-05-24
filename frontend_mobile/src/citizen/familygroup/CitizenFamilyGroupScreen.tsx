@@ -27,7 +27,6 @@ import {
 } from "../../api";
 import { loadSession } from "../../session";
 import { CitizenFamilyGroupScannerScreen } from "./CitizenFamilyGroupScannerScreen";
-import { generateQrCodeId } from "../../site-manager/qr/qr-utils";
 
 interface CitizenFamilyGroupScreenProps {
   onBack: () => void;
@@ -175,24 +174,24 @@ export function CitizenFamilyGroupScreen({
       setGeneratingPersonalQr(true);
       setError(null);
 
-      const qrCodeId = generateQrCodeId();
       const fullName =
         citizenProfile?.fullName
         || [citizenProfile?.firstName, citizenProfile?.lastName].filter(Boolean).join(" ")
         || citizenDisplayName
         || "Citizen";
 
-      await registerCitizen(token, {
+      const result = await registerCitizen(token, {
         fullName,
         birthDate: citizenProfile?.birthDate,
         gender: citizenProfile?.gender,
         bloodType: citizenProfile?.bloodType,
         medicalConditions: citizenProfile?.medicalConditions,
-        registrationType: (citizenProfile?.registrationType as "Individual" | "Household") || "Individual",
-        qrCodeId,
+        registrationType: (citizenProfile?.registrationType as "Individual" | "Family") || "Individual",
       });
 
-      setGeneratedPersonalQrCodeId(qrCodeId);
+      if (result?.qrCodeId) {
+        setGeneratedPersonalQrCodeId(result.qrCodeId);
+      }
       if (onRefreshProfile) {
         await onRefreshProfile();
       }

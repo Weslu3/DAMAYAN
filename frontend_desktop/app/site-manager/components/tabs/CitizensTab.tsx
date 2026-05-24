@@ -48,6 +48,26 @@ interface ScannedCitizen extends Partial<SiteManagerCitizenRecord> {
   qrCodeId: string;
 }
 
+function normalizeScannedQr(rawInput: string): string {
+  const raw = (rawInput ?? "").trim();
+  if (!raw) return "";
+
+  let candidate = raw;
+  const qrParamMatch = /[?&]qrCode=([^&#]+)/i.exec(raw);
+  if (qrParamMatch?.[1]) {
+    candidate = decodeURIComponent(qrParamMatch[1]);
+  }
+
+  const familyMatch = /(?:QR-)?FAM-[A-Z0-9-]+/i.exec(candidate);
+  if (familyMatch?.[0]) {
+    return familyMatch[0].replace(/^QR-/i, "").toUpperCase();
+  }
+
+  const genericMatch = /(?:QR-)?[A-Z0-9][A-Z0-9-]{4,}/i.exec(candidate);
+  const normalized = (genericMatch?.[0] || candidate).replace(/^QR-/i, "");
+  return normalized.trim();
+}
+
 export default function CitizensTab({
   phase,
   phaseConfig,
@@ -89,24 +109,21 @@ export default function CitizensTab({
     if (scanLockRef.current || isScanLookingUp) return;
     const raw = results[0]?.rawValue?.trim();
     if (!raw || !session?.accessToken) return;
-    const qrCodeId = raw.startsWith("QR-") ? raw.replace("QR-", "") : raw;
+    const qrCodeId = normalizeScannedQr(raw);
     scanLockRef.current = true;
     setIsScanLookingUp(true);
     setCheckInError(null);
     setCheckInSuccess(null);
     try {
+      const family = await getFamilyGroupByQrCode(session.accessToken, qrCodeId).catch(() => null);
+
       if (scanType === "check-in") {
-        if (qrCodeId.startsWith("FAM-")) {
-          const group = await getFamilyGroupByQrCode(session.accessToken, qrCodeId);
-          if (!group) {
-            setCheckInError(`No family group found for QR: ${qrCodeId}`);
-            scanLockRef.current = false;
-            return;
-          }
-          setFamilyGroup(group);
+        if (family) {
+          setFamilyGroup(family);
           setFamilyGroupModalOpen(true);
           return;
         }
+
         const citizen = await getCitizenByQrCode(session.accessToken, qrCodeId);
         if (!citizen) {
           setCheckInError(`No registered citizen found for QR: ${qrCodeId}`);
@@ -116,17 +133,12 @@ export default function CitizensTab({
         setScannedCitizen({ ...citizen, qrCodeId });
         setScanModalOpen(true);
       } else {
-        if (qrCodeId.startsWith("FAM-")) {
-          const group = await getFamilyGroupByQrCode(session.accessToken, qrCodeId);
-          if (!group) {
-            setCheckInError(`No family group found for QR: ${qrCodeId}`);
-            scanLockRef.current = false;
-            return;
-          }
-          setFamilyGroup(group);
+        if (family) {
+          setFamilyGroup(family);
           setFamilyCheckOutModalOpen(true);
           return;
         }
+
         const citizen = await getCitizenByQrCode(session.accessToken, qrCodeId);
         const record = await getCheckInByQrCode(session.accessToken, qrCodeId);
         if (!record) {
@@ -291,7 +303,7 @@ export default function CitizensTab({
     setCheckInError(null);
     setCheckInSuccess(null);
     try {
-      const qrCodeId = inputVal.startsWith("QR-") ? inputVal.replace("QR-", "") : inputVal;
+      const qrCodeId = normalizeScannedQr(inputVal);
       const record = await getCheckInByQrCode(session.accessToken, qrCodeId);
       if (!record) {
         setCheckInError(`No active check-in found for ID/QR: ${qrCodeId}`);

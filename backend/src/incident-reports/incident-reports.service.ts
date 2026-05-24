@@ -14,10 +14,13 @@ interface IncidentReportRow {
   attachment_keys: string[] | null;
   status: string | null;
   created_at: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  resolved_address: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  resolved_address?: string | null;
 }
+
+const INCIDENT_REPORT_COLUMNS =
+  'id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at';
 
 @Injectable()
 export class IncidentReportsService {
@@ -27,7 +30,7 @@ export class IncidentReportsService {
     const supabase = this.supabaseService.getClient() as any;
     let query = supabase
       .from('incident_reports')
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
+      .select(INCIDENT_REPORT_COLUMNS)
       .order('created_at', { ascending: false });
 
     if (disasterId) {
@@ -62,7 +65,7 @@ export class IncidentReportsService {
     const supabase = this.supabaseService.getClient() as any;
     const { data, error } = await supabase
       .from('incident_reports')
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
+      .select(INCIDENT_REPORT_COLUMNS)
       .eq('id', id)
       .maybeSingle();
 
@@ -87,7 +90,7 @@ export class IncidentReportsService {
         attachment_keys: createIncidentReportDto.attachmentKeys ?? [],
         status: createIncidentReportDto.status ?? 'pending',
       })
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
+      .select(INCIDENT_REPORT_COLUMNS)
       .single();
 
     if (error) {
@@ -113,7 +116,7 @@ export class IncidentReportsService {
         status: updateIncidentReportDto.status ?? existing.status,
       })
       .eq('id', id)
-      .select('id, disaster_id, reported_by, title, content, severity, location, attachment_keys, status, created_at, latitude, longitude, resolved_address')
+      .select(INCIDENT_REPORT_COLUMNS)
       .single();
 
     if (error) {

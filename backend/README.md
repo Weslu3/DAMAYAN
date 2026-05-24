@@ -41,6 +41,12 @@ This backend is structured as three Nest.js processes:
 
 1. Copy `.env.example` to `.env`.
 2. Fill in the Supabase keys and your JWT secret.
+	 - For dispatcher volunteers from Bayanihub, also set:
+		 - `BAYANIHUB_SUPABASE_URL`
+		 - `BAYANIHUB_SUPABASE_SERVICE_ROLE_KEY`
+	 - If your shared config uses database-style names, these aliases are also supported:
+		 - `BAYANIHUB_DB_URL`
+		 - `BAYANIHUB_DB_SERVICE_ROLE_KEY`
 3. Run the SQL in `database/damayan_schema.sql` in the Supabase SQL editor.
 4. Run the SQL in `database/storage_policies.sql` in the Supabase SQL editor.
 5. Install dependencies with `npm install`.

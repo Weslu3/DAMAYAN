@@ -436,6 +436,15 @@ export class OperationsMessageController {
     }
   }
 
+  @MessagePattern(CHECK_IN_PATTERNS.CHECK_OUT_BY_QR)
+  async checkOutByQr(@Payload() payload: { qrCode: string }) {
+    try {
+      return await this.checkInService.checkOutByQr(payload.qrCode);
+    } catch (err: any) {
+      throw new RpcException(err?.message ?? 'QR check-out failed');
+    }
+  }
+
   @MessagePattern(CHECK_IN_PATTERNS.GET_STATS)
   getCheckInStats() {
     return this.checkInService.getStats();
